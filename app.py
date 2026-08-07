@@ -41,13 +41,26 @@ def obter_credenciais():
 
     # Tratamento rigoroso da chave privada
     if "private_key" in creds_limpas:
-        # Garante que as quebras de linha escapadas virem quebras reais
         key_formatada = creds_limpas["private_key"].replace("\\n", "\n")
-        # Remove eventuais aspas extras que possam ter vindo da cópia
         key_formatada = key_formatada.strip().strip('"').strip("'")
         creds_limpas["private_key"] = key_formatada
 
     return creds_limpas
+
+def get_gspread_client():
+    """Autentica na API do Google Sheets e retorna o cliente gspread."""
+    try:
+        creds_dict = obter_credenciais()
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(credentials)
+        return client
+    except Exception as e:
+        st.error(f"Erro na autenticação com o Google Sheets: {e}")
+        return None
 
 def salvar_no_google_sheets(codigo: str, origem: str, descricao: str = "") -> bool:
     """Insere um novo registro como linha no final da planilha Google."""
