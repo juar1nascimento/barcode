@@ -25,30 +25,31 @@ SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13awqdg1h2sMrlMxE-Mg77
 # -----------------------------------------------------------------------------
 # Autenticação e Conexão Nativa com Google Sheets (gspread)
 # -----------------------------------------------------------------------------
-def obter_credenciais():
-    """Busca as credenciais no secrets.toml e formata um dicionário puro para o Google Auth."""
+def obter_credenciais() -> dict:
+    """Extrai e formata rigorosamente o dicionário de credenciais da Service Account."""
     if "gsheets" in st.secrets:
-        sec = st.secrets["gsheets"]
+        sec = dict(st.secrets["gsheets"])
     elif "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-        sec = st.secrets["connections"]["gsheets"]
+        sec = dict(st.secrets["connections"]["gsheets"])
     else:
-        sec = st.secrets
+        sec = dict(st.secrets)
 
     creds_limpas = {}
     for k, v in sec.items():
         if k != "spreadsheet":
             creds_limpas[str(k)] = str(v)
 
-    # Tratamento rigoroso da chave privada
+    # Tratamento rigoroso da chave privada para suportar múltiplos formatos no Streamlit Secrets
     if "private_key" in creds_limpas:
-        key_formatada = creds_limpas["private_key"].replace("\\n", "\n")
-        key_formatada = key_formatada.strip().strip('"').strip("'")
-        creds_limpas["private_key"] = key_formatada
+        pk = creds_limpas["private_key"]
+        pk = pk.replace("\\n", "\n").strip().strip('"').strip("'")
+        creds_limpas["private_key"] = pk
 
     return creds_limpas
 
+@st.cache_resource(ttl=3600)
 def get_gspread_client():
-    """Autentica na API do Google Sheets e retorna o cliente gspread."""
+    """Autentica na API do Google Sheets e retorna o cliente gspread reutilizável."""
     try:
         creds_dict = obter_credenciais()
         scopes = [
@@ -59,20 +60,20 @@ def get_gspread_client():
         client = gspread.authorize(credentials)
         return client
     except Exception as e:
-        st.error(f"Erro na autenticação com o Google Sheets: {e}")
+        st.error(f"Erro na autenticação com a Service Account do Google: {e}")
         return None
 
 def salvar_no_google_sheets(codigo: str, origem: str, descricao: str = "") -> bool:
     """Insere um novo registro como linha no final da planilha Google."""
     client = get_gspread_client()
     if client is None:
-        st.error("Falha na autenticação da Service Account. Verifique as credenciais no painel do Streamlit Cloud.")
+        st.error("Falha na autenticação da Service Account. Verifique as credenciais no painel de Secrets do Streamlit.")
         return False
         
     try:
         sheet = client.open_by_url(SPREADSHEET_URL).sheet1
         
-        # Garante cabeçalhos se a planilha estiver totalmente vazia
+        # Garante cabeçalhos caso a planilha esteja completamente vazia
         if len(sheet.get_all_values()) == 0:
             sheet.append_row(["Data_Hora", "Codigo", "Origem", "Descricao"])
 
@@ -92,7 +93,7 @@ def salvar_no_google_sheets(codigo: str, origem: str, descricao: str = "") -> bo
         return False
 
 @st.cache_data(ttl=5)
-def carregar_dados_planilha():
+def carregar_dados_planilha() -> pd.DataFrame:
     """Lê os dados gravados na planilha Google."""
     client = get_gspread_client()
     if client is None:
