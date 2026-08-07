@@ -26,22 +26,22 @@ SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13awqdg1h2sMrlMxE-Mg77
 # Autenticação e Conexão Nativa com Google Sheets (gspread)
 # -----------------------------------------------------------------------------
 def obter_credenciais():
-    """Busca as credenciais no secrets.toml e formata o dicionário estritamente para o Google Auth."""
-    # Garante que vai buscar dentro de [connections.gsheets] se existir
-    if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-        raw_creds = dict(st.secrets["connections"]["gsheets"])
-    elif "gsheets" in st.secrets:
-        raw_creds = dict(st.secrets["gsheets"])
+    """Busca as credenciais no secrets.toml e formata um dicionário limpo para o Google Auth."""
+    # Prioriza a seção [gsheets] ou pega o nível raiz
+    if "gsheets" in st.secrets:
+        sec = st.secrets["gsheets"]
+    elif "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+        sec = st.secrets["connections"]["gsheets"]
     else:
-        raw_creds = dict(st.secrets)
+        sec = st.secrets
 
-    # Converte os valores para string pura
-    creds = {str(k): str(v) for k, v in raw_creds.items()}
+    # Converte explicitamente para dicionário puro
+    creds = {str(k): str(v) for k, v in sec.items()}
 
-    # Remove chaves do Streamlit que causam incompatibilidade com a SDK do Google
+    # Remove qualquer parâmetro indesejado que não seja aceito pela API da Google
     creds.pop("spreadsheet", None)
 
-    # Ajusta as quebras de linha da chave privada
+    # Trata adequadamente a quebra de linha da chave privada
     if "private_key" in creds:
         creds["private_key"] = creds["private_key"].replace("\\n", "\n")
 
