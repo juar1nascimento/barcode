@@ -26,8 +26,8 @@ SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13awqdg1h2sMrlMxE-Mg77
 # Autenticação e Conexão Nativa com Google Sheets (gspread)
 # -----------------------------------------------------------------------------
 def obter_credenciais():
-    """Busca as credenciais no secrets.toml e formata um dicionário limpo para o Google Auth."""
-    # Prioriza a seção [gsheets] ou pega o nível raiz
+    """Busca as credenciais no secrets.toml e formata um dicionário puro para o Google Auth."""
+    # Garante a leitura correta do bloco [gsheets] ou raiz
     if "gsheets" in st.secrets:
         sec = st.secrets["gsheets"]
     elif "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
@@ -35,19 +35,24 @@ def obter_credenciais():
     else:
         sec = st.secrets
 
-    # Converte explicitamente para dicionário puro
-    creds = {str(k): str(v) for k, v in sec.items()}
+    # Converte qualquer AttrDict ou objeto do Streamlit para dicionário Python puro
+    creds = dict(sec)
 
-    # Remove qualquer parâmetro indesejado que não seja aceito pela API da Google
+    # Remove parâmetros do Streamlit Connections que não pertencem à API Google
     creds.pop("spreadsheet", None)
 
-    # Trata adequadamente a quebra de linha da chave privada
-    if "private_key" in creds:
-        creds["private_key"] = creds["private_key"].replace("\\n", "\n")
+    # Converte todos os valores para string e limpa formatação
+    creds_limpas = {}
+    for k, v in creds.items():
+        creds_limpas[str(k)] = str(v)
 
-    return creds
+    # Trata quebras de linha da chave privada (substitui '\\n' por '\n')
+    if "private_key" in creds_limpas:
+        creds_limpas["private_key"] = creds_limpas["private_key"].replace("\\n", "\n")
 
-@st.cache_resource
+    return creds_limpas
+
+@st.cache_resource(ttl=3600)
 def get_gspread_client():
     """Autentica na API do Google Sheets usando as credenciais do secrets.toml."""
     scopes = [
@@ -57,6 +62,12 @@ def get_gspread_client():
     
     try:
         creds_dict = obter_credenciais()
+        
+        # Validação extra dos campos obrigatórios
+        if "client_email" not in creds_dict or "token_uri" not in creds_dict:
+            st.error("Campos 'client_email' ou 'token_uri' ausentes nas credenciais configuradas.")
+            return None
+
         creds = Credentials.from_service_account_info(
             creds_dict,
             scopes=scopes
@@ -70,7 +81,7 @@ def salvar_no_google_sheets(codigo: str, origem: str, descricao: str = "") -> bo
     """Insere um novo registro como linha no final da planilha Google."""
     client = get_gspread_client()
     if client is None:
-        st.error("Falha na autenticação da Service Account. Verifique o arquivo .streamlit/secrets.toml.")
+        st.error("Falha na autenticação da Service Account. Verifique as credenciais no painel do Streamlit Cloud.")
         return False
         
     try:
