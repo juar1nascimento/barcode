@@ -27,7 +27,6 @@ SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13awqdg1h2sMrlMxE-Mg77
 # -----------------------------------------------------------------------------
 def obter_credenciais():
     """Busca as credenciais no secrets.toml e formata um dicionário puro para o Google Auth."""
-    # Garante a leitura correta do bloco [gsheets] ou raiz
     if "gsheets" in st.secrets:
         sec = st.secrets["gsheets"]
     elif "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
@@ -35,47 +34,20 @@ def obter_credenciais():
     else:
         sec = st.secrets
 
-    # Converte qualquer AttrDict ou objeto do Streamlit para dicionário Python puro
-    creds = dict(sec)
-
-    # Remove parâmetros do Streamlit Connections que não pertencem à API Google
-    creds.pop("spreadsheet", None)
-
-    # Converte todos os valores para string e limpa formatação
     creds_limpas = {}
-    for k, v in creds.items():
-        creds_limpas[str(k)] = str(v)
+    for k, v in sec.items():
+        if k != "spreadsheet":
+            creds_limpas[str(k)] = str(v)
 
-    # Trata quebras de linha da chave privada (substitui '\\n' por '\n')
+    # Tratamento rigoroso da chave privada
     if "private_key" in creds_limpas:
-        creds_limpas["private_key"] = creds_limpas["private_key"].replace("\\n", "\n")
+        # Garante que as quebras de linha escapadas virem quebras reais
+        key_formatada = creds_limpas["private_key"].replace("\\n", "\n")
+        # Remove eventuais aspas extras que possam ter vindo da cópia
+        key_formatada = key_formatada.strip().strip('"').strip("'")
+        creds_limpas["private_key"] = key_formatada
 
     return creds_limpas
-
-@st.cache_resource(ttl=3600)
-def get_gspread_client():
-    """Autentica na API do Google Sheets usando as credenciais do secrets.toml."""
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    
-    try:
-        creds_dict = obter_credenciais()
-        
-        # Validação extra dos campos obrigatórios
-        if "client_email" not in creds_dict or "token_uri" not in creds_dict:
-            st.error("Campos 'client_email' ou 'token_uri' ausentes nas credenciais configuradas.")
-            return None
-
-        creds = Credentials.from_service_account_info(
-            creds_dict,
-            scopes=scopes
-        )
-        return gspread.authorize(creds)
-    except Exception as e:
-        st.error(f"Erro ao autenticar no Google Sheets: {e}")
-        return None
 
 def salvar_no_google_sheets(codigo: str, origem: str, descricao: str = "") -> bool:
     """Insere um novo registro como linha no final da planilha Google."""
