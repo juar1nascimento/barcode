@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # --- URL DA PLANILHA GOOGLE ---
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13awqdg1h2sMrlMxE-Mg77EPlZHN-UAlYKEnw2xJo26o/edit?gid=0#gid=0"
+SPREADSHEET_ID = "13awqdg1h2sMrlMxE-Mg77EPlZHN-UAlYKEnw2xJo26o"
 
 # -----------------------------------------------------------------------------
 # Autenticação e Conexão Nativa com Google Sheets (gspread)
@@ -34,17 +34,24 @@ def obter_credenciais() -> dict:
     else:
         sec = dict(st.secrets)
 
+    campos_necessarios = {"type", "project_id", "private_key_id", "private_key", "client_email", "client_id", "token_uri"}
     creds_limpas = {}
     for k, v in sec.items():
-        if k != "spreadsheet":
+        if str(k) in campos_necessarios:
             creds_limpas[str(k)] = str(v)
 
     # Tratamento rigoroso da chave privada para suportar múltiplos formatos no Streamlit Secrets
     if "private_key" in creds_limpas:
         pk = creds_limpas["private_key"]
-        pk = pk.replace("\\n", "\n").strip().strip('"').strip("'")
+        pk = pk.replace("\\n", "\n").strip()
         creds_limpas["private_key"] = pk
 
+    ausentes = sorted(campo for campo in campos_necessarios if not creds_limpas.get(campo))
+    if ausentes:
+        raise ValueError("A seção [gsheets] está incompleta: " + ", ".join(ausentes))
+    if not (creds_limpas["private_key"].startswith("-----BEGIN PRIVATE KEY-----") and
+            creds_limpas["private_key"].endswith("-----END PRIVATE KEY-----")):
+        raise ValueError("A private_key em [gsheets] não possui um PEM válido.")
     return creds_limpas
 
 @st.cache_resource(ttl=3600)
@@ -52,10 +59,7 @@ def get_gspread_client():
     """Autentica na API do Google Sheets e retorna o cliente gspread reutilizável."""
     try:
         creds_dict = obter_credenciais()
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(credentials)
         return client
@@ -71,7 +75,7 @@ def salvar_no_google_sheets(codigo: str, origem: str, descricao: str = "") -> bo
         return False
         
     try:
-        sheet = client.open_by_url(SPREADSHEET_URL).sheet1
+        sheet = client.open_by_key(SPREADSHEET_ID).sheet1
         
         # Garante cabeçalhos caso a planilha esteja completamente vazia
         if len(sheet.get_all_values()) == 0:
@@ -84,7 +88,7 @@ def salvar_no_google_sheets(codigo: str, origem: str, descricao: str = "") -> bo
             descricao
         ]
         
-        sheet.append_row(nova_linha)
+        sheet.append_row(nova_linha, value_input_option="RAW")
         st.cache_data.clear()
         return True
 
@@ -99,7 +103,7 @@ def carregar_dados_planilha() -> pd.DataFrame:
     if client is None:
         return pd.DataFrame()
     try:
-        sheet = client.open_by_url(SPREADSHEET_URL).sheet1
+        sheet = client.open_by_key(SPREADSHEET_ID).sheet1
         records = sheet.get_all_records()
         return pd.DataFrame(records)
     except Exception as e:
