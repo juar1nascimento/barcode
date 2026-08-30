@@ -33,16 +33,13 @@ def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
     """Carrega o DataFrame mantendo a estrutura exata do cabeçalho da planilha."""
     if os.path.exists(ARQUIVO_EXCEL):
         try:
-            # Lê pulando a linha 0 (título da tabela) para pegar os nomes reais das colunas
             df = pd.read_excel(ARQUIVO_EXCEL, header=1)
-            # Remove linhas completamente vazias
             df = df.dropna(how='all')
             colunas = df.columns.tolist()
             return df, colunas
         except Exception as e:
             st.error(f"Erro ao carregar a planilha existente: {e}")
     
-    # Estrutura padrão baseada no arquivo fornecido caso não exista
     colunas_padrao = ["Local / Setor", "Patrimônio PC", "Patrimônio Tela", "Patrimônio Nobreak"]
     return pd.DataFrame(columns=colunas_padrao), colunas_padrao
 
@@ -62,15 +59,16 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
         try:
             # Monta o DataFrame preservando a linha de título original
             df_titulo = pd.DataFrame([["Tabela de Patrimônios UBS Feu Rosa"] + [""] * (len(df.columns) - 1)], columns=df.columns)
-            df_sync = pd.concat([df_titulo, df], ignore_index=True)
+            df_sync = pd.concat([df_titulo, df], ignore_index=True).fillna("").astype(str)
             
             # Atualiza no Google Sheets
             conn.update(
                 spreadsheet=GOOGLE_SHEET_URL,
                 data=df_sync
             )
+            st.toast("☁️ Dados sincronizados no Google Sheets!")
         except Exception as e:
-            st.warning(f"Sincronização com Google Sheets pendente (Configure as credenciais): {e}")
+            st.error(f"Falha na sincronização com Google Sheets: {e}")
 
 def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     """Insere o código na coluna correspondente na sequência da tabela."""
