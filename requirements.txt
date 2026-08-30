@@ -1,8 +1,2 @@
-streamlit
-python-barcode
-pillow
-opencv-python-headless
-numpy
-gspread
-google-auth
-pandas
+pyzbar
+Pillow
