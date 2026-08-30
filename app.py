@@ -16,7 +16,7 @@ from openpyxl.utils import get_column_letter
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
 
-# Colunas Padrão Fixas da Tabela (Ordem exata do formulário)
+# Cabeçalho Fixo e Obrigatório (Garante a estrutura exata)
 COLUNAS_PADRAO = ["Local / Setor", "Patrimônio PC", "Patrimônio Tela", "Patrimônio Nobreak"]
 
 st.set_page_config(
@@ -35,26 +35,41 @@ except Exception:
 # FUNÇÕES DE ESTILIZAÇÃO E MANIPULAÇÃO
 # ==========================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Garante a estrutura e a ordem correta das colunas."""
+    """
+    Garante que os nomes das colunas estejam limpos, preserva o cabeçalho fixo 
+    e alinha colunas criadas dinamicamente sem desorganizar a estrutura.
+    """
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=COLUNAS_PADRAO)
+        
+    # Limpa espaços extras nos nomes das colunas para evitar duplicações por erro de digitação
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # Garante que as colunas padrão sempre existam
     for col in COLUNAS_PADRAO:
         if col not in df.columns:
             df[col] = ""
 
+    # Mantém COLUNAS_PADRAO no início e joga novas colunas adicionadas para o final
     outras_colunas = [c for c in df.columns if c not in COLUNAS_PADRAO]
     ordem_final = COLUNAS_PADRAO + outras_colunas
 
     return df[ordem_final].fillna("").astype(str)
 
 def aplicar_estilo_excel(caminho_arquivo: str) -> None:
-    """Aplica design profissional no arquivo Excel local (openpyxl)."""
+    """Aplica design profissional no arquivo Excel local preservando e estilizando o cabeçalho."""
     wb = openpyxl.load_workbook(caminho_arquivo)
-    ws = wb['Patrimônios']
+    
+    if 'Patrimônios' in wb.sheetnames:
+        ws = wb['Patrimônios']
+    else:
+        ws = wb.active
 
-    # Definindo Estilos
+    # Definindo Estilos Visuais
     header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid") # Azul corporativo
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     
-    row_fill_even = PatternFill(start_color="F2F4F7", end_color="F2F4F7", fill_type="solid") # Zebrado leve
+    row_fill_even = PatternFill(start_color="F9FAFB", end_color="F9FAFB", fill_type="solid")
     row_fill_odd = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
     
     thin_border = Border(
@@ -67,7 +82,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
     align_center = Alignment(horizontal="center", vertical="center")
     align_left = Alignment(horizontal="left", vertical="center")
 
-    # Estilizar Cabeçalho (Linha 1)
+    # 1. Estilizar Cabeçalho (Linha 1)
     for cell in ws[1]:
         cell.fill = header_fill
         cell.font = header_font
@@ -75,7 +90,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
         cell.border = thin_border
     ws.row_dimensions[1].height = 28
 
-    # Estilizar Linhas de Dados (Linha 2 em diante)
+    # 2. Estilizar Linhas de Dados (Linha 2 em diante)
     max_row = ws.max_row
     max_col = ws.max_column
 
@@ -89,11 +104,11 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
             cell.font = Font(name="Calibri", size=10)
             cell.alignment = align_left if c == 1 else align_center
 
-    # Ajustar Largura das Colunas
+    # 3. Ajustar Largura das Colunas Dinamicamente
     for col in ws.columns:
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = get_column_letter(col[0].column)
-        ws.column_dimensions[col_letter].width = max(max_len + 5, 18)
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 18)
 
     wb.save(caminho_arquivo)
 
@@ -103,6 +118,7 @@ def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
         try:
             df = pd.read_excel(ARQUIVO_EXCEL, sheet_name='Patrimônios', dtype=str, keep_default_na=False)
             
+            # Caso a planilha tenha um título na primeira linha, pula para a linha correta
             if not df.empty and df.columns[0].startswith("Tabela de Patrimônios"):
                 df = pd.read_excel(ARQUIVO_EXCEL, sheet_name='Patrimônios', header=1, dtype=str, keep_default_na=False)
 
@@ -117,7 +133,7 @@ def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
     return df_empty, COLUNAS_PADRAO
 
 def salvar_no_excel(df: pd.DataFrame) -> None:
-    """Salva no arquivo Excel local com estilos e sincroniza no Google Sheets."""
+    """Salva no arquivo Excel local com estilos e sincroniza no Google Sheets sem corromper o cabeçalho."""
     df = padronizar_e_organizar_df(df)
     
     # 1. Salvamento Local em Excel com Estilização
@@ -128,19 +144,20 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
     except Exception as e:
         st.error(f"Erro ao salvar e formatar a planilha local: {e}")
 
-    # 2. Sincronização direta no Google Sheets
+    # 2. Sincronização direta no Google Sheets (Preservando Estrutura e Cabeçalho)
     if conn is not None:
         try:
+            # Envia o DataFrame padronizado com cabeçalho limpo na primeira linha
             conn.update(
                 spreadsheet=GOOGLE_SHEET_URL,
                 data=df
             )
-            st.toast("☁️ Dados e formatação sincronizados no Google Sheets!")
+            st.toast("☁️ Dados e cabeçalho sincronizados com sucesso no Google Sheets!")
         except Exception as e:
             st.error(f"Falha na sincronização com Google Sheets: {e}")
 
 def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
-    """Insere ou atualiza o código garantindo o alinhamento de colunas existentes e novas."""
+    """Insere ou atualiza o código garantindo a preservação das colunas fixas e novas."""
     df, _ = carregar_dados_excel()
     
     coluna_alvo = descricao.strip()
