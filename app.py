@@ -1,277 +1,236 @@
-import io
-from datetime import datetime
+import streamlit as st
 import cv2
 import numpy as np
+from PIL import Image
+from pyzbar.pyzbar import decode
 import pandas as pd
-import streamlit as st
-import streamlit.components.v1 as components
-import barcode
-from barcode.writer import ImageWriter
-import gspread
-from google.oauth2.service_account import Credentials
+import os
+from datetime import datetime
 
-# -----------------------------------------------------------------------------
-# Configuração da Página
-# -----------------------------------------------------------------------------
+# ==========================================
+# CONFIGURAÇÕES E CONSTANTES
+# ==========================================
+ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
+
 st.set_page_config(
-    page_title="Sistema de Código de Barras & Inventário",
+    page_title="Leitor de Código de Barras - UBS Feu Rosa",
     page_icon="📦",
     layout="wide"
 )
 
-# --- URL DA PLANILHA GOOGLE ---
-SPREADSHEET_ID = "13awqdg1h2sMrlMxE-Mg77EPlZHN-UAlYKEnw2xJo26o"
+# ==========================================
+# FUNÇÕES DE MANIPULAÇÃO DO EXCEL
+# ==========================================
+def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
+    """Carrega o DataFrame mantendo a estrutura exata do cabeçalho da planilha."""
+    if os.path.exists(ARQUIVO_EXCEL):
+        try:
+            # Lê pulando a linha 0 (título da tabela) para pegar os nomes reais das colunas
+            df = pd.read_excel(ARQUIVO_EXCEL, header=1)
+            # Remove linhas completamente vazias
+            df = df.dropna(how='all')
+            colunas = df.columns.tolist()
+            return df, colunas
+        except Exception as e:
+            st.error(f"Erro ao carregar a planilha existente: {e}")
+    
+    # Estrutura padrão baseada no arquivo fornecido caso não exista
+    colunas_padrao = ["Local / Setor", "Patrimônio PC", "Patrimônio Tela", "Patrimônio Nobreak"]
+    return pd.DataFrame(columns=colunas_padrao), colunas_padrao
 
-# -----------------------------------------------------------------------------
-# Autenticação e Conexão Nativa com Google Sheets (gspread)
-# -----------------------------------------------------------------------------
-def obter_credenciais() -> dict:
-    """Extrai e formata rigorosamente o dicionário de credenciais da Service Account."""
-    if "gsheets" in st.secrets:
-        sec = dict(st.secrets["gsheets"])
-    elif "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-        sec = dict(st.secrets["connections"]["gsheets"])
+def salvar_no_excel(df: pd.DataFrame) -> None:
+    """Salva o DataFrame mantendo o título na primeira linha conforme o modelo original."""
+    try:
+        with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
+            # Escreve a linha de título original na A1
+            df_titulo = pd.DataFrame([["Tabela de Patrimônios UBS Feu Rosa"] + [""] * (len(df.columns) - 1)])
+            df_titulo.to_excel(writer, sheet_name='Patrimônios', header=False, index=False, startrow=0)
+            
+            # Escreve os dados com os cabeçalhos das colunas a partir da linha 2 (startrow=1)
+            df.to_excel(writer, sheet_name='Patrimônios', header=True, index=False, startrow=1)
+    except Exception as e:
+        st.error(f"Erro ao salvar na planilha: {e}")
+
+def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
+    """Insere o código na coluna correspondente na sequência da tabela."""
+    df, colunas_existentes = carregar_dados_excel()
+    
+    # Tratamento da descrição/coluna
+    coluna_alvo = descricao.strip()
+    
+    # Se a coluna não existe na tabela, adiciona após a última coluna
+    if coluna_alvo not in df.columns:
+        df[coluna_alvo] = np.nan
+    
+    # Cria uma nova linha vazia com a mesma estrutura de colunas do DataFrame
+    nova_linha = {col: "" for col in df.columns}
+    
+    # Preenche o setor (se informado) e o código bipado na coluna correta
+    if "Local / Setor" in df.columns and setor:
+        nova_linha["Local / Setor"] = setor
     else:
-        sec = dict(st.secrets)
-
-    campos_necessarios = {"type", "project_id", "private_key_id", "private_key", "client_email", "client_id", "token_uri"}
-    creds_limpas = {}
-    for k, v in sec.items():
-        if str(k) in campos_necessarios:
-            creds_limpas[str(k)] = str(v)
-
-    # Tratamento rigoroso da chave privada para suportar múltiplos formatos no Streamlit Secrets
-    if "private_key" in creds_limpas:
-        pk = creds_limpas["private_key"]
-        pk = pk.replace("\\n", "\n").strip()
-        creds_limpas["private_key"] = pk
-
-    ausentes = sorted(campo for campo in campos_necessarios if not creds_limpas.get(campo))
-    if ausentes:
-        raise ValueError("A seção [gsheets] está incompleta: " + ", ".join(ausentes))
-    if not (creds_limpas["private_key"].startswith("-----BEGIN PRIVATE KEY-----") and
-            creds_limpas["private_key"].endswith("-----END PRIVATE KEY-----")):
-        raise ValueError("A private_key em [gsheets] não possui um PEM válido.")
-    return creds_limpas
-
-@st.cache_resource(ttl=3600)
-def get_gspread_client():
-    """Autentica na API do Google Sheets e retorna o cliente gspread reutilizável."""
-    try:
-        creds_dict = obter_credenciais()
-        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-        credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(credentials)
-        return client
-    except Exception as e:
-        st.error(f"Erro na autenticação com a Service Account do Google: {e}")
-        return None
-
-def salvar_no_google_sheets(codigo: str, origem: str, descricao: str = "") -> bool:
-    """Insere um novo registro como linha no final da planilha Google."""
-    client = get_gspread_client()
-    if client is None:
-        st.error("Falha na autenticação da Service Account. Verifique as credenciais no painel de Secrets do Streamlit.")
-        return False
+        nova_linha["Local / Setor"] = "Não informado"
         
-    try:
-        sheet = client.open_by_key(SPREADSHEET_ID).sheet1
-        
-        # Garante cabeçalhos caso a planilha esteja completamente vazia
-        if len(sheet.get_all_values()) == 0:
-            sheet.append_row(["Data_Hora", "Codigo", "Origem", "Descricao"])
+    nova_linha[coluna_alvo] = str(codigo).strip()
+    
+    # Adiciona a nova linha na sequência (ao final do DataFrame)
+    df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+    
+    # Limpa valores NaN para salvar formatado
+    df = df.fillna("")
+    
+    # Atualiza o arquivo Excel e a sessão
+    salvar_no_excel(df)
+    st.session_state.df_historico = df
 
-        nova_linha = [
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            str(codigo),
-            origem,
-            descricao
-        ]
-        
-        sheet.append_row(nova_linha, value_input_option="RAW")
-        st.cache_data.clear()
-        return True
-
-    except Exception as e:
-        st.error(f"Falha ao salvar os dados na planilha Google: {str(e)}")
-        return False
-
-@st.cache_data(ttl=5)
-def carregar_dados_planilha() -> pd.DataFrame:
-    """Lê os dados gravados na planilha Google."""
-    client = get_gspread_client()
-    if client is None:
-        return pd.DataFrame()
-    try:
-        sheet = client.open_by_key(SPREADSHEET_ID).sheet1
-        records = sheet.get_all_records()
-        return pd.DataFrame(records)
-    except Exception as e:
-        st.error(f"Erro ao carregar dados da planilha: {e}")
-        return pd.DataFrame()
-
-# -----------------------------------------------------------------------------
-# Funções Utilitárias de Código de Barras
-# -----------------------------------------------------------------------------
-def decode_barcode(image_bytes):
-    image_bytes.seek(0)
+def processar_imagem(image_bytes) -> tuple:
+    """Decodifica os códigos de barras a partir de imagem."""
     file_bytes = np.asarray(bytearray(image_bytes.read()), dtype=np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     
-    detector = cv2.barcode.BarcodeDetector()
-    ok, decoded_info, decoded_type, _ = detector.detectAndDecode(img)
-    
-    results = []
-    if ok:
-        for info, btype in zip(decoded_info, decoded_type):
-            if info:
-                results.append({"conteudo": info, "tipo": btype})
-    return results, img
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    barcodes = decode(img)
+    resultados = []
 
-def generate_barcode(code_type, code_value):
-    barcode_class = barcode.get_barcode_class(code_type)
-    rv = io.BytesIO()
-    code_instance = barcode_class(code_value, writer=ImageWriter())
-    code_instance.write(rv)
-    rv.seek(0)
-    return rv
+    for barcode in barcodes:
+        pts = np.array([barcode.polygon], np.int32)
+        pts = pts.reshape((-1, 1, 2))
+        cv2.polylines(img_rgb, [pts], True, (0, 255, 0), 3)
 
-# -----------------------------------------------------------------------------
-# Estado da Sessão (Session State)
-# -----------------------------------------------------------------------------
-if "historico_leituras" not in st.session_state:
-    st.session_state.historico_leituras = []
+        codigo_texto = barcode.data.decode('utf-8')
+        tipo_codigo = barcode.type
+        resultados.append({"codigo": codigo_texto, "tipo": tipo_codigo})
 
-# -----------------------------------------------------------------------------
-# Interface Principal
-# -----------------------------------------------------------------------------
-st.title("📦 Sistema de Código de Barras e Gestão de Inventário")
+    return img_rgb, resultados
 
-tab_manual, tab_scan, tab_generate, tab_sheets = st.tabs([
-    "⌨️ Digitação / Leitor USB", 
-    "📷 Leitura via Câmera/Imagem", 
-    "🏷️ Gerador de Código",
-    "📊 Dados Gravados"
-])
+# ==========================================
+# INICIALIZAÇÃO DO ESTADO DA SESSÃO
+# ==========================================
+df_inicial, colunas_iniciais = carregar_dados_excel()
 
-# --- ABA 1: DIGITAÇÃO E LEITOR USB ---
-with tab_manual:
-    st.header("Digitação / Entrada Rápida USB")
-    st.caption("Insira o número manualmente ou utilize um leitor de código de barras USB (bipador).")
+if "df_historico" not in st.session_state:
+    st.session_state.df_historico = df_inicial
 
-    with st.form(key="form_digitacao", clear_on_submit=True):
-        col_inp1, col_inp2 = st.columns([2, 1])
-        with col_inp1:
-            codigo_digitado = st.text_input(
-                "Código de Barras",
-                placeholder="Bipe com o leitor ou digite o número...",
-                key="input_codigo_manual"
-            )
-        with col_inp2:
-            descricao_item = st.text_input(
-                "Descrição / Observação (Opcional)",
-                placeholder="Ex: Item Estoque A"
-            )
-        
-        btn_salvar_manual = st.form_submit_button("💾 Salvar Registro", type="primary")
+# ==========================================
+# INTERFACE DO USUÁRIO (FRONTEND)
+# ==========================================
+st.title("📦 Sistema de Controle de Patrimônio - UBS Feu Rosa")
+st.markdown(f"**Sincronização Ativa:** Salvando sequencialmente em `{ARQUIVO_EXCEL}`")
+st.divider()
 
-    if btn_salvar_manual:
-        if codigo_digitado.strip():
-            cod_limpo = codigo_digitado.strip()
-            sucesso = salvar_no_google_sheets(cod_limpo, "Digitação / Leitor USB", descricao_item)
-            if sucesso:
-                st.session_state.historico_leituras.insert(0, {
-                    "Data_Hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-                    "Codigo": cod_limpo,
-                    "Origem": "Digitação / Leitor USB",
-                    "Descricao": descricao_item
-                })
-                st.toast(f"Código **{cod_limpo}** gravado na planilha com sucesso!", icon="✅")
-        else:
-            st.warning("Por favor, digite ou bipe um código válido.")
+# --- SELEÇÃO DE COLUNA / DESCRIÇÃO ---
+st.subheader("1. Selecione ou Digite a Descrição do Patrimônio")
 
-    components.html(
-        """
-        <script>
-            const doc = window.parent.document;
-            const inputs = doc.querySelectorAll('input[type="text"]');
-            if (inputs.length > 0) {
-                inputs[0].focus();
-            }
-        </script>
-        """,
-        height=0,
+# Obtém colunas patrimoniais ignorando "Local / Setor"
+opcoes_patrimonio = [col for col in st.session_state.df_historico.columns if col != "Local / Setor"]
+opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
+
+col_desc1, col_desc2, col_desc3 = st.columns(3)
+
+with col_desc1:
+    setor_input = st.text_input("Local / Setor (Opcional):", placeholder="Ex: Consultório 1, Recepção...")
+
+with col_desc2:
+    opcao_selecionada = st.selectbox(
+        "Selecione a coluna de destino:",
+        opcoes_patrimonio
     )
 
-# --- ABA 2: LEITURA VIA CÂMERA/IMAGEM ---
-with tab_scan:
-    st.header("Escaneamento por Imagem")
-    source_option = st.radio("Selecione a fonte de entrada:", ["Upload de Imagem", "Câmera ao Vivo"], horizontal=True)
-
-    image_file = None
-    if source_option == "Upload de Imagem":
-        image_file = st.file_uploader("Envie uma imagem com código de barras", type=["png", "jpg", "jpeg", "webp"])
+with col_desc3:
+    if opcao_selecionada == "➕ Outra descrição (Criar nova coluna ao final)":
+        descricao_final = st.text_input("Digite o nome da nova coluna:", placeholder="Ex: Patrimônio Impressora")
     else:
-        image_file = st.camera_input("Tire uma foto do código de barras")
+        descricao_final = opcao_selecionada
 
-    if image_file is not None:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.image(image_file, caption="Imagem Carregada", use_container_width=True)
+st.divider()
 
-        with col2:
-            with st.spinner("Processando e identificando código..."):
-                results, _ = decode_barcode(image_file)
-                
-                if results:
-                    st.success(f"Identificado(s) {len(results)} código(s)!")
-                    for i, res in enumerate(results, 1):
-                        cod = res["conteudo"]
-                        st.text_input(f"Conteúdo Identificado #{i}", value=cod, key=f"res_{i}")
-                        st.caption(f"Tipo detectado: {res['tipo']}")
-                        
-                        if st.button(f"Enviar #{i} para a Planilha", key=f"btn_send_{i}_{cod}"):
-                            if salvar_no_google_sheets(cod, f"Scanner ({res['tipo']})"):
-                                st.toast(f"Código **{cod}** gravado na planilha com sucesso!", icon="✅")
+# --- CAPTURA E REGISTRO ---
+st.subheader("2. Realize a Leitura do Código")
+
+if not descricao_final:
+    st.warning("⚠️ Por favor, selecione ou informe a descrição antes de realizar a leitura.")
+else:
+    tab_manual, tab_webcam, tab_upload = st.tabs([
+        "⌨️ Digitação / Leitor USB", 
+        "📷 Captura via Webcam", 
+        "📁 Upload de Imagem"
+    ])
+
+    # --- ABA 1: DIGITAÇÃO E LEITOR USB ---
+    with tab_manual:
+        st.markdown(f"Registrando na coluna: **`{descricao_final}`**")
+        with st.form(key="form_manual", clear_on_submit=True):
+            codigo_input = st.text_input("Digite ou bipe o código de barras:", autocomplete="off")
+            btn_adicionar = st.form_submit_button("Registrar na Tabela")
+
+            if btn_adicionar and codigo_input.strip():
+                adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
+                st.success(f"✅ Código `{codigo_input.strip()}` inserido na coluna **'{descricao_final}'** no final da planilha!")
+
+    # --- ABA 2: WEBCAM ---
+    with tab_webcam:
+        st.markdown(f"Registrando na coluna: **`{descricao_final}`**")
+        camera_image = st.camera_input("Tire uma foto focada no código de barras")
+
+        if camera_image:
+            img_processada, codigos_encontrados = processar_imagem(camera_image)
+            
+            col_img1, col_img2 = st.columns(2)
+            with col_img1:
+                st.image(img_processada, caption="Imagem Processada", use_column_width=True)
+            
+            with col_img2:
+                if codigos_encontrados:
+                    st.success(f"{len(codigos_encontrados)} código(s) detectado(s)!")
+                    for item in codigos_encontrados:
+                        adicionar_e_salvar(item['codigo'], descricao_final, setor_input)
+                        st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}**")
                 else:
-                    st.warning("Nenhum código de barras foi identificado nesta imagem.")
+                    st.warning("Nenhum código legível encontrado.")
 
-# --- ABA 3: GERAÇÃO DE CÓDIGOS DE BARRAS ---
-with tab_generate:
-    st.header("Gerador de Código de Barras")
-    
-    col_input, col_preview = st.columns([1, 1])
-    
-    with col_input:
-        bc_type = st.selectbox("Selecione o Padrão", ["code128", "ean13", "code39", "upc"])
-        bc_value = st.text_input("Digite o número / valor a ser gerado", value="123456789012")
-        generate_btn = st.button("Gerar Código", type="primary")
+    # --- ABA 3: UPLOAD DE ARQUIVO ---
+    with tab_upload:
+        st.markdown(f"Registrando na coluna: **`{descricao_final}`**")
+        uploaded_file = st.file_uploader("Escolha uma imagem contendo o código", type=["jpg", "png", "jpeg"])
 
-    with col_preview:
-        if generate_btn or bc_value:
-            try:
-                img_buf = generate_barcode(bc_type, bc_value)
-                st.image(img_buf, caption=f"Código {bc_type.upper()}: {bc_value}")
+        if uploaded_file is not None:
+            img_processada, codigos_encontrados = processar_imagem(uploaded_file)
+            
+            col_img1, col_img2 = st.columns(2)
+            with col_img1:
+                st.image(img_processada, caption="Imagem Processada", use_column_width=True)
                 
-                st.download_button(
-                    label="Baixar Imagem PNG",
-                    data=img_buf.getvalue(),
-                    file_name=f"barcode_{bc_value}.png",
-                    mime="image/png"
-                )
-            except Exception as e:
-                st.error(f"Erro ao gerar código de barras: {str(e)}")
+            with col_img2:
+                if codigos_encontrados:
+                    st.success(f"{len(codigos_encontrados)} código(s) detectado(s)!")
+                    for item in codigos_encontrados:
+                        adicionar_e_salvar(item['codigo'], descricao_final, setor_input)
+                        st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}**")
+                else:
+                    st.error("Nenhum código de barras identificado.")
 
-# --- ABA 4: VISUALIZAÇÃO DOS DADOS SALVOS ---
-with tab_sheets:
-    st.header("📊 Dados Gravados na Planilha Google")
-    
-    if st.button("🔄 Atualizar Dados"):
-        st.cache_data.clear()
-        st.rerun()
-        
-    df_sheets = carregar_dados_planilha()
-    if not df_sheets.empty:
-        st.dataframe(df_sheets, use_container_width=True)
-    else:
-        st.info("Nenhum dado encontrado ou planilha vazia.")
+# ==========================================
+# EXIBIÇÃO DA TABELA ATUALIZADA
+# ==========================================
+st.divider()
+st.header(f"📊 Tabela de Patrimônios Atualizada em Tempo Real")
+
+df_atual, _ = carregar_dados_excel()
+if not df_atual.empty:
+    st.dataframe(df_atual.fillna(""), use_container_width=True)
+
+    col_btn1, col_btn2 = st.columns([1, 4])
+    with col_btn1:
+        if st.button("Recarregar Planilha"):
+            st.rerun()
+            
+    with col_btn2:
+        csv = df_atual.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="⬇️ Baixar Tabela Completa (CSV)",
+            data=csv,
+            file_name="Tabela_Patrimonios_UBS_Feu_Rosa.csv",
+            mime="text/csv"
+        )
+else:
+    st.info("A planilha está sem registros.")
