@@ -13,7 +13,7 @@ from streamlit_gsheets import GSheetsConnection
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
 
-# Colunas Padrão da Tabela
+# Colunas Padrão da Tabela (Mantém a ordem exata do formulário)
 COLUNAS_PADRAO = ["Local / Setor", "Patrimônio PC", "Patrimônio Tela", "Patrimônio Nobreak"]
 
 st.set_page_config(
@@ -31,102 +31,95 @@ except Exception:
 # ==========================================
 # FUNÇÕES DE MANIPULAÇÃO DO EXCEL E GOOGLE SHEETS
 # ==========================================
+def organizar_colunas(df: pd.DataFrame) -> pd.DataFrame:
+    """Garante a estrutura e a ordem correta das colunas."""
+    # Garante que todas as colunas padrão existam
+    for col in COLUNAS_PADRAO:
+        if col not in df.columns:
+            df[col] = ""
+
+    # Mantém COLUNAS_PADRAO primeiro e adiciona novas descrições ao final
+    outras_colunas = [c for c in df.columns if c not in COLUNAS_PADRAO]
+    ordem_correta = COLUNAS_PADRAO + outras_colunas
+    
+    return df[ordem_correta].fillna("").astype(str)
+
 def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
     """Carrega o DataFrame garantindo tipo texto (string) para todas as colunas."""
     if os.path.exists(ARQUIVO_EXCEL):
         try:
-            # dtype=str e keep_default_na=False evitam a conversão automática para floats/int
-            df = pd.read_excel(ARQUIVO_EXCEL, header=1, dtype=str, keep_default_na=False)
+            # Lê diretamente sem pular linhas para evitar deslocamento de cabeçalho
+            df = pd.read_excel(ARQUIVO_EXCEL, sheet_name='Patrimônios', dtype=str, keep_default_na=False)
+            
+            # Se a primeira linha contiver o título genérico antigo, remove
+            if not df.empty and df.columns[0] == "Tabela de Patrimônios UBS Feu Rosa":
+                df = pd.read_excel(ARQUIVO_EXCEL, sheet_name='Patrimônios', header=1, dtype=str, keep_default_na=False)
+
             df = df.dropna(how='all')
-            
-            # Garantir colunas padrão caso não existam
-            for col in COLUNAS_PADRAO:
-                if col not in df.columns:
-                    df[col] = ""
-            
-            # Reordenar mantendo COLUNAS_PADRAO no início e novas colunas depois
-            outras_colunas = [c for c in df.columns if c not in COLUNAS_PADRAO]
-            ordem_final = COLUNAS_PADRAO + outras_colunas
-            
-            # Garante que todas as colunas existentes sejam do tipo object/str
-            df = df[ordem_final].astype(str)
-            
-            return df, ordem_final
+            df = organizar_colunas(df)
+            return df, list(df.columns)
         except Exception as e:
             st.error(f"Erro ao carregar a planilha existente: {e}")
     
-    # Se o arquivo não existir, cria um DataFrame com colunas de tipo texto
+    # Se o arquivo não existir, cria um DataFrame limpo
     df_empty = pd.DataFrame(columns=COLUNAS_PADRAO)
-    for col in COLUNAS_PADRAO:
-        df_empty[col] = df_empty[col].astype(str)
+    df_empty = organizar_colunas(df_empty)
     return df_empty, COLUNAS_PADRAO
 
 def salvar_no_excel(df: pd.DataFrame) -> None:
-    """Salva no arquivo Excel local e sincroniza com o Google Sheets."""
-    # Garante tipo de dados estritamente em string
-    df = df.fillna("").astype(str)
+    """Salva no arquivo Excel local e sincroniza limpo com o Google Sheets."""
+    df = organizar_colunas(df)
     
-    # 1. Salvamento Local (Excel)
+    # 1. Salvamento Local (Excel com Cabeçalho Limpo na Linha 1)
     try:
         with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
-            df_titulo = pd.DataFrame([["Tabela de Patrimônios UBS Feu Rosa"] + [""] * (len(df.columns) - 1)])
-            df_titulo.to_excel(writer, sheet_name='Patrimônios', header=False, index=False, startrow=0)
-            df.to_excel(writer, sheet_name='Patrimônios', header=True, index=False, startrow=1)
+            df.to_excel(writer, sheet_name='Patrimônios', index=False)
     except Exception as e:
         st.error(f"Erro ao salvar na planilha local: {e}")
 
-    # 2. Sincronização em Tempo Real com o Google Sheets
+    # 2. Sincronização limpa em Tempo Real com o Google Sheets
     if conn is not None:
         try:
-            df_titulo = pd.DataFrame([["Tabela de Patrimônios UBS Feu Rosa"] + [""] * (len(df.columns) - 1)], columns=df.columns)
-            df_sync = pd.concat([df_titulo, df], ignore_index=True).fillna("").astype(str)
-            
+            # Atualização direta enviando a estrutura exata com cabeçalho limpo
             conn.update(
                 spreadsheet=GOOGLE_SHEET_URL,
-                data=df_sync
+                data=df
             )
             st.toast("☁️ Dados sincronizados no Google Sheets!")
         except Exception as e:
             st.error(f"Falha na sincronização com Google Sheets: {e}")
 
 def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
-    """Insere ou atualiza o código na coluna correspondente, garantindo tipo string."""
+    """Insere ou atualiza o código na coluna correta sem desalinhamento de células."""
     df, _ = carregar_dados_excel()
     
     coluna_alvo = descricao.strip()
     setor_limpo = setor.strip() if setor else "Não informado"
     codigo_limpo = str(codigo).strip()
     
-    # Se for uma nova descrição/coluna, cria como string
+    # Se for uma nova descrição/coluna, cria e inicializa em todas as linhas existentes
     if coluna_alvo not in df.columns:
         df[coluna_alvo] = ""
     
-    # Garante tipo str para todo o DataFrame
-    df = df.astype(str)
+    df = organizar_colunas(df)
     
-    # Limpa valores nulos/espaços no campo Local / Setor
-    df["Local / Setor"] = df["Local / Setor"].fillna("").astype(str).str.strip()
-    
-    # REGRA: Verifica se o Local/Setor já existe na tabela
+    # Normalização para busca
+    df["Local / Setor"] = df["Local / Setor"].str.strip()
     mascara_setor = df["Local / Setor"].str.lower() == setor_limpo.lower()
     
     if mascara_setor.any():
-        # Atualiza o patrimônio na linha do Local/Setor existente
+        # Atualiza a célula exata na linha existente do Local/Setor
         idx = df[mascara_setor].index[0]
-        
-        # Converte a coluna para tipo 'object' para aceitar qualquer texto com segurança
-        df[coluna_alvo] = df[coluna_alvo].astype(object)
         df.at[idx, coluna_alvo] = codigo_limpo
     else:
-        # Se não existe o Local/Setor, insere uma nova linha
+        # Cria uma nova linha alinhada com TODAS as colunas atuais da tabela
         nova_linha = {col: "" for col in df.columns}
         nova_linha["Local / Setor"] = setor_limpo
         nova_linha[coluna_alvo] = codigo_limpo
         
         df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
     
-    # Garante tipo estrito após atualizações
-    df = df.fillna("").astype(str)
+    df = organizar_colunas(df)
     salvar_no_excel(df)
     st.session_state.df_historico = df
 
