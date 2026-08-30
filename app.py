@@ -222,7 +222,11 @@ st.header(f"📊 Tabela de Patrimônios Atualizada em Tempo Real")
 
 df_atual, _ = carregar_dados_excel()
 if not df_atual.empty:
-    st.dataframe(df_atual.fillna(""), use_container_width=True)
+    # 1. Preenche valores nulos/vazios com texto vazio
+    # 2. Converte todas as colunas para String para evitar estouro no Apache Arrow (PyArrow)
+    df_exibicao = df_atual.fillna("").astype(str)
+    
+    st.dataframe(df_exibicao, use_container_width=True)
 
     col_btn1, col_btn2 = st.columns([1, 4])
     with col_btn1:
