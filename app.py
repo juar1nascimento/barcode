@@ -12,7 +12,7 @@ from streamlit_gsheets import GSheetsConnection
 # CONFIGURAÇÕES E CONSTANTES
 # ==========================================
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
-GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1yzNx6WcCrZbb-KvZCEpFYAuX025p-iy1/edit"
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/NOVO_ID_DA_SUA_PLANILHA/edit"
 
 st.set_page_config(
     page_title="Leitor de Código de Barras - UBS Feu Rosa",
