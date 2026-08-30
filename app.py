@@ -13,7 +13,7 @@ from streamlit_gsheets import GSheetsConnection
 # ==========================================
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 # Cole aqui a URL exata da sua planilha do Google Sheets
-GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1yzNx6WcCrZbb-KvZCEpFYAuX025p-iy1/edit"
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?gid=62349396#gid=62349396"
 
 st.set_page_config(
     page_title="Leitor de Código de Barras - UBS Feu Rosa",
