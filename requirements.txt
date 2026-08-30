@@ -5,3 +5,4 @@ Pillow
 zxing-cpp
 pandas
 openpyxl
+st-gsheets-connection

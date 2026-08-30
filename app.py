@@ -2,15 +2,17 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-import zxingcpp  # Substituindo a pyzbar por zxing-cpp
+import zxingcpp
 import pandas as pd
 import os
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
 # CONFIGURAÇÕES E CONSTANTES
 # ==========================================
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1yzNx6WcCrZbb-KvZCEpFYAuX025p-iy1/edit"
 
 st.set_page_config(
     page_title="Leitor de Código de Barras - UBS Feu Rosa",
@@ -18,8 +20,14 @@ st.set_page_config(
     layout="wide"
 )
 
+# Inicializa conexão com o Google Sheets
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception:
+    conn = None
+
 # ==========================================
-# FUNÇÕES DE MANIPULAÇÃO DO EXCEL
+# FUNÇÕES DE MANIPULAÇÃO DO EXCEL E GOOGLE SHEETS
 # ==========================================
 def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
     """Carrega o DataFrame mantendo a estrutura exata do cabeçalho da planilha."""
@@ -39,33 +47,42 @@ def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
     return pd.DataFrame(columns=colunas_padrao), colunas_padrao
 
 def salvar_no_excel(df: pd.DataFrame) -> None:
-    """Salva o DataFrame mantendo o título na primeira linha conforme o modelo original."""
+    """Salva no arquivo Excel local e sincroniza com o Google Sheets."""
+    # 1. Salvamento Local (Excel)
     try:
         with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
-            # Escreve a linha de título original na A1
             df_titulo = pd.DataFrame([["Tabela de Patrimônios UBS Feu Rosa"] + [""] * (len(df.columns) - 1)])
             df_titulo.to_excel(writer, sheet_name='Patrimônios', header=False, index=False, startrow=0)
-            
-            # Escreve os dados com os cabeçalhos das colunas a partir da linha 2 (startrow=1)
             df.to_excel(writer, sheet_name='Patrimônios', header=True, index=False, startrow=1)
     except Exception as e:
-        st.error(f"Erro ao salvar na planilha: {e}")
+        st.error(f"Erro ao salvar na planilha local: {e}")
+
+    # 2. Sincronização em Tempo Real com o Google Sheets
+    if conn is not None:
+        try:
+            # Monta o DataFrame preservando a linha de título original
+            df_titulo = pd.DataFrame([["Tabela de Patrimônios UBS Feu Rosa"] + [""] * (len(df.columns) - 1)], columns=df.columns)
+            df_sync = pd.concat([df_titulo, df], ignore_index=True)
+            
+            # Atualiza no Google Sheets
+            conn.update(
+                spreadsheet=GOOGLE_SHEET_URL,
+                data=df_sync
+            )
+        except Exception as e:
+            st.warning(f"Sincronização com Google Sheets pendente (Configure as credenciais): {e}")
 
 def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     """Insere o código na coluna correspondente na sequência da tabela."""
     df, colunas_existentes = carregar_dados_excel()
     
-    # Tratamento da descrição/coluna
     coluna_alvo = descricao.strip()
     
-    # Se a coluna não existe na tabela, adiciona após a última coluna
     if coluna_alvo not in df.columns:
         df[coluna_alvo] = np.nan
     
-    # Cria uma nova linha vazia com a mesma estrutura de colunas do DataFrame
     nova_linha = {col: "" for col in df.columns}
     
-    # Preenche o setor (se informado) e o código bipado na coluna correta
     if "Local / Setor" in df.columns and setor:
         nova_linha["Local / Setor"] = setor
     else:
@@ -73,13 +90,9 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
         
     nova_linha[coluna_alvo] = str(codigo).strip()
     
-    # Adiciona a nova linha na sequência (ao final do DataFrame)
     df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
-    
-    # Limpa valores NaN para salvar formatado
     df = df.fillna("")
     
-    # Atualiza o arquivo Excel e a sessão
     salvar_no_excel(df)
     st.session_state.df_historico = df
 
@@ -90,12 +103,10 @@ def processar_imagem(image_bytes) -> tuple:
     
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
-    # Leitura dos códigos via zxingcpp
     barcodes = zxingcpp.read_barcodes(img_rgb)
     resultados = []
 
     for barcode in barcodes:
-        # Desenha retângulo verde em volta do código se houver posição detectada
         if barcode.position:
             pts = np.array([[pt.x, pt.y] for pt in barcode.position], np.int32)
             pts = pts.reshape((-1, 1, 2))
@@ -120,13 +131,12 @@ if "df_historico" not in st.session_state:
 # INTERFACE DO USUÁRIO (FRONTEND)
 # ==========================================
 st.title("📦 Sistema de Controle de Patrimônio - UBS Feu Rosa")
-st.markdown(f"**Sincronização Ativa:** Salvando sequencialmente em `{ARQUIVO_EXCEL}`")
+st.markdown(f"**Sincronização Ativa:** Salvando em `{ARQUIVO_EXCEL}` e no **Google Sheets**")
 st.divider()
 
 # --- SELEÇÃO DE COLUNA / DESCRIÇÃO ---
 st.subheader("1. Selecione ou Digite a Descrição do Patrimônio")
 
-# Obtém colunas patrimoniais ignorando "Local / Setor"
 opcoes_patrimonio = [col for col in st.session_state.df_historico.columns if col != "Local / Setor"]
 opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
 
@@ -161,7 +171,6 @@ else:
         "📁 Upload de Imagem"
     ])
 
-    # --- ABA 1: DIGITAÇÃO E LEITOR USB ---
     with tab_manual:
         st.markdown(f"Registrando na coluna: **`{descricao_final}`**")
         with st.form(key="form_manual", clear_on_submit=True):
@@ -172,7 +181,6 @@ else:
                 adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
                 st.success(f"✅ Código `{codigo_input.strip()}` inserido na coluna **'{descricao_final}'** no final da planilha!")
 
-    # --- ABA 2: WEBCAM ---
     with tab_webcam:
         st.markdown(f"Registrando na coluna: **`{descricao_final}`**")
         camera_image = st.camera_input("Tire uma foto focada no código de barras")
@@ -193,7 +201,6 @@ else:
                 else:
                     st.warning("Nenhum código legível encontrado.")
 
-    # --- ABA 3: UPLOAD DE ARQUIVO ---
     with tab_upload:
         st.markdown(f"Registrando na coluna: **`{descricao_final}`**")
         uploaded_file = st.file_uploader("Escolha uma imagem contendo o código", type=["jpg", "png", "jpeg"])
@@ -222,8 +229,6 @@ st.header(f"📊 Tabela de Patrimônios Atualizada em Tempo Real")
 
 df_atual, _ = carregar_dados_excel()
 if not df_atual.empty:
-    # 1. Preenche valores nulos/vazios com texto vazio
-    # 2. Converte todas as colunas para String para evitar estouro no Apache Arrow (PyArrow)
     df_exibicao = df_atual.fillna("").astype(str)
     
     st.dataframe(df_exibicao, use_container_width=True)
