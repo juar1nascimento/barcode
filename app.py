@@ -5,15 +5,16 @@ from PIL import Image
 import zxingcpp
 import pandas as pd
 import os
-from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
 # CONFIGURAÇÕES E CONSTANTES
 # ==========================================
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
-# Cole aqui a URL exata da sua planilha do Google Sheets
-GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?gid=62349396#gid=62349396"
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
+
+# Colunas Padrão da Tabela
+COLUNAS_PADRAO = ["Local / Setor", "Patrimônio PC", "Patrimônio Tela", "Patrimônio Nobreak"]
 
 st.set_page_config(
     page_title="Leitor de Código de Barras - UBS Feu Rosa",
@@ -31,18 +32,27 @@ except Exception:
 # FUNÇÕES DE MANIPULAÇÃO DO EXCEL E GOOGLE SHEETS
 # ==========================================
 def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
-    """Carrega o DataFrame mantendo a estrutura exata do cabeçalho da planilha."""
+    """Carrega o DataFrame garantindo as colunas padrão e ordem do cabeçalho."""
     if os.path.exists(ARQUIVO_EXCEL):
         try:
             df = pd.read_excel(ARQUIVO_EXCEL, header=1)
             df = df.dropna(how='all')
-            colunas = df.columns.tolist()
-            return df, colunas
+            
+            # Garantir colunas padrão caso não existam
+            for col in COLUNAS_PADRAO:
+                if col not in df.columns:
+                    df[col] = ""
+            
+            # Reordenar mantendo COLUNAS_PADRAO no início e novas colunas depois
+            outras_colunas = [c for c in df.columns if c not in COLUNAS_PADRAO]
+            ordem_final = COLUNAS_PADRAO + outras_colunas
+            df = df[ordem_final]
+            
+            return df, ordem_final
         except Exception as e:
             st.error(f"Erro ao carregar a planilha existente: {e}")
     
-    colunas_padrao = ["Local / Setor", "Patrimônio PC", "Patrimônio Tela", "Patrimônio Nobreak"]
-    return pd.DataFrame(columns=colunas_padrao), colunas_padrao
+    return pd.DataFrame(columns=COLUNAS_PADRAO), COLUNAS_PADRAO
 
 def salvar_no_excel(df: pd.DataFrame) -> None:
     """Salva no arquivo Excel local e sincroniza com o Google Sheets."""
@@ -58,11 +68,9 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
     # 2. Sincronização em Tempo Real com o Google Sheets
     if conn is not None:
         try:
-            # Monta o DataFrame preservando a linha de título original
             df_titulo = pd.DataFrame([["Tabela de Patrimônios UBS Feu Rosa"] + [""] * (len(df.columns) - 1)], columns=df.columns)
             df_sync = pd.concat([df_titulo, df], ignore_index=True).fillna("").astype(str)
             
-            # Atualiza no Google Sheets
             conn.update(
                 spreadsheet=GOOGLE_SHEET_URL,
                 data=df_sync
@@ -72,26 +80,36 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
             st.error(f"Falha na sincronização com Google Sheets: {e}")
 
 def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
-    """Insere o código na coluna correspondente na sequência da tabela."""
-    df, colunas_existentes = carregar_dados_excel()
+    """Insere ou atualiza o código na coluna correspondente, respeitando o Local / Setor."""
+    df, _ = carregar_dados_excel()
     
     coluna_alvo = descricao.strip()
+    setor_limpo = setor.strip() if setor else "Não informado"
+    codigo_limpo = str(codigo).strip()
     
+    # Se for uma nova descrição/coluna, cria ao final da tabela
     if coluna_alvo not in df.columns:
-        df[coluna_alvo] = np.nan
+        df[coluna_alvo] = ""
     
-    nova_linha = {col: "" for col in df.columns}
+    # Tratar valores vazios no DataFrame
+    df["Local / Setor"] = df["Local / Setor"].fillna("").astype(str).str.strip()
     
-    if "Local / Setor" in df.columns and setor:
-        nova_linha["Local / Setor"] = setor
+    # REGRA: Verifica se o Local/Setor já existe na tabela
+    mascara_setor = df["Local / Setor"].str.lower() == setor_limpo.lower()
+    
+    if mascara_setor.any():
+        # Atualiza o patrimônio na linha do Local/Setor existente
+        idx = df[mascara_setor].index[0]
+        df.at[idx, coluna_alvo] = codigo_limpo
     else:
-        nova_linha["Local / Setor"] = "Não informado"
+        # Se não existe o Local/Setor, insere uma nova linha
+        nova_linha = {col: "" for col in df.columns}
+        nova_linha["Local / Setor"] = setor_limpo
+        nova_linha[coluna_alvo] = codigo_limpo
         
-    nova_linha[coluna_alvo] = str(codigo).strip()
+        df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
     
-    df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
     df = df.fillna("")
-    
     salvar_no_excel(df)
     st.session_state.df_historico = df
 
@@ -101,7 +119,6 @@ def processar_imagem(image_bytes) -> tuple:
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    
     barcodes = zxingcpp.read_barcodes(img_rgb)
     resultados = []
 
@@ -142,7 +159,7 @@ opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
 col_desc1, col_desc2, col_desc3 = st.columns(3)
 
 with col_desc1:
-    setor_input = st.text_input("Local / Setor (Opcional):", placeholder="Ex: Consultório 1, Recepção...")
+    setor_input = st.text_input("Local / Setor:", placeholder="Ex: Consultório 1, Recepção...")
 
 with col_desc2:
     opcao_selecionada = st.selectbox(
@@ -161,8 +178,8 @@ st.divider()
 # --- CAPTURA E REGISTRO ---
 st.subheader("2. Realize a Leitura do Código")
 
-if not descricao_final:
-    st.warning("⚠️ Por favor, selecione ou informe a descrição antes de realizar a leitura.")
+if not descricao_final or not setor_input.strip():
+    st.warning("⚠️ Por favor, preencha o **Local / Setor** e selecione ou informe a **Descrição** antes de realizar a leitura.")
 else:
     tab_manual, tab_webcam, tab_upload = st.tabs([
         "⌨️ Digitação / Leitor USB", 
@@ -171,17 +188,17 @@ else:
     ])
 
     with tab_manual:
-        st.markdown(f"Registrando na coluna: **`{descricao_final}`**")
+        st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
         with st.form(key="form_manual", clear_on_submit=True):
             codigo_input = st.text_input("Digite ou bipe o código de barras:", autocomplete="off")
             btn_adicionar = st.form_submit_button("Registrar na Tabela")
 
             if btn_adicionar and codigo_input.strip():
                 adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
-                st.success(f"✅ Código `{codigo_input.strip()}` inserido na coluna **'{descricao_final}'** no final da planilha!")
+                st.success(f"✅ Código `{codigo_input.strip()}` registrado na coluna **'{descricao_final}'** do setor **'{setor_input}'**!")
 
     with tab_webcam:
-        st.markdown(f"Registrando na coluna: **`{descricao_final}`**")
+        st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
         camera_image = st.camera_input("Tire uma foto focada no código de barras")
 
         if camera_image:
@@ -201,7 +218,7 @@ else:
                     st.warning("Nenhum código legível encontrado.")
 
     with tab_upload:
-        st.markdown(f"Registrando na coluna: **`{descricao_final}`**")
+        st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
         uploaded_file = st.file_uploader("Escolha uma imagem contendo o código", type=["jpg", "png", "jpeg"])
 
         if uploaded_file is not None:
@@ -224,12 +241,11 @@ else:
 # EXIBIÇÃO DA TABELA ATUALIZADA
 # ==========================================
 st.divider()
-st.header(f"📊 Tabela de Patrimônios Atualizada em Tempo Real")
+st.header("📊 Tabela de Patrimônios Atualizada em Tempo Real")
 
 df_atual, _ = carregar_dados_excel()
 if not df_atual.empty:
     df_exibicao = df_atual.fillna("").astype(str)
-    
     st.dataframe(df_exibicao, use_container_width=True)
 
     col_btn1, col_btn2 = st.columns([1, 4])
