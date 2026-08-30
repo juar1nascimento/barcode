@@ -32,10 +32,11 @@ except Exception:
 # FUNÇÕES DE MANIPULAÇÃO DO EXCEL E GOOGLE SHEETS
 # ==========================================
 def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
-    """Carrega o DataFrame garantindo as colunas padrão e ordem do cabeçalho."""
+    """Carrega o DataFrame garantindo tipo texto (string) para todas as colunas."""
     if os.path.exists(ARQUIVO_EXCEL):
         try:
-            df = pd.read_excel(ARQUIVO_EXCEL, header=1)
+            # dtype=str e keep_default_na=False evitam a conversão automática para floats/int
+            df = pd.read_excel(ARQUIVO_EXCEL, header=1, dtype=str, keep_default_na=False)
             df = df.dropna(how='all')
             
             # Garantir colunas padrão caso não existam
@@ -46,16 +47,25 @@ def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
             # Reordenar mantendo COLUNAS_PADRAO no início e novas colunas depois
             outras_colunas = [c for c in df.columns if c not in COLUNAS_PADRAO]
             ordem_final = COLUNAS_PADRAO + outras_colunas
-            df = df[ordem_final]
+            
+            # Garante que todas as colunas existentes sejam do tipo object/str
+            df = df[ordem_final].astype(str)
             
             return df, ordem_final
         except Exception as e:
             st.error(f"Erro ao carregar a planilha existente: {e}")
     
-    return pd.DataFrame(columns=COLUNAS_PADRAO), COLUNAS_PADRAO
+    # Se o arquivo não existir, cria um DataFrame com colunas de tipo texto
+    df_empty = pd.DataFrame(columns=COLUNAS_PADRAO)
+    for col in COLUNAS_PADRAO:
+        df_empty[col] = df_empty[col].astype(str)
+    return df_empty, COLUNAS_PADRAO
 
 def salvar_no_excel(df: pd.DataFrame) -> None:
     """Salva no arquivo Excel local e sincroniza com o Google Sheets."""
+    # Garante tipo de dados estritamente em string
+    df = df.fillna("").astype(str)
+    
     # 1. Salvamento Local (Excel)
     try:
         with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
@@ -80,18 +90,21 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
             st.error(f"Falha na sincronização com Google Sheets: {e}")
 
 def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
-    """Insere ou atualiza o código na coluna correspondente, respeitando o Local / Setor."""
+    """Insere ou atualiza o código na coluna correspondente, garantindo tipo string."""
     df, _ = carregar_dados_excel()
     
     coluna_alvo = descricao.strip()
     setor_limpo = setor.strip() if setor else "Não informado"
     codigo_limpo = str(codigo).strip()
     
-    # Se for uma nova descrição/coluna, cria ao final da tabela
+    # Se for uma nova descrição/coluna, cria como string
     if coluna_alvo not in df.columns:
         df[coluna_alvo] = ""
     
-    # Tratar valores vazios no DataFrame
+    # Garante tipo str para todo o DataFrame
+    df = df.astype(str)
+    
+    # Limpa valores nulos/espaços no campo Local / Setor
     df["Local / Setor"] = df["Local / Setor"].fillna("").astype(str).str.strip()
     
     # REGRA: Verifica se o Local/Setor já existe na tabela
@@ -100,6 +113,9 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     if mascara_setor.any():
         # Atualiza o patrimônio na linha do Local/Setor existente
         idx = df[mascara_setor].index[0]
+        
+        # Converte a coluna para tipo 'object' para aceitar qualquer texto com segurança
+        df[coluna_alvo] = df[coluna_alvo].astype(object)
         df.at[idx, coluna_alvo] = codigo_limpo
     else:
         # Se não existe o Local/Setor, insere uma nova linha
@@ -109,7 +125,8 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
         
         df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
     
-    df = df.fillna("")
+    # Garante tipo estrito após atualizações
+    df = df.fillna("").astype(str)
     salvar_no_excel(df)
     st.session_state.df_historico = df
 
@@ -206,7 +223,7 @@ else:
             
             col_img1, col_img2 = st.columns(2)
             with col_img1:
-                st.image(img_processada, caption="Imagem Processada", use_column_width=True)
+                st.image(img_processada, caption="Imagem Processada", use_container_width=True)
             
             with col_img2:
                 if codigos_encontrados:
@@ -226,7 +243,7 @@ else:
             
             col_img1, col_img2 = st.columns(2)
             with col_img1:
-                st.image(img_processada, caption="Imagem Processada", use_column_width=True)
+                st.image(img_processada, caption="Imagem Processada", use_container_width=True)
                 
             with col_img2:
                 if codigos_encontrados:
