@@ -2,7 +2,7 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-from pyzbar.pyzbar import decode
+import zxingcpp  # Substituindo a pyzbar por zxing-cpp
 import pandas as pd
 import os
 from datetime import datetime
@@ -84,22 +84,27 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     st.session_state.df_historico = df
 
 def processar_imagem(image_bytes) -> tuple:
-    """Decodifica os códigos de barras a partir de imagem."""
+    """Decodifica os códigos de barras a partir de imagem usando zxing-cpp."""
     file_bytes = np.asarray(bytearray(image_bytes.read()), dtype=np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    barcodes = decode(img)
+    
+    # Leitura dos códigos via zxingcpp
+    barcodes = zxingcpp.read_barcodes(img_rgb)
     resultados = []
 
     for barcode in barcodes:
-        pts = np.array([barcode.polygon], np.int32)
-        pts = pts.reshape((-1, 1, 2))
-        cv2.polylines(img_rgb, [pts], True, (0, 255, 0), 3)
+        # Desenha retângulo verde em volta do código se houver posição detectada
+        if barcode.position:
+            pts = np.array([[pt.x, pt.y] for pt in barcode.position], np.int32)
+            pts = pts.reshape((-1, 1, 2))
+            cv2.polylines(img_rgb, [pts], True, (0, 255, 0), 3)
 
-        codigo_texto = barcode.data.decode('utf-8')
-        tipo_codigo = barcode.type
-        resultados.append({"codigo": codigo_texto, "tipo": tipo_codigo})
+        resultados.append({
+            "codigo": barcode.text, 
+            "tipo": str(barcode.format).replace("BarcodeFormat.", "")
+        })
 
     return img_rgb, resultados
 

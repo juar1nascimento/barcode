@@ -1,2 +1,7 @@
-pyzbar
+streamlit
+opencv-python-headless
+numpy
 Pillow
+zxing-cpp
+pandas
+openpyxl
