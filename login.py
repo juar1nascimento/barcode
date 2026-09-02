@@ -3,6 +3,8 @@ import re
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import json
+import os
 
 # ==========================================
 # CONFIGURAÇÕES DE AUTENTICAÇÃO E EMAIL
@@ -16,19 +18,32 @@ SMTP_PORT = 587
 SMTP_USER = "juari.neris@gmail.com"  
 SMTP_PASS = "yins muld czac rcsi"
 
+# Arquivos de Persistência de Dados
+ARQUIVO_USUARIOS = "usuarios_db.json"
+ARQUIVO_PENDENTES = "pendentes_db.json"
+
+def carregar_db(arquivo: str) -> dict:
+    """Lê o banco de dados em JSON, retornando um dicionário vazio se não existir."""
+    if os.path.exists(arquivo):
+        try:
+            with open(arquivo, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def salvar_db(dados: dict, arquivo: str):
+    """Salva o dicionário no arquivo JSON especificado."""
+    with open(arquivo, "w") as f:
+        json.dump(dados, f)
+
 def inicializar_estado_login():
-    """Inicializa as variáveis de sessão necessárias para a autenticação."""
+    """Inicializa as variáveis de sessão necessárias para a autenticação visual."""
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
 
     if "tela_atual" not in st.session_state:
         st.session_state.tela_atual = "login"
-
-    if "usuarios_db" not in st.session_state:
-        st.session_state.usuarios_db = {}
-
-    if "solicitacoes_pendentes" not in st.session_state:
-        st.session_state.solicitacoes_pendentes = {}
 
     if "email_recuperacao_temp" not in st.session_state:
         st.session_state.email_recuperacao_temp = ""
@@ -91,7 +106,7 @@ def enviar_alerta_aprovacao_admin(email_solicitante: str) -> tuple[bool, str]:
     )
 
 def processar_query_params():
-    """Processa ações recebidas via parâmetros de URL (aprovações e navegação)."""
+    """Processa ações recebidas via parâmetros de URL consultando os arquivos JSON."""
     query_params = st.query_params
 
     if "page" in query_params:
@@ -103,22 +118,30 @@ def processar_query_params():
         acao = query_params["acao"]
         usuario_alvo = query_params["user"]
 
-        if usuario_alvo in st.session_state.solicitacoes_pendentes:
-            senha_solicitada = st.session_state.solicitacoes_pendentes[usuario_alvo]
+        pendentes = carregar_db(ARQUIVO_PENDENTES)
+        usuarios = carregar_db(ARQUIVO_USUARIOS)
+
+        if usuario_alvo in pendentes:
+            senha_solicitada = pendentes[usuario_alvo]
             if acao == "aprovar":
-                st.session_state.usuarios_db[usuario_alvo] = senha_solicitada
-                del st.session_state.solicitacoes_pendentes[usuario_alvo]
+                usuarios[usuario_alvo] = senha_solicitada
+                salvar_db(usuarios, ARQUIVO_USUARIOS)
+                
+                del pendentes[usuario_alvo]
+                salvar_db(pendentes, ARQUIVO_PENDENTES)
+                
                 st.success(f"Cadastro do usuário {usuario_alvo} APROVADO com sucesso!")
             elif acao == "recusar":
-                del st.session_state.solicitacoes_pendentes[usuario_alvo]
+                del pendentes[usuario_alvo]
+                salvar_db(pendentes, ARQUIVO_PENDENTES)
                 st.warning(f"Cadastro do usuário {usuario_alvo} RECUSADO!")
-            st.query_params.clear()
+        else:
+            st.info("Link expirado ou solicitação já processada.")
+            
+        st.query_params.clear()
 
 def renderizar_login() -> bool:
-    """
-    Exibe a interface gráfica de Login/Recuperação de Senha.
-    Retorna True se o usuário já estiver autenticado, ou False caso contrário.
-    """
+    """Exibe a interface gráfica e processa os acessos através da base JSON."""
     inicializar_estado_login()
     processar_query_params()
 
@@ -218,7 +241,11 @@ def renderizar_login() -> bool:
                     elif nova_senha != confirma_senha:
                         st.error("As senhas digitadas não coincidem.")
                     else:
-                        st.session_state.solicitacoes_pendentes[email_login.strip()] = nova_senha
+                        # Grava a solicitação no arquivo local pendentes_db.json
+                        pendentes = carregar_db(ARQUIVO_PENDENTES)
+                        pendentes[email_login.strip()] = nova_senha
+                        salvar_db(pendentes, ARQUIVO_PENDENTES)
+                        
                         sucesso_envio, msg_erro = enviar_alerta_aprovacao_admin(email_login.strip())
                         
                         if sucesso_envio:
@@ -249,7 +276,10 @@ def renderizar_login() -> bool:
                 
                 st.write("")
                 if st.button("Entrar", key="btn_entrar"):
-                    if usuario in st.session_state.usuarios_db and st.session_state.usuarios_db[usuario] == senha:
+                    # Verifica as credenciais lendo o arquivo usuarios_db.json
+                    usuarios = carregar_db(ARQUIVO_USUARIOS)
+                    
+                    if usuario in usuarios and usuarios[usuario] == senha:
                         st.session_state.autenticado = True
                         st.rerun()
                     else:
