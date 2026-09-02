@@ -23,12 +23,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# Caminho da imagem de logo e E-mail do Administrador
-CAMINHO_LOGO = r"D:\Usuários\juari.nascimento\Documents\Projetos\Inventários\barcode-app\imagens\image_6ca286.png"
+# Link direto para a imagem na raiz do repositório do GitHub e E-mail do Administrador
+URL_LOGO_GITHUB = "https://raw.githubusercontent.com/juar1nascimento/barcode/main/image_6ca286.png"
 EMAIL_ADMIN = "juari.neris@gmail.com"
 
 # Configurações do Servidor SMTP
-# Para envio via Gmail, utilize uma "Senha de App" gerada em sua conta Google.
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SMTP_USER = "juari.neris@gmail.com"  
@@ -176,9 +175,9 @@ if not st.session_state.autenticado:
     with col_centro:
         col_logo_esq, col_logo_centro, col_logo_dir = st.columns([1, 2, 1])
         with col_logo_centro:
-            if os.path.exists(CAMINHO_LOGO):
-                st.image(CAMINHO_LOGO, use_container_width=True)
-            else:
+            try:
+                st.image(URL_LOGO_GITHUB, use_container_width=True)
+            except Exception:
                 st.markdown(
                     """
                     <div style="text-align: center; margin-bottom: 20px;">
