@@ -31,8 +31,8 @@ EMAIL_ADMIN = "juari.neris@gmail.com"
 # Para envio via Gmail, utilize uma "Senha de App" gerada em sua conta Google.
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_USER = "seu_email_sistema@gmail.com"  
-SMTP_PASS = "sua_senha_de_app"
+SMTP_USER = "juari.neris@gmail.com"  
+SMTP_PASS = "yins muld czac rcsi"
 
 # ==========================================
 # GERENCIAMENTO DE ESTADO DA SESSÃO
