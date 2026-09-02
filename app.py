@@ -17,7 +17,7 @@ from login import renderizar_login
 # CONFIGURAÇÕES DA PÁGINA (Deve ser o 1º comando Streamlit)
 # ==========================================
 st.set_page_config(
-    page_title="Controle de Patrimônio - UBS Feu Rosa",
+    page_title="Controle de Patrimônio - GTI-SESA",
     page_icon="📦",
     layout="wide"
 )
@@ -28,17 +28,61 @@ st.set_page_config(
 if not renderizar_login():
     st.stop()
 
+# Inicialização da variável de navegação de páginas
+if "pagina_atual" not in st.session_state:
+    st.session_state.pagina_atual = "portal"
+
 # ==========================================
 # BARRA LATERAL (MENU E LOGOUT)
 # ==========================================
 with st.sidebar:
     st.markdown("### 👤 Usuário Autenticado")
+    
+    if st.session_state.pagina_atual == "inventario":
+        if st.button("🏠 Voltar ao Portal"):
+            st.session_state.pagina_atual = "portal"
+            st.rerun()
+
     if st.button("🚪 Sair do Sistema"):
         st.session_state.autenticado = False
+        st.session_state.pagina_atual = "portal"
         st.rerun()
 
 # ==========================================
-# CONFIGURAÇÕES E CONSTANTES DO SISTEMA
+# TELA INTERMEDIÁRIA (PORTAL DE SERVIÇOS)
+# ==========================================
+if st.session_state.pagina_atual == "portal":
+    st.title("🖥️ Portal de Sistemas GTI-SESA")
+    st.markdown("Bem-vindo ao painel central de aplicações. Escolha o sistema que deseja acessar:")
+    st.divider()
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        with st.container(border=True):
+            st.markdown("<h3 style='text-align: center;'>📦 Módulo de Inventário</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão, leitura de códigos de barra e controle de patrimônio.</p>", unsafe_allow_html=True)
+            st.write("")
+
+            # Link direto para a aplicação hospedada externamente
+            st.link_button(
+                "🚀 Acessar Sistema de Inventários (Link Externo)",
+                "https://barcode-prxfe2eu4o34ae9tpejqpc.streamlit.app/",
+                use_container_width=True,
+                type="primary"
+            )
+
+            st.write("")
+            
+            # Opção de navegação para a interface local
+            if st.button("📂 Abrir Inventário nesta Aba", use_container_width=True):
+                st.session_state.pagina_atual = "inventario"
+                st.rerun()
+
+    st.stop()
+
+# ==========================================
+# CONFIGURAÇÕES E CONSTANTES DO SISTEMA DE INVENTÁRIO
 # ==========================================
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
