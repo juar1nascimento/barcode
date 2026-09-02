@@ -25,15 +25,14 @@ st.set_page_config(
 
 # Caminho da imagem de logo e E-mail do Administrador
 CAMINHO_LOGO = r"D:\Usuários\juari.nascimento\Documents\Projetos\Inventários\barcode-app\imagens\image_6ca286.png"
-EMAIL_ADMIN = "juari.nascimento@serra.es.gov.br"
+EMAIL_ADMIN = "juari.neris@gmail.com"
 
 # Configurações do Servidor SMTP
-# NOTA: O endereço smtp.serra.es.gov.br só funciona dentro da rede interna da prefeitura.
-# Para o Streamlit Cloud na Web, utilize um SMTP externo válido ou altere as credenciais.
-SMTP_SERVER = "smtp.serra.es.gov.br"
+# Preencha com as credenciais reais da sua conta remetente se desejar enviar e-mails reais.
+SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_USER = "seu_email_sistema@serra.es.gov.br"  
-SMTP_PASS = "sua_senha_ou_token"
+SMTP_USER = "seu_email_sistema@gmail.com"  
+SMTP_PASS = "sua_senha_de_app"
 
 # ==========================================
 # GERENCIAMENTO DE ESTADO DA SESSÃO
@@ -47,7 +46,7 @@ if "tela_atual" not in st.session_state:
 # Base de usuários cadastrados
 if "usuarios_db" not in st.session_state:
     st.session_state.usuarios_db = {
-        "juari.nascimento@serra.es.gov.br": "abc12345"
+        "juari.neris@gmail.com": "abc12345"
     }
 
 # Fila de solicitações pendentes de aprovação
@@ -90,8 +89,7 @@ def validar_senha_alfanumerica(senha: str) -> bool:
 
 def enviar_email_smtp(destinatario: str, assunto: str, corpo_html: str) -> bool:
     """Envia um e-mail em formato HTML usando o servidor SMTP."""
-    if "seu_email_sistema" in SMTP_USER:
-        st.warning("⚠️ As credenciais de SMTP_USER/SMTP_PASS não foram configuradas.")
+    if "seu_email_sistema" in SMTP_USER or "sua_senha" in SMTP_PASS:
         return False
 
     msg = MIMEMultipart()
@@ -108,11 +106,10 @@ def enviar_email_smtp(destinatario: str, assunto: str, corpo_html: str) -> bool:
         server.quit()
         return True
     except Exception as e:
-        st.error(f"Erro no envio do e-mail via SMTP: {e}")
         return False
 
 def enviar_alerta_aprovacao_admin(email_solicitante: str) -> bool:
-    """Gera os links de callback e envia a mensagem para o e-mail do administrador."""
+    """Gera os links de callback e envia a mensagem para juari.neris@gmail.com"""
     base_url = "https://barcode-prxfe2eu4o34ae9tpejqpc.streamlit.app" 
     
     link_aprovar = f"{base_url}/?acao=aprovar&user={email_solicitante}"
@@ -133,22 +130,11 @@ def enviar_alerta_aprovacao_admin(email_solicitante: str) -> bool:
     </html>
     """
     
-    sucesso = enviar_email_smtp(
+    return enviar_email_smtp(
         destinatario=EMAIL_ADMIN,
         assunto="[AUTORIZAÇÃO NECESSÁRIA] Solicitação de Cadastro de Usuário",
         corpo_html=corpo_html
     )
-
-    # Caso o envio via rede falhe, permite ao administrador testar a aprovação localmente
-    if not sucesso:
-        st.info("💡 **Aprovação Direta (Modo de Contingência Cloud):**")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"[✅ Aprovar {email_solicitante}]({link_aprovar})")
-        with col2:
-            st.markdown(f"[❌ Recusar {email_solicitante}]({link_recusar})")
-
-    return sucesso
 
 # ==========================================
 # SISTEMA DE AUTENTICAÇÃO E RECUPERAÇÃO DE ACESSO
@@ -241,12 +227,10 @@ if not st.session_state.autenticado:
                         st.error("As senhas digitadas não coincidem.")
                     else:
                         st.session_state.solicitacoes_pendentes[email_login.strip()] = nova_senha
-                        enviado = enviar_alerta_aprovacao_admin(email_login.strip())
+                        enviar_alerta_aprovacao_admin(email_login.strip())
                         
-                        if enviado:
-                            st.success(f"Solicitação registrada! Um e-mail para autorização foi direcionado para **{EMAIL_ADMIN}**.")
-                        else:
-                            st.warning("Solicitação pendente registrada internamente no sistema.")
+                        st.success(f"Solicitação registrada! Um e-mail para autorização foi direcionado para **{EMAIL_ADMIN}**.")
+                        st.session_state.tela_atual = "login"
 
         # ------------------------------------------
         # TELA 3: LOGIN PRINCIPAL
@@ -256,7 +240,7 @@ if not st.session_state.autenticado:
                 st.markdown("<h4 style='text-align: center; color: #1a2b4c; margin-bottom: 20px;'>Faça login na sua conta</h4>", unsafe_allow_html=True)
                 st.divider()
                 
-                usuario = st.text_input("Usuário (E-mail)", value="juari.nascimento@serra.es.gov.br")
+                usuario = st.text_input("Usuário (E-mail)", value="juari.neris@gmail.com")
                 
                 col_label1, col_label2 = st.columns([1, 1])
                 with col_label1:
