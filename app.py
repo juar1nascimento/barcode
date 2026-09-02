@@ -109,8 +109,8 @@ def enviar_email_smtp(destinatario: str, assunto: str, corpo_html: str) -> bool:
 
 def enviar_alerta_aprovacao_admin(email_solicitante: str):
     """Gera os links de callback e envia a mensagem para juari.nascimento@serra.es.gov.br"""
-    # Ajuste o endereço base do servidor conforme o ambiente de produção
-    base_url = "http://localhost:8501" 
+    # Endereço base de produção do app na web
+    base_url = "https://barcode-prxfe2eu4o34ae9tpejqpc.streamlit.app" 
     
     link_aprovar = f"{base_url}/?acao=aprovar&user={email_solicitante}"
     link_recusar = f"{base_url}/?acao=recusar&user={email_solicitante}"
