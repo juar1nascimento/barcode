@@ -28,7 +28,7 @@ CAMINHO_LOGO = r"D:\Usuários\juari.nascimento\Documents\Projetos\Inventários\b
 EMAIL_ADMIN = "juari.neris@gmail.com"
 
 # Configurações do Servidor SMTP
-# Preencha com as credenciais reais da sua conta remetente se desejar enviar e-mails reais.
+# Para envio via Gmail, utilize uma "Senha de App" gerada em sua conta Google.
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SMTP_USER = "seu_email_sistema@gmail.com"  
@@ -43,11 +43,9 @@ if "autenticado" not in st.session_state:
 if "tela_atual" not in st.session_state:
     st.session_state.tela_atual = "login"
 
-# Base de usuários cadastrados
+# Base de usuários cadastrados (Inicia vazia pois o sistema é novo)
 if "usuarios_db" not in st.session_state:
-    st.session_state.usuarios_db = {
-        "juari.neris@gmail.com": "abc12345"
-    }
+    st.session_state.usuarios_db = {}
 
 # Fila de solicitações pendentes de aprovação
 if "solicitacoes_pendentes" not in st.session_state:
@@ -58,9 +56,15 @@ if "email_recuperacao_temp" not in st.session_state:
     st.session_state.email_recuperacao_temp = ""
 
 # ==========================================
-# PROCESSAMENTO DE APROVAÇÃO/RECUSA VIA LINK DE E-MAIL
+# PROCESSAMENTO DE AÇÕES VIA QUERY PARAMS / LINKS
 # ==========================================
 query_params = st.query_params
+
+if "page" in query_params:
+    if query_params["page"] == "esqueci_senha":
+        st.session_state.tela_atual = "esqueci_senha"
+        st.query_params.clear()
+
 if "acao" in query_params and "user" in query_params:
     acao = query_params["acao"]
     usuario_alvo = query_params["user"]
@@ -87,10 +91,10 @@ def validar_senha_alfanumerica(senha: str) -> bool:
     """Valida se a senha possui exatamente 8 caracteres alfanuméricos."""
     return len(senha) == 8 and senha.isalnum() and not senha.isalpha() and not senha.isdigit()
 
-def enviar_email_smtp(destinatario: str, assunto: str, corpo_html: str) -> bool:
+def enviar_email_smtp(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool, str]:
     """Envia um e-mail em formato HTML usando o servidor SMTP."""
     if "seu_email_sistema" in SMTP_USER or "sua_senha" in SMTP_PASS:
-        return False
+        return False, "As credenciais de remetente SMTP não foram preenchidas no código."
 
     msg = MIMEMultipart()
     msg['From'] = SMTP_USER
@@ -104,11 +108,11 @@ def enviar_email_smtp(destinatario: str, assunto: str, corpo_html: str) -> bool:
         server.login(SMTP_USER, SMTP_PASS)
         server.sendmail(SMTP_USER, destinatario, msg.as_string())
         server.quit()
-        return True
+        return True, "E-mail enviado com sucesso!"
     except Exception as e:
-        return False
+        return False, str(e)
 
-def enviar_alerta_aprovacao_admin(email_solicitante: str) -> bool:
+def enviar_alerta_aprovacao_admin(email_solicitante: str) -> tuple[bool, str]:
     """Gera os links de callback e envia a mensagem para juari.neris@gmail.com"""
     base_url = "https://barcode-prxfe2eu4o34ae9tpejqpc.streamlit.app" 
     
@@ -156,6 +160,13 @@ if not st.session_state.autenticado:
     div.stButton > button:hover {
         background-color: #404040;
         color: white;
+    }
+    .link-esqueci {
+        color: #0066cc;
+        text-decoration: underline;
+        font-size: 14px;
+        cursor: pointer;
+        float: right;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -227,9 +238,13 @@ if not st.session_state.autenticado:
                         st.error("As senhas digitadas não coincidem.")
                     else:
                         st.session_state.solicitacoes_pendentes[email_login.strip()] = nova_senha
-                        enviar_alerta_aprovacao_admin(email_login.strip())
+                        sucesso_envio, msg_erro = enviar_alerta_aprovacao_admin(email_login.strip())
                         
-                        st.success(f"Solicitação registrada! Um e-mail para autorização foi direcionado para **{EMAIL_ADMIN}**.")
+                        if sucesso_envio:
+                            st.success(f"Solicitação registrada! Um e-mail para autorização foi enviado com sucesso para **{EMAIL_ADMIN}**.")
+                        else:
+                            st.warning(f"Solicitação registrada internamente. Falha no disparo do e-mail SMTP: {msg_erro}")
+                        
                         st.session_state.tela_atual = "login"
 
         # ------------------------------------------
@@ -240,17 +255,15 @@ if not st.session_state.autenticado:
                 st.markdown("<h4 style='text-align: center; color: #1a2b4c; margin-bottom: 20px;'>Faça login na sua conta</h4>", unsafe_allow_html=True)
                 st.divider()
                 
-                usuario = st.text_input("Usuário (E-mail)", value="juari.neris@gmail.com")
+                usuario = st.text_input("Usuário (E-mail)", value="", placeholder="Seu e-mail")
                 
                 col_label1, col_label2 = st.columns([1, 1])
                 with col_label1:
                     st.markdown("<span style='font-size: 14px;'>Senha</span>", unsafe_allow_html=True)
                 with col_label2:
-                    if st.button("Esqueceu sua senha?", key="link_esqueci_texto", type="tertiary"):
-                        st.session_state.tela_atual = "esqueci_senha"
-                        st.rerun()
+                    st.markdown("<a href='?page=esqueci_senha' target='_self' class='link-esqueci'>Esqueceu sua senha?</a>", unsafe_allow_html=True)
                 
-                senha = st.text_input("Senha (oculto)", type="password", label_visibility="collapsed")
+                senha = st.text_input("Senha (oculto)", type="password", label_visibility="collapsed", placeholder="Sua senha")
                 origem = st.selectbox("Origem de login", ["SERRA.LOCAL"])
                 
                 st.write("")
