@@ -362,7 +362,6 @@ if "saved_descricao" not in st.session_state:
 # INTERFACE PRINCIPAL
 # ==========================================
 st.title("📦 Controle de Patrimônio GTI-SESA")
-st.caption(f"☁️ Sincronizado com `{ARQUIVO_EXCEL}` e Google Sheets")
 st.divider()
 
 st.subheader("1. Selecione o Local e a Coluna")
