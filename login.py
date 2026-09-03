@@ -157,8 +157,8 @@ def renderizar_login() -> bool:
                 text-align: center; font-size: 20px; font-weight: 600; color: #24292e; margin-bottom: 25px;
             }
             button[kind="tertiary"] {
-                float: right !important; font-size: 12px !important; color: #0056b3 !important;
-                text-decoration: underline !important; margin-top: -15px !important; margin-bottom: 10px !important;
+                float: left !important; font-size: 12px !important; color: #24292e !important;
+                text-decoration: underline !important; margin-top: -10px !important; margin-bottom: 15px !important;
                 padding: 0 !important; height: auto !important; background: transparent !important; border: none !important;
             }
             div[data-baseweb="input"] {
@@ -208,7 +208,6 @@ def renderizar_login() -> bool:
                     else:
                         st.error("Por favor, informe um e-mail com formato válido.")
 
-            # Botão de navegação fora do formulário
             if st.button("← Voltar ao Login", use_container_width=True, key="btn_voltar_solicitar"):
                 st.session_state.tela_atual = "login"
                 st.rerun()
@@ -248,7 +247,6 @@ def renderizar_login() -> bool:
                         if not senha_ok:
                             st.error(msg_erro)
                         else:
-                            # Atualiza/Insere o usuário na base interna como NÃO APROVADO
                             db = carregar_usuarios()
                             db[novo_user_clean] = {
                                 "senha": hash_senha(nova_senha),
@@ -259,14 +257,12 @@ def renderizar_login() -> bool:
                             admin_email = st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)
                             app_url = st.secrets.get("email", {}).get("app_url", "http://localhost:8501").rstrip("/")
 
-                            # Codifica os parâmetros com segurança para a URL
                             params_aprovar = urllib.parse.urlencode({"acao": "aprovar", "usuario": novo_user_clean})
                             params_recusar = urllib.parse.urlencode({"acao": "recusar", "usuario": novo_user_clean})
 
                             link_aprovar = f"{app_url}/?{params_aprovar}"
                             link_recusar = f"{app_url}/?{params_recusar}"
 
-                            # Notificação enviada ao Administrador com os Botões de Ação
                             corpo_admin = f"""
                             <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
                                 <h3 style="color: #1b8e42;">Alerta de Novo Usuário / Solicitação de Cadastro</h3>
@@ -286,7 +282,6 @@ def renderizar_login() -> bool:
                             st.success(f"Solicitação enviada com sucesso! Um e-mail com os botões de autorização foi encaminhado para {admin_email}.")
                             st.session_state.tela_atual = "login"
 
-            # Botão de navegação fora do formulário
             if st.button("← Cancelar", use_container_width=True, key="btn_cancelar_criar"):
                 st.session_state.tela_atual = "login"
                 st.rerun()
@@ -304,6 +299,11 @@ def renderizar_login() -> bool:
                 st.write("**Senha**")
                 senha = st.text_input("Senha", value="", type="password", label_visibility="collapsed", key="login_pass")
 
+                # Link alinhado no canto esquerdo abaixo da senha
+                if st.form_submit_button("Esqueceu sua senha?", type="tertiary"):
+                    st.session_state.tela_atual = "redefinicao_solicitar"
+                    st.rerun()
+
                 st.write("**Origem de login**")
                 origem = st.selectbox("Origem de login", ["SERRA.LOCAL", "BANCO DE DADOS INTERNO"], label_visibility="collapsed", key="login_domain")
 
@@ -317,16 +317,13 @@ def renderizar_login() -> bool:
                     else:
                         db = carregar_usuarios()
                         
-                        # Regra 1: Valida se o e-mail está cadastrado no sistema
                         if user_clean not in db:
                             st.session_state.erro_login_msg = "Acesso negado: Este e-mail não está cadastrado no sistema"
                         else:
                             dados_user = db[user_clean]
                             
-                            # Regra 2: Valida se o e-mail cadastrado já possui autorização
                             if not dados_user.get("aprovado", False):
                                 st.session_state.erro_login_msg = "Seu e-mail está cadastrado, porém ainda aguarda AUTORIZAÇÃO do administrador"
-                            # Regra 3: Valida a senha (hash ou padrão)
                             elif dados_user.get("senha") != hash_senha(senha) and dados_user.get("senha") != senha:
                                 st.session_state.erro_login_msg = "Uso inválido de ID de sessão ou credenciais incorretas"
                             else:
@@ -335,12 +332,6 @@ def renderizar_login() -> bool:
                                 st.session_state.erro_login_msg = None
                                 st.rerun()
 
-            # Botão de navegação fora do st.form para evitar conflitos de submissão
-            if st.button("Esqueceu sua senha?", type="tertiary", key="btn_esqueceu_senha_login"):
-                st.session_state.tela_atual = "redefinicao_solicitar"
-                st.rerun()
-
-            # Exibição das mensagens de erro
             if st.session_state.get("erro_login_msg"):
                 st.markdown(f"""
                     <div class="error-box">
