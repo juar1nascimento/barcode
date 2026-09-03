@@ -22,7 +22,7 @@ def renderizar_card_entrada(lista_urs, lista_ubs):
 
 
 def atualizar_numero_patrimonio():
-    """Função callback para sincronizar o código bipado com o campo 'Número de Patrimônio'"""
+    """Sincroniza o número lido pelo leitor no campo 'Número de Patrimônio'"""
     st.session_state.numero_patrimonio_val = st.session_state.input_bip_patrimonio
 
 
@@ -31,7 +31,6 @@ def renderizar_sistema_entrada():
     st.markdown("Módulo para registro de recebimento e alocação de novos equipamentos nas unidades.")
     st.divider()
     
-    # Inicialização da variável de estado para o Número de Patrimônio
     if "numero_patrimonio_val" not in st.session_state:
         st.session_state.numero_patrimonio_val = ""
 
@@ -41,14 +40,14 @@ def renderizar_sistema_entrada():
     st.subheader("1. Informações do Recebimento")
     c1, c2 = st.columns(2)
     with c1:
-        # Campo atualizado com preenchimento automático via session_state
+        # Texto atualizado para 'Número de Patrimônio:'
         num_patrimonio = st.text_input(
             "Número de Patrimônio:", 
             value=st.session_state.numero_patrimonio_val, 
             placeholder="Aguardando bipagem ou digitação...", 
             key="input_num_patrimonio"
         )
-        # Campo atualizado para "Setor de origem:"
+        # Texto atualizado para 'Setor de origem:'
         setor_origem = st.text_input("Setor de origem:", placeholder="Ex: Almoxarifado Central")
         
     with c2:
@@ -56,7 +55,7 @@ def renderizar_sistema_entrada():
         st.date_input("Data de Recebimento")
 
     st.subheader("2. Código de Patrimônio do Equipamento")
-    # Campo de leitura que dispara a sincronização automática ao bipar
+    # Dispara atualização automática do campo 'Número de Patrimônio' ao bipar
     codigo_entrada = st.text_input(
         "Bipe ou digite o código do patrimônio:", 
         placeholder="Aguardando bipagem...", 
@@ -68,7 +67,6 @@ def renderizar_sistema_entrada():
         valor_final = num_patrimonio.strip() or codigo_entrada.strip()
         if valor_final:
             st.success(f"Equipamento com Patrimônio `{valor_final}` registrado com sucesso no setor **{setor_atual}**!")
-            # Limpa o valor após a confirmação
             st.session_state.numero_patrimonio_val = ""
         else:
             st.warning("Informe ou bipe o código do equipamento antes de confirmar.")
