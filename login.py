@@ -156,10 +156,25 @@ def renderizar_login() -> bool:
             .login-title {
                 text-align: center; font-size: 20px; font-weight: 600; color: #24292e; margin-bottom: 25px;
             }
+            /* Regra corrigida para alinhar o botão/link à direita */
             button[kind="tertiary"] {
-                float: right !important; font-size: 12px !important; color: #24292e !important;
-                text-decoration: underline !important; margin-top: -10px !important; margin-bottom: 15px !important;
-                padding: 0 !important; height: auto !important; background: transparent !important; border: none !important;
+                display: flex !important;
+                justify-content: flex-end !important;
+                width: 100% !important;
+                margin-left: auto !important;
+                font-size: 12px !important;
+                color: #24292e !important;
+                text-decoration: underline !important;
+                margin-top: -10px !important;
+                margin-bottom: 15px !important;
+                padding: 0 !important;
+                height: auto !important;
+                background: transparent !important;
+                border: none !important;
+            }
+            button[kind="tertiary"] div, button[kind="tertiary"] p {
+                justify-content: flex-end !important;
+                text-align: right !important;
             }
             div[data-baseweb="input"] {
                 background-color: #f4f6f8 !important; border: 1px solid #d1d5da !important; border-radius: 4px !important;
