@@ -318,16 +318,25 @@ st.divider()
 # --- PROCESSA BEEP VIA QUERY PARAMS ---
 query_params = st.query_params
 if "scanned_code" in query_params:
-    codigo_auto = query_params.get("scanned_code")
-    setor_param = query_params.get("setor", st.session_state.saved_setor)
-    descricao_param = query_params.get("coluna", st.session_state.saved_descricao)
-    
-    st.query_params.clear()  # Limpa o parâmetro da URL imediatamente
-    
-    if codigo_auto and setor_param.strip() and descricao_param.strip():
+    codigo_auto = str(query_params.get("scanned_code", "")).strip()
+    setor_param = str(query_params.get("setor", st.session_state.saved_setor)).strip()
+    descricao_param = str(query_params.get("coluna", st.session_state.saved_descricao)).strip()
+
+    # Limpa os parâmetros somente depois de capturá-los.
+    st.query_params.clear()
+
+    if codigo_auto and setor_param and descricao_param:
         adicionar_e_salvar(codigo_auto, descricao_param, setor_param)
-        st.toast(f"⚡ Código `{codigo_auto}` bipado e registrado com sucesso!", icon="✅")
+        st.toast(
+            f"⚡ Código `{codigo_auto}` bipado pela câmera e registrado com sucesso!",
+            icon="✅"
+        )
         st.rerun()
+    elif codigo_auto:
+        st.error(
+            "O código foi lido pela câmera, mas o Local / Setor ou a "
+            "Descrição não foi informado. Preencha os campos e tente novamente."
+        )
 
 # --- CAPTURA E REGISTRO ---
 st.subheader("2. Realize a Leitura do Código")
@@ -421,16 +430,29 @@ else:
 
                         emitBeep();
 
-                        // Envia o parâmetro via URL principal com setor e coluna embutidos
+                        // Envia o código para a página principal do Streamlit.
+                        // O scanner está dentro do iframe criado por st.components.v1.html.
+                        // window.parent é usado para navegar a página que contém o app.
+                        // URLSearchParams já faz a codificação; não usar encodeURIComponent.
                         try {{
-                            const topUrl = new URL(window.top.location.href);
-                            topUrl.searchParams.set("scanned_code", decodedText);
-                            topUrl.searchParams.set("setor", encodeURIComponent("{setor_input.strip()}"));
-                            topUrl.searchParams.set("coluna", encodeURIComponent("{descricao_final.strip()}"));
-                            topUrl.searchParams.set("ts", now);
-                            window.top.location.href = topUrl.toString();
+                            const parentUrl = new URL(window.parent.location.href);
+                            parentUrl.searchParams.set("scanned_code", decodedText);
+                            parentUrl.searchParams.set("setor", "{setor_input.strip()}");
+                            parentUrl.searchParams.set("coluna", "{descricao_final.strip()}");
+                            parentUrl.searchParams.set("ts", String(now));
+                            window.parent.location.href = parentUrl.toString();
                         }} catch(e) {{
-                            window.parent.postMessage({{ type: "scanned_code", value: decodedText }}, "*");
+                            console.error("Falha ao enviar código ao Streamlit:", e);
+                            try {{
+                                const fallbackUrl = new URL(document.referrer || window.location.href);
+                                fallbackUrl.searchParams.set("scanned_code", decodedText);
+                                fallbackUrl.searchParams.set("setor", "{setor_input.strip()}");
+                                fallbackUrl.searchParams.set("coluna", "{descricao_final.strip()}");
+                                fallbackUrl.searchParams.set("ts", String(now));
+                                window.parent.location.href = fallbackUrl.toString();
+                            }} catch(e2) {{
+                                console.error("Falha no fallback:", e2);
+                            }}
                         }}
                     }}
 
