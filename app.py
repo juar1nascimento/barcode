@@ -289,30 +289,32 @@ opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
 col_desc1, col_desc2, col_desc3 = st.columns(3)
 
 with col_desc1:
-    setor_input = st.text_input("Local / Setor:", placeholder="Ex: Consultório 1, Recepção...")
+    setor_input = st.text_input("Local / Setor:", placeholder="Ex: Consultório 1, Recepção...", key="setor_input_key")
 
 with col_desc2:
     opcao_selecionada = st.selectbox(
         "Selecione a coluna de destino:",
-        opcoes_patrimonio
+        opcoes_patrimonio,
+        key="opcao_selecionada_key"
     )
 
 with col_desc3:
     if opcao_selecionada == "➕ Outra descrição (Criar nova coluna ao final)":
-        descricao_final = st.text_input("Digite o nome da nova coluna:", placeholder="Ex: Patrimônio Impressora")
+        descricao_final = st.text_input("Digite o nome da nova coluna:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
     else:
         descricao_final = opcao_selecionada
 
 st.divider()
 
-# --- RECEPTOR DE BEEP DA CÂMERA AUTOMÁTICA (URL PARAMETERS) ---
-if "scanned_code" in st.query_params:
-    codigo_auto = st.query_params["scanned_code"]
-    del st.query_params["scanned_code"]
+# --- PROCESSA BEEP VIO QUERY PARAMS ---
+query_params = st.query_params
+if "scanned_code" in query_params:
+    codigo_auto = query_params["scanned_code"]
+    st.query_params.clear()  # Limpa o parâmetro da URL imediatamente
     
     if codigo_auto and setor_input.strip() and descricao_final:
         adicionar_e_salvar(codigo_auto, descricao_final, setor_input)
-        st.toast(f"⚡ Código `{codigo_auto}` bipado e registrado automaticamente!", icon="✅")
+        st.toast(f"⚡ Código `{codigo_auto}` bipado e registrado com sucesso!", icon="✅")
         st.rerun()
 
 # --- CAPTURA E REGISTRO ---
@@ -407,11 +409,16 @@ else:
 
                         emitBeep();
 
-                        // Envia o código lido para a URL do Streamlit em tempo real
-                        const parentUrl = new URL(window.parent.location.href);
-                        parentUrl.searchParams.set("scanned_code", decodedText);
-                        parentUrl.searchParams.set("ts", now);
-                        window.parent.location.href = parentUrl.href;
+                        // Envia o parâmetro via window.top sem recarregar e quebrar sessões
+                        try {
+                            const topUrl = new URL(window.top.location.href);
+                            topUrl.searchParams.set("scanned_code", decodedText);
+                            topUrl.searchParams.set("ts", now);
+                            window.top.location.search = topUrl.searchParams.toString();
+                        } catch(e) {
+                            // Fallback para navegadores com políticas de Iframe rígidas
+                            window.parent.postMessage({ type: "scanned_code", value: decodedText }, "*");
+                        }
                     }
 
                     const html5QrCode = new Html5Qrcode("reader");
@@ -421,7 +428,6 @@ else:
                         aspectRatio: 1.333333
                     };
 
-                    // Força o uso da câmera traseira do celular ("environment")
                     html5QrCode.start(
                         { facingMode: "environment" }, 
                         config, 
