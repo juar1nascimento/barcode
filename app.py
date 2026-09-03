@@ -236,7 +236,6 @@ def processar_imagem(image_file) -> tuple:
         resultados = []
 
         for barcode in barcodes:
-            # Tratamento seguro dos pontos do retângulo da imagem
             if hasattr(barcode, 'position') and barcode.position:
                 try:
                     pos = barcode.position
@@ -254,7 +253,7 @@ def processar_imagem(image_file) -> tuple:
                         pts = np.array(pts_list, np.int32).reshape((-1, 1, 2))
                         cv2.polylines(img_rgb, [pts], True, (0, 255, 0), 3)
                 except Exception:
-                    pass  # Se falhar ao desenhar a borda visual, preserva a leitura do código sem travar
+                    pass
 
             resultados.append({
                 "codigo": barcode.text, 
@@ -306,6 +305,16 @@ with col_desc3:
 
 st.divider()
 
+# --- RECEPTOR DE BEEP DA CÂMERA AUTOMÁTICA (URL PARAMETERS) ---
+if "scanned_code" in st.query_params:
+    codigo_auto = st.query_params["scanned_code"]
+    del st.query_params["scanned_code"]
+    
+    if codigo_auto and setor_input.strip() and descricao_final:
+        adicionar_e_salvar(codigo_auto, descricao_final, setor_input)
+        st.toast(f"⚡ Código `{codigo_auto}` bipado e registrado automaticamente!", icon="✅")
+        st.rerun()
+
 # --- CAPTURA E REGISTRO ---
 st.subheader("2. Realize a Leitura do Código")
 
@@ -313,12 +322,12 @@ if not descricao_final or not setor_input.strip():
     st.warning("⚠️ Por favor, preencha o **Local / Setor** e selecione ou informe a **Descrição** antes de realizar a leitura.")
 else:
     tab_unificada, tab_upload = st.tabs([
-        "🔌 Leitor USB Bematech / Digitação / 📱 Câmera", 
+        "🔌 Leitor USB Bematech / Digitação / 📱 Câmera Automática", 
         "📁 Upload de Imagem"
     ])
 
     # ==========================================
-    # ABA UNIFICADA: SCANNER USB, DIGITAÇÃO E CÂMERA
+    # ABA UNIFICADA: SCANNER USB, DIGITAÇÃO E CÂMERA AUTOMÁTICA
     # ==========================================
     with tab_unificada:
         st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
@@ -341,37 +350,93 @@ else:
                     adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
                     st.success(f"✅ Código `{codigo_input.strip()}` registrado em **'{descricao_final}'**!")
 
-        # BLOCO 2: Captura pela Câmera do Celular / Computador
+        # BLOCO 2: Bipagem Automática pela Câmera (Sem Clicar)
         with col_camera:
-            st.markdown("##### 📱 Bipagem pela Câmera (Celular / Webcam)")
-            camera_image = st.camera_input("Tire foto do código de barras", key="camera_unificada_input")
+            st.markdown("##### 📱 Bipagem Automática via Câmera do Celular")
+            st.caption("Aproxime a câmera do código de barras. A leitura e gravação acontecem instantaneamente.")
 
-            if camera_image is not None:
-                bytes_data = camera_image.getvalue()
-                hash_imagem = hashlib.sha256(bytes_data).hexdigest()
+            # Componente de Leitura Contínua via HTML5-QRCode
+            html_scanner = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+                <style>
+                    #reader {
+                        width: 100%;
+                        max-width: 450px;
+                        margin: 0 auto;
+                        border-radius: 8px;
+                        overflow: hidden;
+                        border: 2px solid #1F4E78;
+                    }
+                    #reader video {
+                        object-fit: cover;
+                    }
+                </style>
+            </head>
+            <body>
+                <div id="reader"></div>
+                <script>
+                    let lastCode = "";
+                    let lastTime = 0;
 
-                # Processa apenas fotos novas para evitar duplicações no rerun
-                if st.session_state.get("last_camera_hash") != hash_imagem:
-                    img_processada, codigos_encontrados = processar_imagem(camera_image)
-                    st.session_state["last_camera_hash"] = hash_imagem
-                    st.session_state["last_camera_img"] = img_processada
-                    st.session_state["last_camera_codes"] = codigos_encontrados
+                    function emitBeep() {
+                        try {
+                            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                            const osc = ctx.createOscillator();
+                            const gain = ctx.createGain();
+                            osc.type = "sine";
+                            osc.frequency.value = 1200;
+                            gain.gain.value = 0.25;
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            osc.start();
+                            setTimeout(() => osc.stop(), 120);
+                        } catch(e) { console.log(e); }
+                    }
 
-                    if codigos_encontrados:
-                        for item in codigos_encontrados:
-                            adicionar_e_salvar(item['codigo'], descricao_final, setor_input)
+                    function onScanSuccess(decodedText, decodedResult) {
+                        const now = Date.now();
+                        // Evita bipar o mesmo código repetidamente dentro de 3 segundos
+                        if (decodedText === lastCode && (now - lastTime) < 3000) {
+                            return;
+                        }
+                        lastCode = decodedText;
+                        lastTime = now;
 
-                # Feedback visual da foto tirada
-                if "last_camera_img" in st.session_state and st.session_state["last_camera_img"] is not None:
-                    codigos = st.session_state.get("last_camera_codes", [])
-                    if codigos:
-                        st.success(f"🎉 {len(codigos)} código(s) lido(s) pela câmera!")
-                        for item in codigos:
-                            st.write(f"**Código:** `{item['codigo']}` | **Tipo:** `{item['tipo']}`")
-                    else:
-                        st.error("❌ Nenhum código legível encontrado na foto. Ajuste o foco e a iluminação.")
+                        emitBeep();
 
-        # Script JS: Cancela atalhos de download do leitor USB e mantém o foco
+                        // Envia o código lido para a URL do Streamlit em tempo real
+                        const parentUrl = new URL(window.parent.location.href);
+                        parentUrl.searchParams.set("scanned_code", decodedText);
+                        parentUrl.searchParams.set("ts", now);
+                        window.parent.location.href = parentUrl.href;
+                    }
+
+                    const html5QrCode = new Html5Qrcode("reader");
+                    const config = { 
+                        fps: 15, 
+                        qrbox: { width: 260, height: 150 },
+                        aspectRatio: 1.333333
+                    };
+
+                    // Força o uso da câmera traseira do celular ("environment")
+                    html5QrCode.start(
+                        { facingMode: "environment" }, 
+                        config, 
+                        onScanSuccess
+                    ).catch(err => {
+                        document.getElementById("reader").innerHTML = 
+                            "<p style='color:#721c24; background-color:#f8d7da; padding:12px; border-radius:5px; text-align:center;'>⚠️ Permita o acesso à câmera no navegador para realizar a bipagem automática.</p>";
+                    });
+                </script>
+            </body>
+            </html>
+            """
+            st.components.v1.html(html_scanner, height=360)
+
+        # Script JS: Cancela atalhos do leitor USB e mantém o foco no input
         st.components.v1.html(
             """
             <script>
