@@ -19,8 +19,63 @@ from login import renderizar_login
 st.set_page_config(
     page_title="Controle de Patrimônio - GTI-SESA",
     page_icon="📦",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"  # Menu recolhido por padrão no celular para ganhar área útil
 )
+
+# ==========================================
+# CSS CUSTOMIZADO PARA AUTOAJUSTE EM CELULARES
+# ==========================================
+st.markdown("""
+    <style>
+        /* Ajustes Globais para Telas Pequenas (Mobile) */
+        @media (max-width: 768px) {
+            .main .block-container {
+                padding-left: 0.6rem !important;
+                padding-right: 0.6rem !important;
+                padding-top: 1rem !important;
+                padding-bottom: 2rem !important;
+            }
+            h1 {
+                font-size: 1.5rem !important;
+                text-align: center;
+            }
+            h2 {
+                font-size: 1.2rem !important;
+            }
+            h3 {
+                font-size: 1.05rem !important;
+            }
+            /* Previne zoom automático do Safari no iOS ao focar em inputs */
+            input, select, textarea {
+                font-size: 16px !important;
+            }
+            /* Botões grandes e fáceis de tocar com o polegar */
+            .stButton > button, .stDownloadButton > button {
+                width: 100% !important;
+                min-height: 48px !important;
+                font-size: 16px !important;
+                font-weight: bold !important;
+                border-radius: 8px !important;
+            }
+            /* Ajuste visual das abas */
+            .stTabs [data-baseweb="tab-list"] {
+                gap: 2px !important;
+            }
+            .stTabs [data-baseweb="tab"] {
+                padding: 8px 12px !important;
+                font-size: 13px !important;
+            }
+        }
+
+        /* Container do Scanner de Câmera Fluido */
+        .scanner-wrapper {
+            width: 100%;
+            max-width: 100%;
+            margin: auto;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # ==========================================
 # VERIFICAÇÃO DE AUTENTICAÇÃO E LOGIN
@@ -280,31 +335,32 @@ if "saved_descricao" not in st.session_state:
 # ==========================================
 # INTERFACE PRINCIPAL
 # ==========================================
-st.title("📦 Sistema de Controle de Patrimônio GTI-SESA")
-st.markdown(f"**Sincronização Ativa:** Salvando em `{ARQUIVO_EXCEL}` e no **Google Sheets**")
+st.title("📦 Controle de Patrimônio GTI-SESA")
+st.caption(f"☁️ Sincronizado com `{ARQUIVO_EXCEL}` e Google Sheets")
 st.divider()
 
-st.subheader("1. Selecione ou Digite a Descrição do Patrimônio")
+st.subheader("1. Selecione o Local e a Coluna")
 
 opcoes_patrimonio = [col for col in st.session_state.df_historico.columns if col != "Local / Setor"]
 opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
 
-col_desc1, col_desc2, col_desc3 = st.columns(3)
+# Utiliza layout responsivo para formulários de entrada
+col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
 
 with col_desc1:
-    setor_input = st.text_input("Local / Setor:", value=st.session_state.saved_setor, placeholder="Ex: Consultório 1, Recepção...", key="setor_input_key")
+    setor_input = st.text_input("Local / Setor:", value=st.session_state.saved_setor, placeholder="Ex: Consultório 1...", key="setor_input_key")
     st.session_state.saved_setor = setor_input
 
 with col_desc2:
     opcao_selecionada = st.selectbox(
-        "Selecione a coluna de destino:",
+        "Coluna de destino:",
         opcoes_patrimonio,
         key="opcao_selecionada_key"
     )
 
 with col_desc3:
     if opcao_selecionada == "➕ Outra descrição (Criar nova coluna ao final)":
-        descricao_final = st.text_input("Digite o nome da nova coluna:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
+        descricao_final = st.text_input("Nome da nova coluna:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
     else:
         descricao_final = opcao_selecionada
     
@@ -315,56 +371,74 @@ st.divider()
 st.subheader("2. Realize a Leitura do Código")
 
 if not descricao_final or not setor_input.strip():
-    st.warning("⚠️ Por favor, preencha o **Local / Setor** e selecione ou informe a **Descrição** antes de realizar a leitura.")
+    st.warning("⚠️ Preencha o **Local / Setor** e selecione a **Coluna de Destino** para ativar o leitor.")
 else:
     tab_unificada, tab_upload = st.tabs([
-        "🔌 Scanner USB / Digitação / ⚡ Câmera Ultra-Rápida", 
+        "⚡ Câmera do Celular / Scanner USB", 
         "📁 Upload de Imagem"
     ])
 
     with tab_unificada:
-        st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
+        st.markdown(f"📍 Setor: **`{setor_input}`** | Coluna: **`{descricao_final}`**")
         
-        col_usb, col_camera = st.columns(2)
-
-        with col_usb:
-            st.markdown("##### 🔌 Bipagem Scanner USB / Digitação Manual")
-            with st.form(key="form_bipagem", clear_on_submit=True):
-                codigo_input = st.text_input(
-                    "Bipe com o scanner Bematech BR-310 ou digite:", 
-                    autocomplete="off",
-                    placeholder="Aguardando bipagem do scanner...",
-                    key="input_codigo_bip"
-                )
-                btn_adicionar = st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True)
-
-                if btn_adicionar and codigo_input.strip():
-                    adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
-                    st.success(f"✅ Código `{codigo_input.strip()}` registrado em **'{descricao_final}'**!")
-                    st.rerun()
+        col_camera, col_usb = st.columns([1.2, 1])
 
         with col_camera:
-            st.markdown("##### ⚡ Leitor Ultra-Rápido via Câmera do Celular")
-            st.caption("A câmera inicializa instantaneamente no seu navegador com bipe automático nativo e envia o código sozinho.")
+            st.markdown("##### 📱 Câmera (Bip e Registro Automático)")
+            st.caption("Aponte a câmera para o código de barras. A leitura e salvamento são instantâneos.")
 
-            # Componente HTML5/JS nativo client-side ultrarrápido REVISADO
+            # Componente HTML5/JS nativo com suporte a Auto-Ajuste Responsivo no Celular
             html_scanner = """
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
             <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-            <div id="reader" style="width: 100%; max-width: 450px; margin: auto; border-radius: 8px; overflow: hidden; border: 2px solid #1F4E78;"></div>
-            <div id="scan-status" style="text-align: center; margin-top: 8px; font-weight: bold; color: #1F4E78; font-family: sans-serif;">📷 Aguardando código...</div>
+
+            <style>
+                #reader {
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    border-radius: 12px;
+                    overflow: hidden;
+                    border: 2px solid #1F4E78;
+                    background-color: #000;
+                }
+                #reader video {
+                    object-fit: cover !important;
+                    border-radius: 10px;
+                }
+                #scan-status {
+                    text-align: center;
+                    margin-top: 8px;
+                    font-weight: bold;
+                    color: #1F4E78;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    font-size: 14px;
+                }
+            </style>
+
+            <div class="scanner-wrapper">
+                <div id="reader"></div>
+                <div id="scan-status">📷 Inicializando câmera...</div>
+            </div>
 
             <script>
                 let lastScannedCode = "";
                 let lastScannedTime = 0;
+                let audioCtx = null;
 
+                // Função de áudio otimizada para navegadores móveis (Safari iOS / Chrome Android)
                 function tocarBipNativo() {
                     try {
-                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        if (!audioCtx) {
+                            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        }
+                        if (audioCtx.state === 'suspended') {
+                            audioCtx.resume();
+                        }
                         const osc = audioCtx.createOscillator();
                         const gain = audioCtx.createGain();
                         osc.type = 'sine';
-                        osc.frequency.setValueAtTime(1400, audioCtx.currentTime);
-                        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                        osc.frequency.setValueAtTime(1500, audioCtx.currentTime);
+                        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
                         osc.connect(gain);
                         gain.connect(audioCtx.destination);
                         osc.start();
@@ -374,7 +448,7 @@ else:
 
                 function onScanSuccess(decodedText, decodedResult) {
                     const agora = Date.now();
-                    // Bloqueia duplicações muito rápidas (evita spam de bipes e inserts)
+                    // Evita leituras duplicadas no intervalo de 3 segundos
                     if (decodedText === lastScannedCode && (agora - lastScannedTime) < 3000) {
                         return; 
                     }
@@ -383,66 +457,83 @@ else:
                     lastScannedTime = agora;
 
                     tocarBipNativo();
-                    document.getElementById('scan-status').innerText = "✅ Lido: " + decodedText + " (Processando...)";
+                    document.getElementById('scan-status').innerText = "✅ Lido: " + decodedText + " (Salvando...)";
 
-                    // Acessa o DOM da página principal do Streamlit
+                    // Preenche automaticamente o campo e dispara o salvamento na página pai
                     const parentDoc = window.parent.document;
                     const inputEl = parentDoc.querySelector('input[placeholder*="Aguardando bipagem"]');
                     
                     if (inputEl) {
-                        // 1. Força a alteração do valor nativo no React (Streamlit)
                         const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                         nativeSetter.call(inputEl, decodedText);
-                        
-                        // 2. Dispara o evento para o Streamlit entender a mudança
                         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
 
-                        // 3. Após um curtíssimo intervalo, clica automaticamente no botão de registrar
                         setTimeout(() => {
-                            // Busca diretamente o botão pelo texto dele, o que é mais seguro no layout do Streamlit
                             const buttons = Array.from(parentDoc.querySelectorAll('button'));
                             const submitBtn = buttons.find(b => b.innerText.includes('Registrar Manualmente'));
                             
                             if (submitBtn) {
                                 submitBtn.click();
                             } else {
-                                // Fallback: simula apertar a tecla "Enter" dentro do input
                                 inputEl.dispatchEvent(new KeyboardEvent('keydown', {
                                     bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13
                                 }));
                             }
                             
-                            // Reseta o status visualmente para o próximo scan
                             setTimeout(() => {
-                                document.getElementById('scan-status').innerText = "📷 Aguardando próximo código...";
+                                document.getElementById('scan-status').innerText = "📷 Próximo código...";
                             }, 1500);
                             
                         }, 150);
                     }
                 }
 
+                // Cálculo dinâmico da caixa de leitura para caber em telas estreitas
+                function getQrBoxDimensions(viewfinderWidth, viewfinderHeight) {
+                    const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                    const width = Math.floor(minEdge * 0.85);
+                    const height = Math.floor(width * 0.55); // Formato retangular otimizado para código de barras
+                    return { width: Math.max(width, 200), height: Math.max(height, 100) };
+                }
+
                 const html5QrCode = new Html5Qrcode("reader");
                 const config = { 
                     fps: 25, 
-                    qrbox: { width: 260, height: 150 },
+                    qrbox: getQrBoxDimensions,
                     experimentalFeatures: { useBarCodeDetectorIfSupported: true }
                 };
 
-                // Inicializa a câmera
                 html5QrCode.start(
                     { facingMode: "environment" }, 
                     config, 
                     onScanSuccess
-                ).catch(err => {
-                    // Fallback para câmera frontal caso a traseira não exista ou dê erro
+                ).then(() => {
+                    document.getElementById('scan-status').innerText = "📷 Leitor pronto. Aponte para o código.";
+                }).catch(err => {
                     html5QrCode.start({ facingMode: "user" }, config, onScanSuccess);
                 });
             </script>
             """
-            st.components.v1.html(html_scanner, height=360)
+            st.components.v1.html(html_scanner, height=390)
+
+        with col_usb:
+            st.markdown("##### 🔌 Entrada Manual / Scanner USB")
+            with st.form(key="form_bipagem", clear_on_submit=True):
+                codigo_input = st.text_input(
+                    "Código Lido / Bipado:", 
+                    autocomplete="off",
+                    placeholder="Aguardando bipagem...",
+                    key="input_codigo_bip"
+                )
+                btn_adicionar = st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True)
+
+                if btn_adicionar and codigo_input.strip():
+                    adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
+                    st.success(f"✅ Registrado: `{codigo_input.strip()}` em **'{descricao_final}'**")
+                    st.rerun()
 
     with tab_upload:
-        st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
+        st.markdown(f"📍 Setor: **`{setor_input}`** | Coluna: **`{descricao_final}`**")
         uploaded_file = st.file_uploader("Escolha uma imagem contendo o código", type=["jpg", "png", "jpeg"])
 
         if uploaded_file is not None:
@@ -461,28 +552,30 @@ else:
                         st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}**")
                     st.rerun()
                 else:
-                    st.error("Nenhum código de barras identificado.")
+                    st.error("Nenhum código de barras identificado na imagem.")
 
 st.divider()
-st.header("📊 Tabela de Patrimônios Atualizada em Tempo Real")
+st.header("📊 Tabela de Patrimônios")
 
 df_atual, _ = carregar_dados_excel()
 if not df_atual.empty:
     df_exibicao = df_atual.fillna("").astype(str)
+    # Exibição fluida em telas mobile
     st.dataframe(df_exibicao, use_container_width=True)
 
-    col_btn1, col_btn2 = st.columns([1, 4])
+    col_btn1, col_btn2 = st.columns([1, 1])
     with col_btn1:
-        if st.button("Recarregar Planilha"):
+        if st.button("🔄 Recarregar Planilha", use_container_width=True):
             st.rerun()
             
     with col_btn2:
         csv = df_atual.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="⬇️ Baixar Tabela Completa (CSV)",
+            label="⬇️ Baixar Tabela (CSV)",
             data=csv,
             file_name="Tabela_Patrimonios_UBS_Feu_Rosa.csv",
-            mime="text/csv"
+            mime="text/csv",
+            use_container_width=True
         )
 else:
-    st.info("A planilha está sem registros.")
+    st.info("A planilha está sem registros até o momento.")
