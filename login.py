@@ -1,6 +1,7 @@
 import base64
 import re
 import smtplib
+import urllib.parse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import streamlit as st
@@ -200,11 +201,14 @@ def renderizar_login() -> bool:
                             st.error(msg_erro)
                         else:
                             admin_email = st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)
-                            app_url = st.secrets.get("email", {}).get("app_url", "http://localhost:8501")
+                            app_url = st.secrets.get("email", {}).get("app_url", "http://localhost:8501").rstrip("/")
 
-                            # Links de ação incorporados no e-mail
-                            link_aprovar = f"{app_url}?acao=aprovar&usuario={novo_usuario}"
-                            link_recusar = f"{app_url}?acao=recusar&usuario={novo_usuario}"
+                            # Codifica os parâmetros com segurança para a URL
+                            params_aprovar = urllib.parse.urlencode({"acao": "aprovar", "usuario": novo_usuario})
+                            params_recusar = urllib.parse.urlencode({"acao": "recusar", "usuario": novo_usuario})
+
+                            link_aprovar = f"{app_url}/?{params_aprovar}"
+                            link_recusar = f"{app_url}/?{params_recusar}"
 
                             # Notificação enviada ao Administrador com os Botões de Ação
                             corpo_admin = f"""
