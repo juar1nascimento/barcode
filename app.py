@@ -3,6 +3,8 @@ import cv2
 import numpy as np
 from PIL import Image
 import zxingcpp
+import threading
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration, VideoProcessorBase
 import pandas as pd
 import os
 import hashlib
@@ -266,7 +268,76 @@ def processar_imagem(image_file) -> tuple:
         return None, []
 
 # ==========================================
+# LEITOR DE CÓDIGO DE BARRAS VIA CÂMERA / WEBRTC
+# ==========================================
+class BarcodeVideoProcessor(VideoProcessorBase):
+    """
+    Processa os frames da câmera no lado Python.
+    Diferente do HTML5-QRCode anterior, o código detectado não precisa
+    navegar o iframe nem alterar a URL do Streamlit.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.latest_code = ""
+        self.latest_type = ""
+        self.latest_time = 0.0
+
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+
+        try:
+            # Reduz um pouco a imagem para diminuir o processamento.
+            # Mantém qualidade suficiente para códigos de barras.
+            h, w = img.shape[:2]
+            if w > 1280:
+                scale = 1280 / w
+                img_scan = cv2.resize(
+                    img,
+                    (int(w * scale), int(h * scale)),
+                    interpolation=cv2.INTER_AREA
+                )
+            else:
+                img_scan = img
+
+            img_rgb = cv2.cvtColor(img_scan, cv2.COLOR_BGR2RGB)
+            barcodes = zxingcpp.read_barcodes(img_rgb)
+
+            if barcodes:
+                # Usa o primeiro código válido encontrado no frame.
+                for barcode in barcodes:
+                    codigo = str(barcode.text or "").strip()
+                    if not codigo:
+                        continue
+
+                    tipo = str(barcode.format).replace("BarcodeFormat.", "")
+                    agora = __import__("time").time()
+
+                    with self.lock:
+                        # Evita registrar repetidamente o mesmo código.
+                        if (
+                            codigo != self.latest_code
+                            or (agora - self.latest_time) >= 3
+                        ):
+                            self.latest_code = codigo
+                            self.latest_type = tipo
+                            self.latest_time = agora
+                    break
+
+        except Exception:
+            # Não interrompe o vídeo se um frame falhar.
+            pass
+
+        return frame
+
+    def get_latest(self):
+        with self.lock:
+            return self.latest_code, self.latest_type, self.latest_time
+
+
+# ==========================================
 # INICIALIZAÇÃO DO ESTADO DA SESSÃO DO INVENTÁRIO
+
 # ==========================================
 df_inicial, colunas_iniciais = carregar_dados_excel()
 
@@ -278,6 +349,9 @@ if "saved_setor" not in st.session_state:
 
 if "saved_descricao" not in st.session_state:
     st.session_state.saved_descricao = ""
+
+if "ultimo_codigo_camera_salvo" not in st.session_state:
+    st.session_state.ultimo_codigo_camera_salvo = ""
 
 # ==========================================
 # INTERFACE DO USUÁRIO (SISTEMA DE INVENTÁRIO)
@@ -315,28 +389,9 @@ with col_desc3:
 
 st.divider()
 
-# --- PROCESSA BEEP VIA QUERY PARAMS ---
-query_params = st.query_params
-if "scanned_code" in query_params:
-    codigo_auto = str(query_params.get("scanned_code", "")).strip()
-    setor_param = str(query_params.get("setor", st.session_state.saved_setor)).strip()
-    descricao_param = str(query_params.get("coluna", st.session_state.saved_descricao)).strip()
-
-    # Limpa os parâmetros somente depois de capturá-los.
-    st.query_params.clear()
-
-    if codigo_auto and setor_param and descricao_param:
-        adicionar_e_salvar(codigo_auto, descricao_param, setor_param)
-        st.toast(
-            f"⚡ Código `{codigo_auto}` bipado pela câmera e registrado com sucesso!",
-            icon="✅"
-        )
-        st.rerun()
-    elif codigo_auto:
-        st.error(
-            "O código foi lido pela câmera, mas o Local / Setor ou a "
-            "Descrição não foi informado. Preencha os campos e tente novamente."
-        )
+# --- LEITURA AUTOMÁTICA DA CÂMERA ---
+# A câmera agora entrega o código diretamente ao Python através do WebRTC.
+# Não usamos query params, navegação do iframe ou window.parent.
 
 # --- CAPTURA E REGISTRO ---
 st.subheader("2. Realize a Leitura do Código")
@@ -373,109 +428,90 @@ else:
                     adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
                     st.success(f"✅ Código `{codigo_input.strip()}` registrado em **'{descricao_final}'**!")
 
-        # BLOCO 2: Bipagem Automática pela Câmera (Sem Clicar)
+        # BLOCO 2: Bipagem Automática pela Câmera
         with col_camera:
             st.markdown("##### 📱 Bipagem Automática via Câmera do Celular")
-            st.caption("Aproxime a câmera do código de barras. A leitura e gravação acontecem instantaneamente.")
+            st.caption(
+                "Aponte a câmera traseira para o código de barras. "
+                "Quando o código for reconhecido, ele será gravado automaticamente."
+            )
 
-            # Componente de Leitura Contínua via HTML5-QRCode
-            html_scanner = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-                <style>
-                    #reader {{
-                        width: 100%;
-                        max-width: 450px;
-                        margin: 0 auto;
-                        border-radius: 8px;
-                        overflow: hidden;
-                        border: 2px solid #1F4E78;
-                    }}
-                    #reader video {{
-                        object-fit: cover;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div id="reader"></div>
-                <script>
-                    let lastCode = "";
-                    let lastTime = 0;
+            # IMPORTANTE:
+            # O processamento ocorre no Python através do WebRTC.
+            # Isso elimina o problema anterior do iframe tentar navegar a
+            # página do Streamlit após uma leitura JavaScript.
+            rtc_configuration = RTCConfiguration({
+                "iceServers": [
+                    {"urls": ["stun:stun.l.google.com:19302"]}
+                ]
+            })
 
-                    function emitBeep() {{
-                        try {{
-                            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                            const osc = ctx.createOscillator();
-                            const gain = ctx.createGain();
-                            osc.type = "sine";
-                            osc.frequency.value = 1200;
-                            gain.gain.value = 0.25;
-                            osc.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.start();
-                            setTimeout(() => osc.stop(), 120);
-                        }} catch(e) {{ console.log(e); }}
-                    }}
+            camera_ctx = webrtc_streamer(
+                key="inventario-barcode-camera",
+                mode=WebRtcMode.SENDRECV,
+                rtc_configuration=rtc_configuration,
+                media_stream_constraints={
+                    "video": {
+                        "facingMode": {"ideal": "environment"},
+                        "width": {"ideal": 1280},
+                        "height": {"ideal": 720},
+                    },
+                    "audio": False,
+                },
+                video_processor_factory=BarcodeVideoProcessor,
+                async_processing=True,
+            )
 
-                    function onScanSuccess(decodedText, decodedResult) {{
-                        const now = Date.now();
-                        // Evita bipar o mesmo código repetidamente dentro de 3 segundos
-                        if (decodedText === lastCode && (now - lastTime) < 3000) {{
-                            return;
-                        }}
-                        lastCode = decodedText;
-                        lastTime = now;
+            if camera_ctx.state.playing:
+                st.success("🟢 Câmera ativa — aponte para o código de barras.")
 
-                        emitBeep();
+            # Fragmento executado periodicamente para buscar o último código
+            # detectado pelo processador WebRTC e gravá-lo usando a mesma
+            # função do scanner Bematech.
+            @st.fragment(run_every="0.5s")
+            def monitorar_camera():
+                if not camera_ctx.state.playing:
+                    return
 
-                        // Envia o código para a página principal do Streamlit.
-                        // O scanner está dentro do iframe criado por st.components.v1.html.
-                        // window.parent é usado para navegar a página que contém o app.
-                        // URLSearchParams já faz a codificação; não usar encodeURIComponent.
-                        try {{
-                            const parentUrl = new URL(window.parent.location.href);
-                            parentUrl.searchParams.set("scanned_code", decodedText);
-                            parentUrl.searchParams.set("setor", "{setor_input.strip()}");
-                            parentUrl.searchParams.set("coluna", "{descricao_final.strip()}");
-                            parentUrl.searchParams.set("ts", String(now));
-                            window.parent.location.href = parentUrl.toString();
-                        }} catch(e) {{
-                            console.error("Falha ao enviar código ao Streamlit:", e);
-                            try {{
-                                const fallbackUrl = new URL(document.referrer || window.location.href);
-                                fallbackUrl.searchParams.set("scanned_code", decodedText);
-                                fallbackUrl.searchParams.set("setor", "{setor_input.strip()}");
-                                fallbackUrl.searchParams.set("coluna", "{descricao_final.strip()}");
-                                fallbackUrl.searchParams.set("ts", String(now));
-                                window.parent.location.href = fallbackUrl.toString();
-                            }} catch(e2) {{
-                                console.error("Falha no fallback:", e2);
-                            }}
-                        }}
-                    }}
+                processor = camera_ctx.video_processor
+                if processor is None:
+                    return
 
-                    const html5QrCode = new Html5Qrcode("reader");
-                    const config = {{ 
-                        fps: 15, 
-                        qrbox: {{ width: 260, height: 150 }},
-                        aspectRatio: 1.333333
-                    }};
+                codigo, tipo, momento = processor.get_latest()
 
-                    html5QrCode.start(
-                        {{ facingMode: "environment" }}, 
-                        config, 
-                        onScanSuccess
-                    ).catch(err => {{
-                        document.getElementById("reader").innerHTML = 
-                            "<p style='color:#721c24; background-color:#f8d7da; padding:12px; border-radius:5px; text-align:center;'>⚠️ Permita o acesso à câmera no navegador para realizar a bipagem automática.</p>";
-                    }});
-                </script>
-            </body>
-            </html>
-            """
-            st.components.v1.html(html_scanner, height=360)
+                if not codigo:
+                    return
+
+                # Controle por sessão: cada código é salvo uma única vez
+                # enquanto a câmera continua apontada para ele.
+                ultimo_salvo = st.session_state.get(
+                    "ultimo_codigo_camera_salvo", ""
+                )
+
+                if codigo == ultimo_salvo:
+                    return
+
+                try:
+                    adicionar_e_salvar(
+                        codigo,
+                        descricao_final,
+                        setor_input
+                    )
+
+                    st.session_state.ultimo_codigo_camera_salvo = codigo
+
+                    st.success(
+                        f"✅ Código `{codigo}` ({tipo}) registrado automaticamente "
+                        f"em **{descricao_final}**."
+                    )
+
+                except Exception as e:
+                    st.error(
+                        f"❌ O código `{codigo}` foi detectado, mas ocorreu "
+                        f"um erro ao gravar: {e}"
+                    )
+
+            monitorar_camera()
 
         # Script JS: Cancela atalhos do leitor USB e mantém o foco no input
         st.components.v1.html(
