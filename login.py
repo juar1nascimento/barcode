@@ -15,7 +15,7 @@ LOGO_SERRA_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 180
 ADMIN_EMAIL_DEFAULT = "juari.neris@gmail.com"
 DB_FILE = "db_usuarios.json"
 
-# ================= FUNÇÕES DE BANCO DE DADOS (Simulação) ================= #
+# ================= FUNÇÕES DE BANCO DE DADOS ================= #
 def hash_senha(senha: str) -> str:
     """Gera um hash SHA-256 da senha para segurança."""
     return hashlib.sha256(senha.encode('utf-8')).hexdigest()
@@ -23,7 +23,6 @@ def hash_senha(senha: str) -> str:
 def carregar_db():
     """Carrega o banco de usuários do arquivo JSON."""
     if not os.path.exists(DB_FILE):
-        # Usuário admin padrão criado automaticamente
         return {"admin@serra.es.gov.br": {"senha": hash_senha("admin123"), "aprovado": True}}
     with open(DB_FILE, "r") as f:
         return json.load(f)
@@ -31,7 +30,7 @@ def carregar_db():
 def salvar_db(db_data):
     """Salva as informações no arquivo JSON."""
     with open(DB_FILE, "w") as f:
-        json.dump(db_data, f)
+        json.dump(db_data, f, indent=4)
 # ========================================================================= #
 
 def validar_email(email: str) -> bool:
@@ -97,7 +96,6 @@ def processar_acao_via_url():
             st.success(f"Solicitação do usuário {user_email} foi APROVADA com sucesso!")
             
         elif acao == "recusar":
-            # Caso recuse, remove do banco de dados
             del db[user_email]
             salvar_db(db)
             corpo = f"""
@@ -131,15 +129,6 @@ def renderizar_login() -> bool:
                 padding: 35px 40px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
             }
             .login-title { text-align: center; font-size: 20px; font-weight: 600; color: #24292e; margin-bottom: 25px; }
-            div[data-testid="stForm"] button[kind="tertiary"] {
-                float: right !important; font-size: 12px !important; color: #0056b3 !important; text-decoration: underline !important;
-                margin-top: -30px !important; padding: 0 !important; height: auto !important; background: transparent !important; border: none !important;
-            }
-            div[data-testid="stForm"] button[kind="secondaryFormSubmit"],
-            div[data-testid="stForm"] button[kind="primaryFormSubmit"] {
-                background-color: #555555 !important; color: #ffffff !important; border: none !important; border-radius: 4px !important;
-                height: 42px !important; font-size: 14px !important; font-weight: 600 !important; margin-top: 15px !important;
-            }
             .error-box { background-color: #fdf2f2; border: 1px solid #f8b4b4; border-left: 4px solid #e02424; color: #9b1c1c; padding: 12px 16px; border-radius: 4px; font-size: 13px; margin-top: 15px; }
             .warning-box { background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; color: #92400e; padding: 12px 16px; border-radius: 4px; font-size: 13px; margin-top: 15px; }
         </style>
@@ -150,15 +139,40 @@ def renderizar_login() -> bool:
     with col_center:
         st.markdown(logo_html, unsafe_allow_html=True)
 
+        # ================= TELA 1: RECUPERAÇÃO DE SENHA ================= #
         if st.session_state.tela_atual == "redefinicao_solicitar":
-            # [Sem alterações] Código original mantido
-            pass 
+            with st.form(key="form_recuperar_senha", clear_on_submit=False):
+                st.markdown('<div class="login-title">Recuperação de Senha</div>', unsafe_allow_html=True)
+                st.write("Digite seu e-mail cadastrado para receber as instruções de redefinição.")
+                email_recuperacao = st.text_input("E-mail de Cadastro", placeholder="usuario@serra.es.gov.br", key="recup_email").strip()
+                btn_recuperar = st.form_submit_button("Enviar Solicitação", use_container_width=True)
 
+                if btn_recuperar:
+                    if not validar_email(email_recuperacao):
+                        st.error("Informe um e-mail válido.")
+                    else:
+                        db = carregar_db()
+                        if email_recuperacao not in db:
+                            st.error("E-mail não encontrado no sistema.")
+                        else:
+                            admin_email = st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)
+                            corpo = f"""
+                            <h3>Prefeitura Municipal da Serra</h3>
+                            <p>O usuário <b>{email_recuperacao}</b> solicitou redefinição de senha.</p>
+                            """
+                            enviar_email(admin_email, f"Solicitação de Redefinição: {email_recuperacao}", corpo)
+                            st.success("Solicitação enviada! O administrador entrará em contato.")
+
+            if st.button("← Voltar para o Login", use_container_width=True):
+                st.session_state.tela_atual = "login"
+                st.rerun()
+
+        # ================= TELA 2: CADASTRO DE NOVO USUÁRIO ================= #
         elif st.session_state.tela_atual == "redefinicao_criar":
             with st.form(key="form_criar_usuario", clear_on_submit=False):
                 st.markdown('<div class="login-title">Solicitar Cadastro</div>', unsafe_allow_html=True)
                 st.write("**Login de Usuário (Obrigatório ser E-mail)**")
-                novo_usuario = st.text_input("Usuário", value=st.session_state.get('email_solicitante', ''), placeholder="usuario@dominio.com", label_visibility="collapsed", key="novo_user").strip()
+                novo_usuario = st.text_input("Usuário", placeholder="usuario@serra.es.gov.br", label_visibility="collapsed", key="novo_user").strip()
                 st.write("**Nova Senha (Exatamente 8 caracteres alfanuméricos)**")
                 nova_senha = st.text_input("Nova Senha", type="password", label_visibility="collapsed", key="nova_pass")
                 st.write("**Confirme a Nova Senha**")
@@ -175,9 +189,8 @@ def renderizar_login() -> bool:
                         if not senha_ok:
                             st.error(msg_erro)
                         else:
-                            # 1. Salvar no Banco de Dados local pendente de aprovação
                             db = carregar_db()
-                            if novo_usuario in db and db[novo_usuario]["aprovado"]:
+                            if novo_usuario in db and db[novo_usuario].get("aprovado", False):
                                 st.error("Este usuário já existe e está aprovado.")
                             else:
                                 db[novo_usuario] = {"senha": hash_senha(nova_senha), "aprovado": False}
@@ -199,12 +212,12 @@ def renderizar_login() -> bool:
                                 """
                                 enviar_email(admin_email, f"Solicitação de Cadastro: {novo_usuario}", corpo_admin)
                                 st.success(f"Solicitação enviada para {admin_email}. Aguarde a aprovação para efetuar o login.")
-                                st.session_state.tela_atual = "login"
 
-            if st.button("← Cancelar", use_container_width=True):
+            if st.button("← Voltar para o Login", use_container_width=True):
                 st.session_state.tela_atual = "login"
                 st.rerun()
 
+        # ================= TELA 3: LOGIN PRINCIPAL ================= #
         else:
             with st.form(key="glpi_login_form", clear_on_submit=False):
                 st.markdown('<div class="login-title">Faça login na sua conta</div>', unsafe_allow_html=True)
@@ -213,24 +226,17 @@ def renderizar_login() -> bool:
                 st.write("**Senha**")
                 senha = st.text_input("Senha", value="", type="password", label_visibility="collapsed", key="login_pass")
 
-                if st.form_submit_button("Esqueceu sua senha?", type="tertiary"):
-                    st.session_state.tela_atual = "redefinicao_solicitar"
-                    st.rerun()
-
                 origem = st.selectbox("Origem de login", ["SERRA.LOCAL", "BANCO DE DADOS INTERNO"], label_visibility="collapsed", key="login_domain")
                 submit = st.form_submit_button("Entrar", use_container_width=True)
 
                 if submit:
-                    # 1. Carrega os usuários salvos no BD (JSON)
                     db = carregar_db()
                     st.session_state.msg_login = ""
 
-                    # 2. Valida regras de Segurança E Autorização
                     if usuario in db:
                         dados_usuario = db[usuario]
-                        # Compara a senha digitada (passada por hash) com o hash salvo
                         if dados_usuario["senha"] == hash_senha(senha):
-                            if dados_usuario["aprovado"] == True:
+                            if dados_usuario.get("aprovado", False):
                                 st.session_state.autenticado = True
                                 st.rerun()
                             else:
@@ -240,7 +246,18 @@ def renderizar_login() -> bool:
                     else:
                         st.session_state.msg_login = "error:Usuário ou senha inválidos."
 
-            # Exibir Mensagens de Erro/Aviso baseadas na lógica de validação atualizada
+            # Links auxiliares fora do formulário para garantir navegação fluida
+            col_esq, col_dir = st.columns(2)
+            with col_esq:
+                if st.button("Esqueceu sua senha?", use_container_width=True):
+                    st.session_state.tela_atual = "redefinicao_solicitar"
+                    st.rerun()
+            with col_dir:
+                if st.button("Criar nova conta", use_container_width=True):
+                    st.session_state.tela_atual = "redefinicao_criar"
+                    st.rerun()
+
+            # Mensagens de alerta/erro
             if st.session_state.get("msg_login", ""):
                 tipo, msg = st.session_state.msg_login.split(":")
                 if tipo == "error":
