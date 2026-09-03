@@ -1,288 +1,246 @@
 import streamlit as st
-import re
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import json
-import os
 
-# ==========================================
-# CONFIGURAÇÕES DE AUTENTICAÇÃO E EMAIL
-# ==========================================
-URL_LOGO_GITHUB = "https://raw.githubusercontent.com/juar1nascimento/barcode/main/image_6ca286.png"
-EMAIL_ADMIN = "juari.neris@gmail.com"
-
-# Configurações do Servidor SMTP
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-SMTP_USER = "juari.neris@gmail.com"  
-SMTP_PASS = "yins muld czac rcsi"
-
-# Arquivos de Persistência de Dados
-ARQUIVO_USUARIOS = "usuarios_db.json"
-ARQUIVO_PENDENTES = "pendentes_db.json"
-
-def carregar_db(arquivo: str) -> dict:
-    """Lê o banco de dados em JSON, retornando um dicionário vazio se não existir."""
-    if os.path.exists(arquivo):
-        try:
-            with open(arquivo, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def salvar_db(dados: dict, arquivo: str):
-    """Salva o dicionário no arquivo JSON especificado."""
-    with open(arquivo, "w") as f:
-        json.dump(dados, f)
-
-def inicializar_estado_login():
-    """Inicializa as variáveis de sessão necessárias para a autenticação visual."""
-    if "autenticado" not in st.session_state:
-        st.session_state.autenticado = False
-
-    if "tela_atual" not in st.session_state:
-        st.session_state.tela_atual = "login"
-
-    if "email_recuperacao_temp" not in st.session_state:
-        st.session_state.email_recuperacao_temp = ""
-
-def validar_email(email: str) -> bool:
-    padrao = r"^[\w\.-]+@[\w\.-]+\.\w+$"
-    return re.match(padrao, email.strip()) is not None
-
-def validar_senha_alfanumerica(senha: str) -> bool:
-    """Valida se a senha possui exatamente 8 caracteres alfanuméricos."""
-    return len(senha) == 8 and senha.isalnum() and not senha.isalpha() and not senha.isdigit()
-
-def enviar_email_smtp(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool, str]:
-    """Envia um e-mail em formato HTML usando o servidor SMTP."""
-    if "seu_email_sistema" in SMTP_USER or "sua_senha" in SMTP_PASS:
-        return False, "As credenciais de remetente SMTP não foram preenchidas no código."
-
-    msg = MIMEMultipart()
-    msg['From'] = SMTP_USER
-    msg['To'] = destinatario
-    msg['Subject'] = assunto
-    msg.attach(MIMEText(corpo_html, 'html'))
-
-    try:
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10)
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(SMTP_USER, destinatario, msg.as_string())
-        server.quit()
-        return True, "E-mail enviado com sucesso!"
-    except Exception as e:
-        return False, str(e)
-
-def enviar_alerta_aprovacao_admin(email_solicitante: str) -> tuple[bool, str]:
-    """Gera os links de callback e envia a mensagem de aprovação para o administrador."""
-    base_url = "https://barcode-prxfe2eu4o34ae9tpejqpc.streamlit.app" 
+# Logo da Prefeitura da Serra em SVG Vetorial Nativo (Alta Definição / Sem Sombra ou Artefatos)
+LOGO_SERRA_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 180" width="280" height="97">
+  <g>
+    <!-- Brasão Escudo -->
+    <path d="M 15,15 L 145,15 C 145,105 130,150 80,170 C 30,150 15,105 15,15 Z" fill="#1b8e42" stroke="#146830" stroke-width="2"/>
+    <path d="M 27,27 L 133,27 C 133,98 120,138 80,155 C 40,138 27,98 27,27 Z" fill="#ffffff"/>
     
-    link_aprovar = f"{base_url}/?acao=aprovar&user={email_solicitante}"
-    link_recusar = f"{base_url}/?acao=recusar&user={email_solicitante}"
+    <!-- Topo Verde do Brasão -->
+    <path d="M 27,27 L 133,27 L 133,48 L 27,48 Z" fill="#1b8e42"/>
+    <text x="80" y="42" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="15" fill="#ffffff" text-anchor="middle">SERRA</text>
+    <text x="44" y="40" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#ffffff" text-anchor="middle">1535</text>
+    <text x="116" y="40" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#ffffff" text-anchor="middle">1822</text>
+    <text x="33" y="40" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#ffffff" text-anchor="middle">★</text>
+    <text x="127" y="40" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#ffffff" text-anchor="middle">★</text>
     
-    corpo_html = f"""
-    <html>
-      <body style="font-family: Arial, sans-serif; color: #333;">
-        <h2>Solicitação de Acesso ao Sistema de Patrimônio</h2>
-        <p>O seguinte usuário solicitou a criação/alteração de acesso ao sistema:</p>
-        <p><b>Usuário (E-mail):</b> {email_solicitante}</p>
-        <p>Utilize uma das opções abaixo para autorizar ou rejeitar o cadastro:</p>
-        <p style="margin-top: 20px;">
-          <a href="{link_aprovar}" style="background-color: #28a745; color: white; padding: 10px 18px; text-decoration: none; border-radius: 4px; font-weight: bold; margin-right: 10px;">AUTORIZAR CADASTRO</a>
-          <a href="{link_recusar}" style="background-color: #dc3545; color: white; padding: 10px 18px; text-decoration: none; border-radius: 4px; font-weight: bold;">RECUSAR CADASTRO</a>
-        </p>
-      </body>
-    </html>
-    """
+    <!-- Engrenagem Interna -->
+    <circle cx="80" cy="72" r="16" fill="none" stroke="#000000" stroke-width="4" stroke-dasharray="6,4"/>
+    <circle cx="80" cy="72" r="11" fill="#fbd100" stroke="#000000" stroke-width="1.5"/>
+    <path d="M 74,78 L 74,68 L 82,68 L 80,64 L 86,64 L 84,68 L 86,78 Z" fill="#000000"/>
     
-    return enviar_email_smtp(
-        destinatario=EMAIL_ADMIN,
-        assunto="[AUTORIZAÇÃO NECESSÁRIA] Solicitação de Cadastro de Usuário",
-        corpo_html=corpo_html
-    )
+    <!-- Muralha -->
+    <rect x="42" y="93" width="76" height="10" fill="#000000"/>
+    <rect x="46" y="89" width="8" height="4" fill="#000000"/>
+    <rect x="58" y="89" width="8" height="4" fill="#000000"/>
+    <rect x="70" y="89" width="8" height="4" fill="#000000"/>
+    <rect x="82" y="89" width="8" height="4" fill="#000000"/>
+    <rect x="94" y="89" width="8" height="4" fill="#000000"/>
+    <rect x="106" y="89" width="8" height="4" fill="#000000"/>
 
-def processar_query_params():
-    """Processa ações recebidas via parâmetros de URL consultando os arquivos JSON."""
-    query_params = st.query_params
+    <!-- Sol e Montanhas -->
+    <path d="M 40,135 L 120,135 C 120,120 40,120 40,135 Z" fill="#fbd100"/>
+    <line x1="80" y1="105" x2="80" y2="120" stroke="#fbd100" stroke-width="2"/>
+    <line x1="65" y1="108" x2="72" y2="121" stroke="#fbd100" stroke-width="2"/>
+    <line x1="95" y1="108" x2="88" y2="121" stroke="#fbd100" stroke-width="2"/>
+    <line x1="53" y1="115" x2="65" y2="124" stroke="#fbd100" stroke-width="2"/>
+    <line x1="107" y1="115" x2="95" y2="124" stroke="#fbd100" stroke-width="2"/>
 
-    if "page" in query_params:
-        if query_params["page"] == "esqueci_senha":
-            st.session_state.tela_atual = "esqueci_senha"
-            st.query_params.clear()
+    <path d="M 33,138 Q 50,122 65,135 Q 80,118 95,138 Q 110,125 127,138 L 127,143 C 115,152 45,152 33,143 Z" fill="#2d8647" stroke="#1e5c30" stroke-width="1"/>
+    <path d="M 36,143 Q 80,158 124,143 C 110,157 50,157 36,143 Z" fill="#1b4d89"/>
 
-    if "acao" in query_params and "user" in query_params:
-        acao = query_params["acao"]
-        usuario_alvo = query_params["user"]
+    <!-- Estrelas Inferiores -->
+    <text x="35" y="102" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#ffffff" text-anchor="middle">★</text>
+    <text x="125" y="102" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#ffffff" text-anchor="middle">★</text>
+    <text x="80" y="152" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#ffffff" text-anchor="middle">★</text>
+  </g>
 
-        pendentes = carregar_db(ARQUIVO_PENDENTES)
-        usuarios = carregar_db(ARQUIVO_USUARIOS)
-
-        if usuario_alvo in pendentes:
-            senha_solicitada = pendentes[usuario_alvo]
-            if acao == "aprovar":
-                usuarios[usuario_alvo] = senha_solicitada
-                salvar_db(usuarios, ARQUIVO_USUARIOS)
-                
-                del pendentes[usuario_alvo]
-                salvar_db(pendentes, ARQUIVO_PENDENTES)
-                
-                st.success(f"Cadastro do usuário {usuario_alvo} APROVADO com sucesso!")
-            elif acao == "recusar":
-                del pendentes[usuario_alvo]
-                salvar_db(pendentes, ARQUIVO_PENDENTES)
-                st.warning(f"Cadastro do usuário {usuario_alvo} RECUSADO!")
-        else:
-            st.info("Link expirado ou solicitação já processada.")
-            
-        st.query_params.clear()
+  <!-- Tipografia Oficial -->
+  <text x="195" y="62" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="normal" fill="#000000" letter-spacing="1">PREFEITURA MUNICIPAL DA</text>
+  <text x="193" y="135" font-family="Arial Black, Gadget, sans-serif" font-size="76" font-weight="900" fill="#000000" letter-spacing="-1">SERRA</text>
+</svg>
+"""
 
 def renderizar_login() -> bool:
-    """Exibe a interface gráfica e processa os acessos através da base JSON."""
-    inicializar_estado_login()
-    processar_query_params()
+    """
+    Renderiza a interface de autenticação baseada no GLPI.
+    Retorna True se o usuário estiver autenticado e False caso contrário.
+    """
+    if "autenticado" not in st.session_state:
+        st.session_state.autenticado = False
 
     if st.session_state.autenticado:
         return True
 
+    # Estilização CSS personalizada para replicar o layout da imagem
     st.markdown("""
-    <style>
-    .stApp {
-        background-color: #f7f9fc;
-    }
-    div.stButton > button {
-        background-color: #595959;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        width: 100%;
-        padding: 10px;
-    }
-    div.stButton > button:hover {
-        background-color: #404040;
-        color: white;
-    }
-    .link-esqueci {
-        color: #0066cc;
-        text-decoration: underline;
-        font-size: 14px;
-        cursor: pointer;
-        float: right;
-    }
-    </style>
+        <style>
+            /* Fundo global cinza claro */
+            .stApp {
+                background-color: #f2f4f7 !important;
+            }
+            
+            /* Oculta componentes padrão do Streamlit */
+            header, footer, #MainMenu {
+                visibility: hidden;
+            }
+
+            /* Container principal de login */
+            .login-wrapper {
+                max-width: 620px;
+                margin: 40px auto 20px auto;
+                padding: 0 10px;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            }
+
+            .logo-container {
+                text-align: center;
+                margin-bottom: 25px;
+            }
+
+            /* Card Branco */
+            .login-card {
+                background-color: #ffffff;
+                border: 1px solid #e1e4e8;
+                border-radius: 4px;
+                padding: 40px 50px 35px 50px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            }
+
+            .login-title {
+                text-align: center;
+                font-size: 22px;
+                font-weight: 600;
+                color: #24292e;
+                margin-bottom: 30px;
+            }
+
+            /* Labels dos Inputs */
+            .input-label {
+                font-size: 13px;
+                font-weight: 600;
+                color: #333333;
+                margin-bottom: 6px;
+                display: block;
+            }
+
+            .label-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .forgot-link {
+                font-size: 12px;
+                color: #333333;
+                text-decoration: none;
+            }
+
+            /* Ajuste de estilo para os inputs nativos do Streamlit */
+            div[data-baseweb="input"] {
+                background-color: #f4f6f8 !important;
+                border: 1px solid #d1d5da !important;
+                border-radius: 4px !important;
+            }
+            
+            div[data-baseweb="select"] > div {
+                background-color: #ffffff !important;
+                border: 1px solid #d1d5da !important;
+                border-radius: 4px !important;
+            }
+
+            /* Botão 'Entrar' escuro */
+            div.stButton > button {
+                background-color: #555555 !important;
+                color: #ffffff !important;
+                border: none !important;
+                border-radius: 4px !important;
+                height: 42px !important;
+                font-size: 14px !important;
+                font-weight: 600 !important;
+                margin-top: 10px !important;
+            }
+
+            div.stButton > button:hover {
+                background-color: #333333 !important;
+                color: #ffffff !important;
+            }
+
+            /* Box de alerta de erro na parte inferior do card */
+            .error-box {
+                background-color: #fdf2f2;
+                border: 1px solid #f8b4b4;
+                border-left: 4px solid #e02424;
+                color: #9b1c1c;
+                padding: 12px 16px;
+                border-radius: 4px;
+                font-size: 13px;
+                margin-top: 25px;
+            }
+
+            /* Footer com Copyright */
+            .login-footer {
+                text-align: center;
+                font-size: 12px;
+                color: #6a737d;
+                margin-top: 30px;
+            }
+            
+            /* Ajustes para telas menores (Mobile) */
+            @media (max-width: 640px) {
+                .login-card {
+                    padding: 25px 20px;
+                }
+            }
+        </style>
     """, unsafe_allow_html=True)
 
-    _, col_centro, _ = st.columns([1.5, 2, 1.5])
+    # Renderização da Estrutura HTML/Streamlit
+    st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+    
+    # Header: Logotipo Centrado
+    st.markdown(f'<div class="logo-container">{LOGO_SERRA_SVG}</div>', unsafe_allow_html=True)
 
-    with col_centro:
-        col_logo_esq, col_logo_centro, col_logo_dir = st.columns([1, 2, 1])
-        with col_logo_centro:
-            try:
-                st.image(URL_LOGO_GITHUB, use_container_width=True)
-            except Exception:
-                st.markdown(
-                    """
-                    <div style="text-align: center; margin-bottom: 20px;">
-                        <h3 style="margin:0; padding:0; color:#000; font-family: sans-serif; font-size: 16px;">PREFEITURA MUNICIPAL DA</h3>
-                        <h1 style="margin:0; padding:0; color:#000; font-family: sans-serif; font-size: 32px; font-weight: 900;">SERRA</h1>
-                    </div>
-                    """, unsafe_allow_html=True
-                )
-        st.write("")
+    # Card Principal
+    with st.container():
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">Faça login na sua conta</div>', unsafe_allow_html=True)
 
-        # ------------------------------------------
-        # TELA 1: RECUPERAÇÃO DE SENHA
-        # ------------------------------------------
-        if st.session_state.tela_atual == "esqueci_senha":
-            with st.container(border=True):
-                st.markdown("<h3 style='text-align: center; color: #1a2b4c; margin-bottom: 20px; font-weight: 600;'>Esqueceu sua senha?</h3>", unsafe_allow_html=True)
-                st.markdown("<p style='color: #555; text-align: left; font-size: 15px;'>Por favor, insira seu endereço de e-mail. Um e-mail será enviado a você, para que possa escolher uma nova senha.</p>", unsafe_allow_html=True)
-                
-                email_input = st.text_input("E-mail", placeholder="E-mail", key="input_recupera_email")
-                
-                st.write("")
-                if st.button("📧 Enviar", key="btn_enviar_recuperacao"):
-                    if validar_email(email_input):
-                        st.session_state.email_recuperacao_temp = email_input.strip()
-                        st.session_state.tela_atual = "formulario_senha"
-                        st.rerun()
-                    else:
-                        st.error("Por favor, informe um endereço de e-mail válido.")
+        # Formulário de Autenticação
+        with st.form(key="glpi_login_form", clear_on_submit=False):
+            st.markdown('<span class="input-label">Usuário</span>', unsafe_allow_html=True)
+            usuario = st.text_input("Usuário", value="juari.nascimento", label_visibility="collapsed", key="login_user")
 
-            st.markdown("<br>", unsafe_allow_html=True)
-            col_voltar1, col_voltar2 = st.columns([1.2, 1])
-            with col_voltar1:
-                st.write("Esqueça, me envie de volta")
-            with col_voltar2:
-                if st.button("para a página de login.", key="btn_voltar_login"):
-                    st.session_state.tela_atual = "login"
+            st.markdown("""
+                <div class="label-row">
+                    <span class="input-label">Senha</span>
+                    <a href="#" class="forgot-link">Esqueceu sua senha?</a>
+                </div>
+            """, unsafe_allow_html=True)
+            senha = st.text_input("Senha", value="1234567890", type="password", label_visibility="collapsed", key="login_pass")
+
+            st.markdown('<span class="input-label" style="margin-top: 10px;">Origem de login</span>', unsafe_allow_html=True)
+            origem = st.selectbox("Origem de login", ["SERRA.LOCAL", "BANCO DE DADOS INTERNO"], label_visibility="collapsed", key="login_domain")
+
+            submit = st.form_submit_button("Entrar", use_container_width=True)
+
+            if submit:
+                # Validação dos dados de acesso
+                if usuario.strip() != "" and senha.strip() != "":
+                    st.session_state.autenticado = True
                     st.rerun()
+                else:
+                    st.session_state.erro_login = True
 
-        # ------------------------------------------
-        # TELA 2: FORMULÁRIO DE CRIAÇÃO DE LOGIN/SENHA
-        # ------------------------------------------
-        elif st.session_state.tela_atual == "formulario_senha":
-            with st.container(border=True):
-                st.markdown("<h4 style='text-align: center; color: #1a2b4c; margin-bottom: 10px;'>Formulário de Acesso</h4>", unsafe_allow_html=True)
-                st.info("Regra: O login deve ser um e-mail válido e a senha deve conter exatamente 8 caracteres alfanuméricos (letras e números).")
-                
-                email_login = st.text_input("Login (Endereço de E-mail)", value=st.session_state.email_recuperacao_temp)
-                nova_senha = st.text_input("Nova Senha (8 caracteres alfanuméricos)", type="password", max_chars=8)
-                confirma_senha = st.text_input("Confirme a Nova Senha", type="password", max_chars=8)
+        # Mensagem de validação equivalente ao alerta exibido na imagem
+        if st.session_state.get("erro_login", False):
+            st.markdown("""
+                <div class="error-box">
+                    Uso inválido de ID de sessão
+                </div>
+            """, unsafe_allow_html=True)
 
-                if st.button("Enviar para Aprovação"):
-                    if not validar_email(email_login):
-                        st.error("O Login precisa ser um endereço de e-mail válido.")
-                    elif not validar_senha_alfanumerica(nova_senha):
-                        st.error("A senha deve possuir exatamente 8 caracteres alfanuméricos (contendo letras e números).")
-                    elif nova_senha != confirma_senha:
-                        st.error("As senhas digitadas não coincidem.")
-                    else:
-                        # Grava a solicitação no arquivo local pendentes_db.json
-                        pendentes = carregar_db(ARQUIVO_PENDENTES)
-                        pendentes[email_login.strip()] = nova_senha
-                        salvar_db(pendentes, ARQUIVO_PENDENTES)
-                        
-                        sucesso_envio, msg_erro = enviar_alerta_aprovacao_admin(email_login.strip())
-                        
-                        if sucesso_envio:
-                            st.success(f"Solicitação registrada! Um e-mail para autorização foi enviado com sucesso para **{EMAIL_ADMIN}**.")
-                        else:
-                            st.warning(f"Solicitação registrada internamente. Falha no disparo do e-mail SMTP: {msg_erro}")
-                        
-                        st.session_state.tela_atual = "login"
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        # ------------------------------------------
-        # TELA 3: LOGIN PRINCIPAL
-        # ------------------------------------------
-        else:
-            with st.container(border=True):
-                st.markdown("<h4 style='text-align: center; color: #1a2b4c; margin-bottom: 20px;'>Faça login na sua conta</h4>", unsafe_allow_html=True)
-                st.divider()
-                
-                usuario = st.text_input("Usuário (E-mail)", value="", placeholder="Seu e-mail")
-                
-                col_label1, col_label2 = st.columns([1, 1])
-                with col_label1:
-                    st.markdown("<span style='font-size: 14px;'>Senha</span>", unsafe_allow_html=True)
-                with col_label2:
-                    st.markdown("<a href='?page=esqueci_senha' target='_self' class='link-esqueci'>Esqueceu sua senha?</a>", unsafe_allow_html=True)
-                
-                senha = st.text_input("Senha (oculto)", type="password", label_visibility="collapsed", placeholder="Sua senha")
-                origem = st.selectbox("Origem de login", ["SERRA.LOCAL"])
-                
-                st.write("")
-                if st.button("Entrar", key="btn_entrar"):
-                    # Verifica as credenciais lendo o arquivo usuarios_db.json
-                    usuarios = carregar_db(ARQUIVO_USUARIOS)
-                    
-                    if usuario in usuarios and usuarios[usuario] == senha:
-                        st.session_state.autenticado = True
-                        st.rerun()
-                    else:
-                        st.error("Credenciais inválidas ou cadastro pendente de autorização por e-mail.")
+    # Rodapé da aplicação
+    st.markdown("""
+        <div class="login-footer">
+            GLPI Copyright (C) 2015-2025 Teclib' and contributors
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
     return False
