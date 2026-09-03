@@ -14,7 +14,7 @@ from openpyxl.utils import get_column_letter
 from login import renderizar_login
 
 # ==========================================
-# CONFIGURAÇÕES DA PÁGINA (Deve ser o 1º comando Streamlit)
+# CONFIGURAÇÕES DA PÁGINA
 # ==========================================
 st.set_page_config(
     page_title="Controle de Patrimônio - GTI-SESA",
@@ -64,7 +64,6 @@ if st.session_state.pagina_atual == "portal":
             st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão, leitura de códigos de barra e controle de patrimônio.</p>", unsafe_allow_html=True)
             st.write("")
 
-            # Link direto para a aplicação hospedada externamente
             st.link_button(
                 "🚀 Acessar Sistema de Inventários (Link Externo)",
                 "https://barcode-prxfe2eu4o34ae9tpejqpc.streamlit.app/",
@@ -74,7 +73,6 @@ if st.session_state.pagina_atual == "portal":
 
             st.write("")
             
-            # Opção de navegação para a interface local
             if st.button("📂 Abrir Inventário nesta Aba", use_container_width=True):
                 st.session_state.pagina_atual = "inventario"
                 st.rerun()
@@ -289,20 +287,39 @@ if not descricao_final or not setor_input.strip():
     st.warning("⚠️ Por favor, preencha o **Local / Setor** e selecione ou informe a **Descrição** antes de realizar a leitura.")
 else:
     tab_manual, tab_webcam, tab_upload = st.tabs([
-        "⌨️ Digitação / Leitor USB", 
+        "🔌 Leitor USB Bematech / Digitação Manual", 
         "📷 Captura via Webcam", 
         "📁 Upload de Imagem"
     ])
 
     with tab_manual:
         st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
-        with st.form(key="form_manual", clear_on_submit=True):
-            codigo_input = st.text_input("Digite ou bipe o código de barras:", autocomplete="off")
-            btn_adicionar = st.form_submit_button("Registrar na Tabela")
+        
+        # Campo unificado para bipagem rápida e digitação manual
+        with st.form(key="form_bipagem", clear_on_submit=True):
+            codigo_input = st.text_input(
+                "Bipe com o scanner Bematech BR-310 ou digite o código de barras:", 
+                autocomplete="off",
+                placeholder="Aguardando bipagem do scanner..."
+            )
+            btn_adicionar = st.form_submit_button("Registrar na Tabela", type="primary")
 
             if btn_adicionar and codigo_input.strip():
                 adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
-                st.success(f"✅ Código `{codigo_input.strip()}` registrado na coluna **'{descricao_final}'** do setor **'{setor_input}'**!")
+                st.success(f"✅ Código `{codigo_input.strip()}` registrado em **'{descricao_final}'** no setor **'{setor_input}'**!")
+
+        # Script de auto-foco para manter o cursor na caixa de texto
+        st.components.v1.html(
+            """
+            <script>
+                var inputs = window.parent.document.querySelectorAll('input[type="text"]');
+                if (inputs.length > 0) {
+                    inputs[inputs.length - 1].focus();
+                }
+            </script>
+            """,
+            height=0
+        )
 
     with tab_webcam:
         st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
