@@ -220,26 +220,51 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     salvar_no_excel(df)
     st.session_state.df_historico = df
 
-def processar_imagem(image_bytes) -> tuple:
-    file_bytes = np.asarray(bytearray(image_bytes.read()), dtype=np.uint8)
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    barcodes = zxingcpp.read_barcodes(img_rgb)
-    resultados = []
+def processar_imagem(image_file) -> tuple:
+    try:
+        if hasattr(image_file, 'getvalue'):
+            file_bytes = np.frombuffer(image_file.getvalue(), dtype=np.uint8)
+        else:
+            file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
+        
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        if img is None:
+            return None, []
 
-    for barcode in barcodes:
-        if barcode.position:
-            pts = np.array([[pt.x, pt.y] for pt in barcode.position], np.int32)
-            pts = pts.reshape((-1, 1, 2))
-            cv2.polylines(img_rgb, [pts], True, (0, 255, 0), 3)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        barcodes = zxingcpp.read_barcodes(img_rgb)
+        resultados = []
 
-        resultados.append({
-            "codigo": barcode.text, 
-            "tipo": str(barcode.format).replace("BarcodeFormat.", "")
-        })
+        for barcode in barcodes:
+            # Tratamento seguro dos pontos do retângulo da imagem
+            if hasattr(barcode, 'position') and barcode.position:
+                try:
+                    pos = barcode.position
+                    if hasattr(pos, 'top_left'):
+                        pts_list = [
+                            [int(pos.top_left.x), int(pos.top_left.y)],
+                            [int(pos.top_right.x), int(pos.top_right.y)],
+                            [int(pos.bottom_right.x), int(pos.bottom_right.y)],
+                            [int(pos.bottom_left.x), int(pos.bottom_left.y)]
+                        ]
+                    else:
+                        pts_list = [[int(getattr(pt, 'x', pt[0])), int(getattr(pt, 'y', pt[1]))] for pt in pos]
 
-    return img_rgb, resultados
+                    if pts_list:
+                        pts = np.array(pts_list, np.int32).reshape((-1, 1, 2))
+                        cv2.polylines(img_rgb, [pts], True, (0, 255, 0), 3)
+                except Exception:
+                    pass  # Se falhar ao desenhar a borda visual, preserva a leitura do código sem travar
+
+            resultados.append({
+                "codigo": barcode.text, 
+                "tipo": str(barcode.format).replace("BarcodeFormat.", "")
+            })
+
+        return img_rgb, resultados
+    except Exception as e:
+        st.error(f"Erro ao processar imagem: {e}")
+        return None, []
 
 # ==========================================
 # INICIALIZAÇÃO DO ESTADO DA SESSÃO DO INVENTÁRIO
@@ -300,7 +325,7 @@ else:
         
         col_usb, col_camera = st.columns(2)
 
-        # BLOCCO 1: Leitor USB Bematech / Digitação Manual
+        # BLOCO 1: Leitor USB Bematech / Digitação Manual
         with col_usb:
             st.markdown("##### 🔌 Bipagem Scanner USB / Digitação Manual")
             with st.form(key="form_bipagem", clear_on_submit=True):
@@ -337,16 +362,16 @@ else:
                             adicionar_e_salvar(item['codigo'], descricao_final, setor_input)
 
                 # Feedback visual da foto tirada
-                if "last_camera_img" in st.session_state:
+                if "last_camera_img" in st.session_state and st.session_state["last_camera_img"] is not None:
                     codigos = st.session_state.get("last_camera_codes", [])
                     if codigos:
                         st.success(f"🎉 {len(codigos)} código(s) lido(s) pela câmera!")
                         for item in codigos:
                             st.write(f"**Código:** `{item['codigo']}` | **Tipo:** `{item['tipo']}`")
                     else:
-                        st.error("❌ Nenhum código legível encontrado na foto.")
+                        st.error("❌ Nenhum código legível encontrado na foto. Ajuste o foco e a iluminação.")
 
-        # Script JS: Cancela atalhos de download do leitor USB e mantêm foco
+        # Script JS: Cancela atalhos de download do leitor USB e mantém o foco
         st.components.v1.html(
             """
             <script>
@@ -394,7 +419,8 @@ else:
             
             col_img1, col_img2 = st.columns(2)
             with col_img1:
-                st.image(img_processada, caption="Imagem Processada", use_container_width=True)
+                if img_processada is not None:
+                    st.image(img_processada, caption="Imagem Processada", use_container_width=True)
                 
             with col_img2:
                 if codigos_encontrados:
