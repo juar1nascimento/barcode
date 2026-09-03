@@ -1,4 +1,5 @@
 import base64
+import re
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -9,8 +10,23 @@ LOGO_SERRA_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 180
 
 ADMIN_EMAIL_DEFAULT = "juari.neris@gmail.com"
 
+def validar_email(email: str) -> bool:
+    """Valida formato padrão de e-mail."""
+    padrao = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+    return bool(re.match(padrao, email.strip()))
+
+def validar_senha_alfanumerica_8(senha: str) -> tuple[bool, str]:
+    """Garante que a senha possua exatamente 8 caracteres alfanuméricos."""
+    if len(senha) != 8:
+        return False, "A senha deve conter exatamente 8 caracteres."
+    if not senha.isalnum():
+        return False, "A senha deve ser alfanumérica (apenas letras e números, sem símbolos)."
+    if not (any(c.isalpha() for c in senha) and any(c.isdigit() for c in senha)):
+        return False, "A senha deve conter ao menos uma letra e um número."
+    return True, ""
+
 def enviar_email(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool, str]:
-    """Dispara o e-mail via servidor SMTP configurado nas secrets do Streamlit."""
+    """Dispara e-mail via SMTP configurado nas secrets do Streamlit."""
     try:
         email_secrets = st.secrets.get("email", {})
         smtp_server = email_secrets.get("smtp_server", "smtp.gmail.com")
@@ -19,7 +35,7 @@ def enviar_email(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool
         sender_password = email_secrets.get("sender_password", "")
 
         if not sender_email or not sender_password:
-            return False, "As credenciais de e-mail (sender_email e sender_password) não estão configuradas nas Secrets do Streamlit."
+            return False, "Credenciais SMTP não configuradas nas Secrets."
 
         msg = MIMEMultipart("alternative")
         msg["From"] = sender_email
@@ -34,9 +50,39 @@ def enviar_email(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool
 
         return True, "E-mail enviado com sucesso."
     except Exception as e:
-        return False, f"Falha na conexão SMTP: {str(e)}"
+        return False, f"Erro SMTP: {str(e)}"
+
+def processar_acao_via_url():
+    """Captura e processa a aprovação/recusa feita através dos botões no e-mail."""
+    params = st.query_params
+    if "acao" in params and "usuario" in params:
+        acao = params["acao"]
+        user_email = params["usuario"]
+        
+        # Limpa os parâmetros da URL após ler
+        st.query_params.clear()
+
+        if acao == "aprovar":
+            corpo = f"""
+            <h3>Prefeitura Municipal da Serra</h3>
+            <p>Seu cadastro/solicitação de acesso para o e-mail <b>{user_email}</b> foi <b>ACEITO</b> pelo administrador.</p>
+            <p>Você já pode acessar o sistema normalmente.</p>
+            """
+            enviar_email(user_email, "Cadastro Aceito - Prefeitura da Serra", corpo)
+            st.success(f"Solicitação do usuário {user_email} foi APROVADA com sucesso!")
+            
+        elif acao == "recusar":
+            corpo = f"""
+            <h3>Prefeitura Municipal da Serra</h3>
+            <p>Sua solicitação de cadastro para o e-mail <b>{user_email}</b> foi <b>RECUSADA</b> pelo administrador.</p>
+            """
+            enviar_email(user_email, "Cadastro Recusado - Prefeitura da Serra", corpo)
+            st.error(f"Solicitação do usuário {user_email} foi RECUSADA.")
 
 def renderizar_login() -> bool:
+    # Processa ações vindas do e-mail (se houver)
+    processar_acao_via_url()
+
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
 
@@ -97,83 +143,102 @@ def renderizar_login() -> bool:
     with col_center:
         st.markdown(logo_html, unsafe_allow_html=True)
 
-        # Tela 1: Solicitar Redefinição por E-mail
+        # -------------------------------------------------------------
+        # TELA 1: DIGITAR E-MAIL DE RECUPERAÇÃO
+        # -------------------------------------------------------------
         if st.session_state.tela_atual == "redefinicao_solicitar":
             with st.form(key="form_solicitar_email", clear_on_submit=False):
                 st.markdown('<div class="login-title">Redefinição de senha</div>', unsafe_allow_html=True)
-                st.write("**Informe seu e-mail cadastrado ou novo e-mail**")
-                email_req = st.text_input("E-mail", value="", placeholder="exemplo@serra.es.gov.br", label_visibility="collapsed", key="email_req")
-                btn_enviar_req = st.form_submit_button("Enviar Requisição", use_container_width=True)
+                st.write("**Informe seu e-mail de acesso**")
+                email_req = st.text_input("E-mail", value="", placeholder="seuemail@serra.es.gov.br", label_visibility="collapsed", key="email_req")
+                btn_enviar_req = st.form_submit_button("Avançar", use_container_width=True)
 
                 if btn_enviar_req:
-                    if "@" in email_req and "." in email_req:
-                        st.session_state.email_solicitante = email_req
+                    if validar_email(email_req):
+                        st.session_state.email_solicitante = email_req.strip()
                         st.session_state.tela_atual = "redefinicao_criar"
-                        
-                        corpo_usuario = f"""
-                        <h3>Prefeitura Municipal da Serra - Sistema Barcode</h3>
-                        <p>Recebemos uma solicitação de criação/redefinição para o e-mail: <b>{email_req}</b>.</p>
-                        <p>Por favor, prossiga na tela do sistema informando seu Usuário e Nova Senha para submeter à aprovação do administrador.</p>
-                        """
-                        enviar_email(email_req, "Solicitação de Acesso / Redefinição de Senha", corpo_usuario)
                         st.rerun()
                     else:
-                        st.error("Por favor, insira um e-mail válido.")
+                        st.error("Por favor, informe um e-mail com formato válido.")
 
             if st.button("← Voltar ao Login", use_container_width=True):
                 st.session_state.tela_atual = "login"
                 st.rerun()
 
-        # Tela 2: Criar Novo Usuário e Senha + Enviar para aprovação
+        # -------------------------------------------------------------
+        # TELA 2: DEFINIR NOVO LOGIN (E-MAIL) E CONFIRMAR SENHA (8 DIGITOS)
+        # -------------------------------------------------------------
         elif st.session_state.tela_atual == "redefinicao_criar":
             with st.form(key="form_criar_usuario", clear_on_submit=False):
                 st.markdown('<div class="login-title">Redefinição de senha</div>', unsafe_allow_html=True)
-                st.caption(f"E-mail associado: **{st.session_state.get('email_solicitante', '')}**")
+                
+                st.write("**Login de Usuário (Obrigatório ser E-mail)**")
+                novo_usuario = st.text_input(
+                    "Usuário", 
+                    value=st.session_state.get('email_solicitante', ''), 
+                    placeholder="usuario@dominio.com", 
+                    label_visibility="collapsed", 
+                    key="novo_user"
+                )
 
-                st.write("**Defina seu Nome de Usuário**")
-                novo_usuario = st.text_input("Novo Usuário", value="", label_visibility="collapsed", key="novo_user")
+                st.write("**Nova Senha (Exatamente 8 caracteres alfanuméricos)**")
+                nova_senha = st.text_input("Nova Senha", value="", type="password", placeholder="Ex: serra123", label_visibility="collapsed", key="nova_pass")
 
-                st.write("**Defina sua Nova Senha**")
-                nova_senha = st.text_input("Nova Senha", value="", type="password", label_visibility="collapsed", key="nova_pass")
+                st.write("**Confirme a Nova Senha**")
+                confirma_senha = st.text_input("Confirmar Senha", value="", type="password", placeholder="Repita a senha", label_visibility="collapsed", key="confirma_pass")
 
-                btn_finalizar = st.form_submit_button("Criar Login e Solicitar Autorização", use_container_width=True)
+                btn_finalizar = st.form_submit_button("Cadastrar e Solicitar Autorização", use_container_width=True)
 
                 if btn_finalizar:
-                    if novo_usuario.strip() != "" and nova_senha.strip() != "":
-                        email_usr = st.session_state.get('email_solicitante', '')
-                        admin_email = st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)
-
-                        corpo_admin = f"""
-                        <h3>Alerta de Novo Usuário / Solicitação de Cadastro</h3>
-                        <p>Um novo cadastro/redefinição foi solicitado no sistema:</p>
-                        <ul>
-                            <li><b>E-mail:</b> {email_usr}</li>
-                            <li><b>Usuário Solicitado:</b> {novo_usuario}</li>
-                        </ul>
-                        <p>Acesse o painel para autorizar ou recusar o cadastro.</p>
-                        """
-                        sucesso, msg = enviar_email(admin_email, f"Alerta de Novo Usuário: {novo_usuario}", corpo_admin)
-                        
-                        if sucesso:
-                            st.success(f"Solicitação enviada com sucesso para {admin_email}! Aguarde a aprovação por e-mail.")
-                        else:
-                            st.warning(f"Sua solicitação foi registrada na tela, mas o e-mail não pôde ser enviado. Detalhe: {msg}")
-                        
-                        st.session_state.tela_atual = "login"
+                    if not validar_email(novo_usuario):
+                        st.error("O nome de usuário deve ser obrigatoriamente um e-mail válido.")
+                    elif nova_senha != confirma_senha:
+                        st.error("A confirmação de senha não confere com a nova senha digitada.")
                     else:
-                        st.error("Preencha o nome de usuário e a senha corretamente.")
+                        senha_ok, msg_erro = validar_senha_alfanumerica_8(nova_senha)
+                        if not senha_ok:
+                            st.error(msg_erro)
+                        else:
+                            admin_email = st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)
+                            app_url = st.secrets.get("email", {}).get("app_url", "http://localhost:8501")
+
+                            # Links de ação incorporados no e-mail
+                            link_aprovar = f"{app_url}?acao=aprovar&usuario={novo_usuario}"
+                            link_recusar = f"{app_url}?acao=recusar&usuario={novo_usuario}"
+
+                            # Notificação enviada ao Administrador com os Botões de Ação
+                            corpo_admin = f"""
+                            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+                                <h3 style="color: #1b8e42;">Alerta de Novo Usuário / Solicitação de Cadastro</h3>
+                                <p>Um novo cadastro/redefinição foi solicitado no sistema:</p>
+                                <ul>
+                                    <li><b>E-mail/Usuário Solicitado:</b> {novo_usuario}</li>
+                                </ul>
+                                <p>Clique em uma das opções abaixo para responder à solicitação diretamente:</p>
+                                <div style="margin-top: 25px;">
+                                    <a href="{link_aprovar}" style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-right: 15px; display: inline-block;">Autorizar Cadastro</a>
+                                    <a href="{link_recusar}" style="background-color: #dc3545; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Recusar Cadastro</a>
+                                </div>
+                            </div>
+                            """
+                            enviar_email(admin_email, f"Solicitação de Cadastro: {novo_usuario}", corpo_admin)
+
+                            st.success(f"Solicitação enviada com sucesso! Um e-mail com os botões de autorização foi encaminhado para {admin_email}.")
+                            st.session_state.tela_atual = "login"
 
             if st.button("← Cancelar", use_container_width=True):
                 st.session_state.tela_atual = "login"
                 st.rerun()
 
-        # Tela 3: Login Principal
+        # -------------------------------------------------------------
+        # TELA PRINCIPAL DE LOGIN
+        # -------------------------------------------------------------
         else:
             with st.form(key="glpi_login_form", clear_on_submit=False):
                 st.markdown('<div class="login-title">Faça login na sua conta</div>', unsafe_allow_html=True)
 
                 st.write("**Usuário**")
-                usuario = st.text_input("Usuário", value="", label_visibility="collapsed", key="login_user")
+                usuario = st.text_input("Usuário", value="", placeholder="seuemail@serra.es.gov.br", label_visibility="collapsed", key="login_user")
 
                 st.write("**Senha**")
                 senha = st.text_input("Senha", value="", type="password", label_visibility="collapsed", key="login_pass")
@@ -198,7 +263,7 @@ def renderizar_login() -> bool:
             if st.session_state.get("erro_login", False):
                 st.markdown("""
                     <div class="error-box">
-                        Uso inválido de ID de sessão
+                        Uso inválido de ID de sessão ou credenciais incorretas
                     </div>
                 """, unsafe_allow_html=True)
 
