@@ -1,14 +1,7 @@
 import streamlit as st
-import cv2
 import numpy as np
-from PIL import Image
-import zxingcpp
 import pandas as pd
 import os
-from streamlit_gsheets import GSheetsConnection
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 
 # Importação do módulo de login independente
 from login import renderizar_login
@@ -20,7 +13,7 @@ st.set_page_config(
     page_title="Controle de Patrimônio - GTI-SESA",
     page_icon="📦",
     layout="wide",
-    initial_sidebar_state="collapsed"  # Menu recolhido por padrão no celular para ganhar área útil
+    initial_sidebar_state="collapsed"
 )
 
 # ==========================================
@@ -112,22 +105,42 @@ if st.session_state.pagina_atual == "portal":
 
     col1, col2, col3 = st.columns([1, 2, 1])
 
+    lista_urs = [
+        "Selecione uma URS...",
+        "URS Boa Vista", "URS Feu Rosa", "URS Jacaraípe", 
+        "URS Novo Horizonte", "URS Serra Sede", "URS Serra Dourada"
+    ]
+
+    lista_ubs = [
+        "Selecione uma UBS...",
+        "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona", 
+        "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande", 
+        "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina", 
+        "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos", 
+        "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II", 
+        "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)", "UBS Planalto Serrano (Bloco B)", 
+        "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos", "UBS Taquara I", "UBS Taquara II", 
+        "UBS Vila Nova de Colares", "UBS Vista da Serra", "UBS Itinerante (atendimento na área rural)"
+    ]
+
     with col2:
         with st.container(border=True):
             st.markdown("<h3 style='text-align: center;'>📦 Módulo de Inventário</h3>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão, leitura de códigos de barra e controle de patrimônio.</p>", unsafe_allow_html=True)
             st.write("")
 
-            st.link_button(
-                "🚀 Acessar Sistema de Inventários (Link Externo)",
-                "https://barcode-prxfe2eu4o34ae9tpejqpc.streamlit.app/",
-                use_container_width=True,
-                type="primary"
-            )
+            urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs")
+            ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs")
+
+            # Atualiza o setor automaticamente caso uma das opções seja selecionada
+            if urs_selecionada != "Selecione uma URS...":
+                st.session_state.saved_setor = urs_selecionada
+            elif ubs_selecionada != "Selecione uma UBS...":
+                st.session_state.saved_setor = ubs_selecionada
 
             st.write("")
             
-            if st.button("📂 Abrir Inventário nesta Aba", use_container_width=True):
+            if st.button("📂 Abrir Inventário nesta Aba", use_container_width=True, type="primary"):
                 st.session_state.pagina_atual = "inventario"
                 st.rerun()
 
@@ -141,10 +154,15 @@ GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78
 
 COLUNAS_PADRAO = ["Local / Setor", "Patrimônio PC", "Patrimônio Tela", "Patrimônio Nobreak"]
 
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-except Exception:
-    conn = None
+@st.cache_resource
+def obter_conexao_gsheets():
+    try:
+        from streamlit_gsheets import GSheetsConnection
+        return st.connection("gsheets", type=GSheetsConnection)
+    except Exception:
+        return None
+
+conn = obter_conexao_gsheets()
 
 # ==========================================
 # FUNÇÕES DE MANIPULAÇÃO DE DADOS
@@ -160,6 +178,10 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     return df[ordem_final].fillna("").astype(str)
 
 def aplicar_estilo_excel(caminho_arquivo: str) -> None:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
     wb = openpyxl.load_workbook(caminho_arquivo)
     ws = wb['Patrimônios']
 
@@ -206,6 +228,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
 
     wb.save(caminho_arquivo)
 
+@st.cache_data(ttl=60)
 def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
     if os.path.exists(ARQUIVO_EXCEL):
         try:
@@ -231,6 +254,7 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
         with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Patrimônios', index=False)
         aplicar_estilo_excel(ARQUIVO_EXCEL)
+        carregar_dados_excel.clear()
     except Exception as e:
         st.error(f"Erro ao salvar e formatar a planilha local: {e}")
 
@@ -274,6 +298,8 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     st.session_state.df_historico = df
 
 def processar_imagem(image_file) -> tuple:
+    import cv2
+    import zxingcpp
     try:
         if hasattr(image_file, 'getvalue'):
             file_bytes = np.frombuffer(image_file.getvalue(), dtype=np.uint8)
@@ -344,7 +370,6 @@ st.subheader("1. Selecione o Local e a Coluna")
 opcoes_patrimonio = [col for col in st.session_state.df_historico.columns if col != "Local / Setor"]
 opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
 
-# Utiliza layout responsivo para formulários de entrada
 col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
 
 with col_desc1:
@@ -387,7 +412,6 @@ else:
             st.markdown("##### 📱 Câmera (Bip e Registro Automático)")
             st.caption("Aponte a câmera para o código de barras. A leitura e salvamento são instantâneos.")
 
-            # Componente HTML5/JS nativo com suporte a Auto-Ajuste Responsivo no Celular
             html_scanner = """
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
             <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -425,7 +449,6 @@ else:
                 let lastScannedTime = 0;
                 let audioCtx = null;
 
-                // Função de áudio otimizada para navegadores móveis (Safari iOS / Chrome Android)
                 function tocarBipNativo() {
                     try {
                         if (!audioCtx) {
@@ -448,7 +471,6 @@ else:
 
                 function onScanSuccess(decodedText, decodedResult) {
                     const agora = Date.now();
-                    // Evita leituras duplicadas no intervalo de 3 segundos
                     if (decodedText === lastScannedCode && (agora - lastScannedTime) < 3000) {
                         return; 
                     }
@@ -459,7 +481,6 @@ else:
                     tocarBipNativo();
                     document.getElementById('scan-status').innerText = "✅ Lido: " + decodedText + " (Salvando...)";
 
-                    // Preenche automaticamente o campo e dispara o salvamento na página pai
                     const parentDoc = window.parent.document;
                     const inputEl = parentDoc.querySelector('input[placeholder*="Aguardando bipagem"]');
                     
@@ -488,11 +509,10 @@ else:
                     }
                 }
 
-                // Cálculo dinâmico da caixa de leitura para caber em telas estreitas
                 function getQrBoxDimensions(viewfinderWidth, viewfinderHeight) {
                     const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
                     const width = Math.floor(minEdge * 0.85);
-                    const height = Math.floor(width * 0.55); // Formato retangular otimizado para código de barras
+                    const height = Math.floor(width * 0.55);
                     return { width: Math.max(width, 200), height: Math.max(height, 100) };
                 }
 
@@ -560,12 +580,12 @@ st.header("📊 Tabela de Patrimônios")
 df_atual, _ = carregar_dados_excel()
 if not df_atual.empty:
     df_exibicao = df_atual.fillna("").astype(str)
-    # Exibição fluida em telas mobile
     st.dataframe(df_exibicao, use_container_width=True)
 
     col_btn1, col_btn2 = st.columns([1, 1])
     with col_btn1:
         if st.button("🔄 Recarregar Planilha", use_container_width=True):
+            carregar_dados_excel.clear()
             st.rerun()
             
     with col_btn2:
