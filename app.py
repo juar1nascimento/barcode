@@ -273,6 +273,12 @@ df_inicial, colunas_iniciais = carregar_dados_excel()
 if "df_historico" not in st.session_state:
     st.session_state.df_historico = df_inicial
 
+if "saved_setor" not in st.session_state:
+    st.session_state.saved_setor = ""
+
+if "saved_descricao" not in st.session_state:
+    st.session_state.saved_descricao = ""
+
 # ==========================================
 # INTERFACE DO USUÁRIO (SISTEMA DE INVENTÁRIO)
 # ==========================================
@@ -289,7 +295,8 @@ opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
 col_desc1, col_desc2, col_desc3 = st.columns(3)
 
 with col_desc1:
-    setor_input = st.text_input("Local / Setor:", placeholder="Ex: Consultório 1, Recepção...", key="setor_input_key")
+    setor_input = st.text_input("Local / Setor:", value=st.session_state.saved_setor, placeholder="Ex: Consultório 1, Recepção...", key="setor_input_key")
+    st.session_state.saved_setor = setor_input
 
 with col_desc2:
     opcao_selecionada = st.selectbox(
@@ -303,17 +310,22 @@ with col_desc3:
         descricao_final = st.text_input("Digite o nome da nova coluna:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
     else:
         descricao_final = opcao_selecionada
+    
+    st.session_state.saved_descricao = descricao_final
 
 st.divider()
 
-# --- PROCESSA BEEP VIO QUERY PARAMS ---
+# --- PROCESSA BEEP VIA QUERY PARAMS ---
 query_params = st.query_params
 if "scanned_code" in query_params:
-    codigo_auto = query_params["scanned_code"]
+    codigo_auto = query_params.get("scanned_code")
+    setor_param = query_params.get("setor", st.session_state.saved_setor)
+    descricao_param = query_params.get("coluna", st.session_state.saved_descricao)
+    
     st.query_params.clear()  # Limpa o parâmetro da URL imediatamente
     
-    if codigo_auto and setor_input.strip() and descricao_final:
-        adicionar_e_salvar(codigo_auto, descricao_final, setor_input)
+    if codigo_auto and setor_param.strip() and descricao_param.strip():
+        adicionar_e_salvar(codigo_auto, descricao_param, setor_param)
         st.toast(f"⚡ Código `{codigo_auto}` bipado e registrado com sucesso!", icon="✅")
         st.rerun()
 
@@ -358,23 +370,23 @@ else:
             st.caption("Aproxime a câmera do código de barras. A leitura e gravação acontecem instantaneamente.")
 
             # Componente de Leitura Contínua via HTML5-QRCode
-            html_scanner = """
+            html_scanner = f"""
             <!DOCTYPE html>
             <html>
             <head>
                 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
                 <style>
-                    #reader {
+                    #reader {{
                         width: 100%;
                         max-width: 450px;
                         margin: 0 auto;
                         border-radius: 8px;
                         overflow: hidden;
                         border: 2px solid #1F4E78;
-                    }
-                    #reader video {
+                    }}
+                    #reader video {{
                         object-fit: cover;
-                    }
+                    }}
                 </style>
             </head>
             <body>
@@ -383,8 +395,8 @@ else:
                     let lastCode = "";
                     let lastTime = 0;
 
-                    function emitBeep() {
-                        try {
+                    function emitBeep() {{
+                        try {{
                             const ctx = new (window.AudioContext || window.webkitAudioContext)();
                             const osc = ctx.createOscillator();
                             const gain = ctx.createGain();
@@ -395,47 +407,48 @@ else:
                             gain.connect(ctx.destination);
                             osc.start();
                             setTimeout(() => osc.stop(), 120);
-                        } catch(e) { console.log(e); }
-                    }
+                        }} catch(e) {{ console.log(e); }}
+                    }}
 
-                    function onScanSuccess(decodedText, decodedResult) {
+                    function onScanSuccess(decodedText, decodedResult) {{
                         const now = Date.now();
                         // Evita bipar o mesmo código repetidamente dentro de 3 segundos
-                        if (decodedText === lastCode && (now - lastTime) < 3000) {
+                        if (decodedText === lastCode && (now - lastTime) < 3000) {{
                             return;
-                        }
+                        }}
                         lastCode = decodedText;
                         lastTime = now;
 
                         emitBeep();
 
-                        // Envia o parâmetro via window.top sem recarregar e quebrar sessões
-                        try {
+                        // Envia o parâmetro via URL principal com setor e coluna embutidos
+                        try {{
                             const topUrl = new URL(window.top.location.href);
                             topUrl.searchParams.set("scanned_code", decodedText);
+                            topUrl.searchParams.set("setor", encodeURIComponent("{setor_input.strip()}"));
+                            topUrl.searchParams.set("coluna", encodeURIComponent("{descricao_final.strip()}"));
                             topUrl.searchParams.set("ts", now);
-                            window.top.location.search = topUrl.searchParams.toString();
-                        } catch(e) {
-                            // Fallback para navegadores com políticas de Iframe rígidas
-                            window.parent.postMessage({ type: "scanned_code", value: decodedText }, "*");
-                        }
-                    }
+                            window.top.location.href = topUrl.toString();
+                        }} catch(e) {{
+                            window.parent.postMessage({{ type: "scanned_code", value: decodedText }}, "*");
+                        }}
+                    }}
 
                     const html5QrCode = new Html5Qrcode("reader");
-                    const config = { 
+                    const config = {{ 
                         fps: 15, 
-                        qrbox: { width: 260, height: 150 },
+                        qrbox: {{ width: 260, height: 150 }},
                         aspectRatio: 1.333333
-                    };
+                    }};
 
                     html5QrCode.start(
-                        { facingMode: "environment" }, 
+                        {{ facingMode: "environment" }}, 
                         config, 
                         onScanSuccess
-                    ).catch(err => {
+                    ).catch(err => {{
                         document.getElementById("reader").innerHTML = 
                             "<p style='color:#721c24; background-color:#f8d7da; padding:12px; border-radius:5px; text-align:center;'>⚠️ Permita o acesso à câmera no navegador para realizar a bipagem automática.</p>";
-                    });
+                    }});
                 </script>
             </body>
             </html>
