@@ -3,11 +3,8 @@ import cv2
 import numpy as np
 from PIL import Image
 import zxingcpp
-import threading
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration, VideoProcessorBase
 import pandas as pd
 import os
-import hashlib
 from streamlit_gsheets import GSheetsConnection
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -31,7 +28,6 @@ st.set_page_config(
 if not renderizar_login():
     st.stop()
 
-# Inicialização da variável de navegação de páginas
 if "pagina_atual" not in st.session_state:
     st.session_state.pagina_atual = "portal"
 
@@ -83,7 +79,7 @@ if st.session_state.pagina_atual == "portal":
     st.stop()
 
 # ==========================================
-# CONFIGURAÇÕES E CONSTANTES DO SISTEMA DE INVENTÁRIO
+# CONFIGURAÇÕES E CONSTANTES
 # ==========================================
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
@@ -96,7 +92,7 @@ except Exception:
     conn = None
 
 # ==========================================
-# FUNÇÕES DE ESTILIZAÇÃO E MANIPULAÇÃO
+# FUNÇÕES DE MANIPULAÇÃO DE DADOS
 # ==========================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     for col in COLUNAS_PADRAO:
@@ -268,117 +264,7 @@ def processar_imagem(image_file) -> tuple:
         return None, []
 
 # ==========================================
-# LEITOR DE CÓDIGO DE BARRAS VIA CÂMERA / WEBRTC
-# ==========================================
-class BarcodeVideoProcessor(VideoProcessorBase):
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.latest_code = ""
-        self.latest_type = ""
-        self.latest_time = 0.0
-
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-
-        try:
-            h, w = img.shape[:2]
-            if w > 1280:
-                scale = 1280 / w
-                img_scan = cv2.resize(
-                    img,
-                    (int(w * scale), int(h * scale)),
-                    interpolation=cv2.INTER_AREA
-                )
-            else:
-                img_scan = img
-
-            img_rgb = cv2.cvtColor(img_scan, cv2.COLOR_BGR2RGB)
-            barcodes = zxingcpp.read_barcodes(img_rgb)
-
-            if barcodes:
-                for barcode in barcodes:
-                    codigo = str(barcode.text or "").strip()
-                    if not codigo:
-                        continue
-
-                    tipo = str(barcode.format).replace("BarcodeFormat.", "")
-                    agora = __import__("time").time()
-
-                    with self.lock:
-                        if (
-                            codigo != self.latest_code
-                            or (agora - self.latest_time) >= 2.5
-                        ):
-                            self.latest_code = codigo
-                            self.latest_type = tipo
-                            self.latest_time = agora
-                    break
-
-        except Exception:
-            pass
-
-        return frame
-
-    def get_latest(self):
-        with self.lock:
-            return self.latest_code, self.latest_type, self.latest_time
-
-# Fragmento para monitoramento da câmera com emissão de BIP e atualização de tabela
-@st.fragment(run_every=0.5)
-def monitorar_camera(camera_ctx, descricao_final, setor_input):
-    if not camera_ctx or not camera_ctx.state.playing:
-        return
-
-    processor = camera_ctx.video_processor
-    if processor is None:
-        return
-
-    codigo, tipo, momento = processor.get_latest()
-
-    if not codigo:
-        return
-
-    ultimo_salvo = st.session_state.get("ultimo_codigo_camera_salvo", "")
-
-    if codigo == ultimo_salvo:
-        return
-
-    try:
-        # 1. Salvar no mesmo destino que o scanner USB e a digitação manual
-        adicionar_e_salvar(codigo, descricao_final, setor_input)
-        st.session_state.ultimo_codigo_camera_salvo = codigo
-
-        # 2. Emitir o BIP sonoro via JavaScript Web Audio API
-        st.components.v1.html(
-            """
-            <script>
-                try {
-                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(1200, ctx.currentTime);
-                    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    osc.start();
-                    osc.stop(ctx.currentTime + 0.15);
-                } catch(e) { console.log(e); }
-            </script>
-            """,
-            height=0
-        )
-
-        st.toast(f"🔊 BIP! Código `{codigo}` inserido na tabela em **{descricao_final}**", icon="✅")
-        
-        # 3. Recarregar a interface para refletir o novo item na tabela abaixo
-        st.rerun()
-
-    except Exception as e:
-        st.error(f"❌ O código `{codigo}` foi detectado, mas ocorreu um erro ao gravar: {e}")
-
-# ==========================================
-# INICIALIZAÇÃO DO ESTADO DA SESSÃO DO INVENTÁRIO
+# INICIALIZAÇÃO DE ESTADO
 # ==========================================
 df_inicial, colunas_iniciais = carregar_dados_excel()
 
@@ -391,11 +277,8 @@ if "saved_setor" not in st.session_state:
 if "saved_descricao" not in st.session_state:
     st.session_state.saved_descricao = ""
 
-if "ultimo_codigo_camera_salvo" not in st.session_state:
-    st.session_state.ultimo_codigo_camera_salvo = ""
-
 # ==========================================
-# INTERFACE DO USUÁRIO (SISTEMA DE INVENTÁRIO)
+# INTERFACE PRINCIPAL
 # ==========================================
 st.title("📦 Sistema de Controle de Patrimônio GTI-SESA")
 st.markdown(f"**Sincronização Ativa:** Salvando em `{ARQUIVO_EXCEL}` e no **Google Sheets**")
@@ -435,7 +318,7 @@ if not descricao_final or not setor_input.strip():
     st.warning("⚠️ Por favor, preencha o **Local / Setor** e selecione ou informe a **Descrição** antes de realizar a leitura.")
 else:
     tab_unificada, tab_upload = st.tabs([
-        "🔌 Leitor USB Bematech / Digitação / 📱 Câmera Automática", 
+        "🔌 Scanner USB / Digitação / ⚡ Câmera Ultra-Rápida", 
         "📁 Upload de Imagem"
     ])
 
@@ -461,74 +344,83 @@ else:
                     st.rerun()
 
         with col_camera:
-            st.markdown("##### 📱 Bipagem Automática via Câmera do Celular")
-            st.caption(
-                "Aponte a câmera traseira para o código de barras. "
-                "Ao identificar, o sistema dará um BIP sonoro e registrará o código na tabela automaticamente."
-            )
+            st.markdown("##### ⚡ Leitor Ultra-Rápido via Câmera do Celular")
+            st.caption("A câmera inicializa instantaneamente no seu navegador com bipe automático nativo.")
 
-            rtc_configuration = RTCConfiguration({
-                "iceServers": [
-                    {"urls": ["stun:stun.l.google.com:19302"]}
-                ]
-            })
+            # Componente HTML5/JS nativo client-side ultrarrápido
+            html_scanner = """
+            <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+            <div id="reader" style="width: 100%; max-width: 450px; margin: auto; border-radius: 8px; overflow: hidden; border: 2px solid #1F4E78;"></div>
+            <div id="scan-status" style="text-align: center; margin-top: 8px; font-weight: bold; color: #1F4E78; font-family: sans-serif;">📷 Aguardando código...</div>
 
-            camera_ctx = webrtc_streamer(
-                key="inventario-barcode-camera",
-                mode=WebRtcMode.SENDRECV,
-                rtc_configuration=rtc_configuration,
-                media_stream_constraints={
-                    "video": {
-                        "facingMode": {"ideal": "environment"},
-                        "width": {"ideal": 1280},
-                        "height": {"ideal": 720},
-                    },
-                    "audio": False,
-                },
-                video_processor_factory=BarcodeVideoProcessor,
-                async_processing=True,
-            )
-
-            if camera_ctx.state.playing:
-                st.success("🟢 Câmera ativa — aponte para o código de barras.")
-
-            # Monitoramento ativo do fluxo da câmera
-            monitorar_camera(camera_ctx, descricao_final, setor_input)
-
-        st.components.v1.html(
-            """
             <script>
-                (function() {
+                let lastScannedCode = "";
+                let lastScannedTime = 0;
+
+                function tocarBipNativo() {
+                    try {
+                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(1400, audioCtx.currentTime);
+                        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start();
+                        osc.stop(audioCtx.currentTime + 0.12);
+                    } catch(e) { console.log(e); }
+                }
+
+                function onScanSuccess(decodedText, decodedResult) {
+                    const agora = Date.now();
+                    if (decodedText === lastScannedCode && (agora - lastScannedTime) < 2500) {
+                        return; // Evita bipagem dupla repetida
+                    }
+
+                    lastScannedCode = decodedText;
+                    lastScannedTime = agora;
+
+                    tocarBipNativo();
+                    document.getElementById('scan-status').innerText = "✅ Lido: " + decodedText;
+
+                    // Envia o código diretamente ao campo do Streamlit na página pai
                     const parentDoc = window.parent.document;
+                    const inputEl = parentDoc.querySelector('input[placeholder*="Aguardando bipagem"]');
+                    
+                    if (inputEl) {
+                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                        nativeSetter.call(inputEl, decodedText);
+                        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
 
-                    function fixarFocoInput() {
-                        const inputs = parentDoc.querySelectorAll('input[type="text"]');
-                        for (let input of inputs) {
-                            if (input.placeholder && input.placeholder.includes("Aguardando bipagem")) {
-                                input.focus();
-                                break;
+                        setTimeout(() => {
+                            const form = inputEl.closest('form');
+                            if (form) {
+                                const submitBtn = form.querySelector('button[type="submit"]');
+                                if (submitBtn) submitBtn.click();
                             }
-                        }
+                        }, 100);
                     }
+                }
 
-                    fixarFocoInput();
-                    setTimeout(fixarFocoInput, 150);
-                    setTimeout(fixarFocoInput, 400);
+                const html5QrCode = new Html5Qrcode("reader");
+                const config = { 
+                    fps: 25, 
+                    qrbox: { width: 260, height: 150 },
+                    experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+                };
 
-                    if (!window.parent._bematech_listener_added) {
-                        window.parent._bematech_listener_added = true;
-                        parentDoc.addEventListener('keydown', function(e) {
-                            if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.key === 'd' || e.key === 'D' || e.key === 'j' || e.key === 'J')) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                            }
-                        }, true);
-                    }
-                })();
+                html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    config, 
+                    onScanSuccess
+                ).catch(err => {
+                    // Fallback para qualquer câmera disponível caso a traseira falhe
+                    html5QrCode.start({ facingMode: "user" }, config, onScanSuccess);
+                });
             </script>
-            """,
-            height=0
-        )
+            """
+            st.components.v1.html(html_scanner, height=360)
 
     with tab_upload:
         st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
