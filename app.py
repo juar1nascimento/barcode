@@ -295,12 +295,13 @@ else:
     with tab_manual:
         st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
         
-        # Campo unificado para bipagem rápida e digitação manual
+        # Formulario isolado sem risco de download de imagem
         with st.form(key="form_bipagem", clear_on_submit=True):
             codigo_input = st.text_input(
                 "Bipe com o scanner Bematech BR-310 ou digite o código de barras:", 
                 autocomplete="off",
-                placeholder="Aguardando bipagem do scanner..."
+                placeholder="Aguardando bipagem do scanner...",
+                key="input_codigo_bip"
             )
             btn_adicionar = st.form_submit_button("Registrar na Tabela", type="primary")
 
@@ -308,14 +309,39 @@ else:
                 adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
                 st.success(f"✅ Código `{codigo_input.strip()}` registrado em **'{descricao_final}'** no setor **'{setor_input}'**!")
 
-        # Script de auto-foco para manter o cursor na caixa de texto
+        # Script JS: Cancela atalhos de download do navegador e trava o foco no campo
         st.components.v1.html(
             """
             <script>
-                var inputs = window.parent.document.querySelectorAll('input[type="text"]');
-                if (inputs.length > 0) {
-                    inputs[inputs.length - 1].focus();
-                }
+                (function() {
+                    const parentDoc = window.parent.document;
+
+                    // 1. Manter foco fixo no campo de bipagem
+                    function fixarFocoInput() {
+                        const inputs = parentDoc.querySelectorAll('input[type="text"]');
+                        for (let input of inputs) {
+                            if (input.placeholder && input.placeholder.includes("Aguardando bipagem")) {
+                                input.focus();
+                                break;
+                            }
+                        }
+                    }
+
+                    fixarFocoInput();
+                    setTimeout(fixarFocoInput, 150);
+                    setTimeout(fixarFocoInput, 400);
+
+                    // 2. Interceptar e cancelar comandos de download do navegador disparados pelo leitor (ex: Ctrl+S, Ctrl+J)
+                    if (!window.parent._bematech_listener_added) {
+                        window.parent._bematech_listener_added = true;
+                        parentDoc.addEventListener('keydown', function(e) {
+                            if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.key === 'd' || e.key === 'D' || e.key === 'j' || e.key === 'J')) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }
+                        }, true);
+                    }
+                })();
             </script>
             """,
             height=0
