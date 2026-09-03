@@ -345,9 +345,9 @@ else:
 
         with col_camera:
             st.markdown("##### ⚡ Leitor Ultra-Rápido via Câmera do Celular")
-            st.caption("A câmera inicializa instantaneamente no seu navegador com bipe automático nativo.")
+            st.caption("A câmera inicializa instantaneamente no seu navegador com bipe automático nativo e envia o código sozinho.")
 
-            # Componente HTML5/JS nativo client-side ultrarrápido
+            # Componente HTML5/JS nativo client-side ultrarrápido REVISADO
             html_scanner = """
             <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
             <div id="reader" style="width: 100%; max-width: 450px; margin: auto; border-radius: 8px; overflow: hidden; border: 2px solid #1F4E78;"></div>
@@ -374,32 +374,50 @@ else:
 
                 function onScanSuccess(decodedText, decodedResult) {
                     const agora = Date.now();
-                    if (decodedText === lastScannedCode && (agora - lastScannedTime) < 2500) {
-                        return; // Evita bipagem dupla repetida
+                    // Bloqueia duplicações muito rápidas (evita spam de bipes e inserts)
+                    if (decodedText === lastScannedCode && (agora - lastScannedTime) < 3000) {
+                        return; 
                     }
 
                     lastScannedCode = decodedText;
                     lastScannedTime = agora;
 
                     tocarBipNativo();
-                    document.getElementById('scan-status').innerText = "✅ Lido: " + decodedText;
+                    document.getElementById('scan-status').innerText = "✅ Lido: " + decodedText + " (Processando...)";
 
-                    // Envia o código diretamente ao campo do Streamlit na página pai
+                    // Acessa o DOM da página principal do Streamlit
                     const parentDoc = window.parent.document;
                     const inputEl = parentDoc.querySelector('input[placeholder*="Aguardando bipagem"]');
                     
                     if (inputEl) {
+                        // 1. Força a alteração do valor nativo no React (Streamlit)
                         const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                         nativeSetter.call(inputEl, decodedText);
+                        
+                        // 2. Dispara o evento para o Streamlit entender a mudança
                         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
 
+                        // 3. Após um curtíssimo intervalo, clica automaticamente no botão de registrar
                         setTimeout(() => {
-                            const form = inputEl.closest('form');
-                            if (form) {
-                                const submitBtn = form.querySelector('button[type="submit"]');
-                                if (submitBtn) submitBtn.click();
+                            // Busca diretamente o botão pelo texto dele, o que é mais seguro no layout do Streamlit
+                            const buttons = Array.from(parentDoc.querySelectorAll('button'));
+                            const submitBtn = buttons.find(b => b.innerText.includes('Registrar Manualmente'));
+                            
+                            if (submitBtn) {
+                                submitBtn.click();
+                            } else {
+                                // Fallback: simula apertar a tecla "Enter" dentro do input
+                                inputEl.dispatchEvent(new KeyboardEvent('keydown', {
+                                    bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13
+                                }));
                             }
-                        }, 100);
+                            
+                            // Reseta o status visualmente para o próximo scan
+                            setTimeout(() => {
+                                document.getElementById('scan-status').innerText = "📷 Aguardando próximo código...";
+                            }, 1500);
+                            
+                        }, 150);
                     }
                 }
 
@@ -410,12 +428,13 @@ else:
                     experimentalFeatures: { useBarCodeDetectorIfSupported: true }
                 };
 
+                // Inicializa a câmera
                 html5QrCode.start(
                     { facingMode: "environment" }, 
                     config, 
                     onScanSuccess
                 ).catch(err => {
-                    // Fallback para qualquer câmera disponível caso a traseira falhe
+                    // Fallback para câmera frontal caso a traseira não exista ou dê erro
                     html5QrCode.start({ facingMode: "user" }, config, onScanSuccess);
                 });
             </script>
