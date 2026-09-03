@@ -189,7 +189,7 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
                 spreadsheet=GOOGLE_SHEET_URL,
                 data=df
             )
-            st.toast("☁️ Dados e formatação sincronizados no Google Sheets!")
+            st.toast("☁️ Dados sincronizados no Google Sheets!")
         except Exception as e:
             st.error(f"Falha na sincronização com Google Sheets: {e}")
 
@@ -307,7 +307,7 @@ class BarcodeVideoProcessor(VideoProcessorBase):
                     with self.lock:
                         if (
                             codigo != self.latest_code
-                            or (agora - self.latest_time) >= 3
+                            or (agora - self.latest_time) >= 2.5
                         ):
                             self.latest_code = codigo
                             self.latest_type = tipo
@@ -323,7 +323,7 @@ class BarcodeVideoProcessor(VideoProcessorBase):
         with self.lock:
             return self.latest_code, self.latest_type, self.latest_time
 
-# Fragmento declarado no escopo global para evitar stale closures
+# Fragmento para monitoramento da câmera com emissão de BIP e atualização de tabela
 @st.fragment(run_every=0.5)
 def monitorar_camera(camera_ctx, descricao_final, setor_input):
     if not camera_ctx or not camera_ctx.state.playing:
@@ -344,10 +344,35 @@ def monitorar_camera(camera_ctx, descricao_final, setor_input):
         return
 
     try:
+        # 1. Salvar no mesmo destino que o scanner USB e a digitação manual
         adicionar_e_salvar(codigo, descricao_final, setor_input)
         st.session_state.ultimo_codigo_camera_salvo = codigo
 
-        st.success(f"✅ Código `{codigo}` ({tipo}) registrado automaticamente em **{descricao_final}**.")
+        # 2. Emitir o BIP sonoro via JavaScript Web Audio API
+        st.components.v1.html(
+            """
+            <script>
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1200, ctx.currentTime);
+                    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.15);
+                } catch(e) { console.log(e); }
+            </script>
+            """,
+            height=0
+        )
+
+        st.toast(f"🔊 BIP! Código `{codigo}` inserido na tabela em **{descricao_final}**", icon="✅")
+        
+        # 3. Recarregar a interface para refletir o novo item na tabela abaixo
+        st.rerun()
 
     except Exception as e:
         st.error(f"❌ O código `{codigo}` foi detectado, mas ocorreu um erro ao gravar: {e}")
@@ -433,12 +458,13 @@ else:
                 if btn_adicionar and codigo_input.strip():
                     adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
                     st.success(f"✅ Código `{codigo_input.strip()}` registrado em **'{descricao_final}'**!")
+                    st.rerun()
 
         with col_camera:
             st.markdown("##### 📱 Bipagem Automática via Câmera do Celular")
             st.caption(
                 "Aponte a câmera traseira para o código de barras. "
-                "Quando o código for reconhecido, ele será gravado automaticamente."
+                "Ao identificar, o sistema dará um BIP sonoro e registrará o código na tabela automaticamente."
             )
 
             rtc_configuration = RTCConfiguration({
@@ -466,7 +492,7 @@ else:
             if camera_ctx.state.playing:
                 st.success("🟢 Câmera ativa — aponte para o código de barras.")
 
-            # Invocação da função monitorar_camera configurada no escopo global
+            # Monitoramento ativo do fluxo da câmera
             monitorar_camera(camera_ctx, descricao_final, setor_input)
 
         st.components.v1.html(
@@ -522,6 +548,7 @@ else:
                     for item in codigos_encontrados:
                         adicionar_e_salvar(item['codigo'], descricao_final, setor_input)
                         st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}**")
+                    st.rerun()
                 else:
                     st.error("Nenhum código de barras identificado.")
 
