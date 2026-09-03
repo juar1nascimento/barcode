@@ -51,6 +51,7 @@ starlette==1.6.0
 streamlit==1.63.0
 streamlit-webrtc==0.47.1
 toml==0.10.2
+tornado==6.1
 typing_extensions==4.16.0
 tzdata==2026.3
 urllib3==2.7.0

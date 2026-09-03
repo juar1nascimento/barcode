@@ -271,12 +271,6 @@ def processar_imagem(image_file) -> tuple:
 # LEITOR DE CÓDIGO DE BARRAS VIA CÂMERA / WEBRTC
 # ==========================================
 class BarcodeVideoProcessor(VideoProcessorBase):
-    """
-    Processa os frames da câmera no lado Python.
-    Diferente do HTML5-QRCode anterior, o código detectado não precisa
-    navegar o iframe nem alterar a URL do Streamlit.
-    """
-
     def __init__(self):
         self.lock = threading.Lock()
         self.latest_code = ""
@@ -287,8 +281,6 @@ class BarcodeVideoProcessor(VideoProcessorBase):
         img = frame.to_ndarray(format="bgr24")
 
         try:
-            # Reduz um pouco a imagem para diminuir o processamento.
-            # Mantém qualidade suficiente para códigos de barras.
             h, w = img.shape[:2]
             if w > 1280:
                 scale = 1280 / w
@@ -304,7 +296,6 @@ class BarcodeVideoProcessor(VideoProcessorBase):
             barcodes = zxingcpp.read_barcodes(img_rgb)
 
             if barcodes:
-                # Usa o primeiro código válido encontrado no frame.
                 for barcode in barcodes:
                     codigo = str(barcode.text or "").strip()
                     if not codigo:
@@ -314,7 +305,6 @@ class BarcodeVideoProcessor(VideoProcessorBase):
                     agora = __import__("time").time()
 
                     with self.lock:
-                        # Evita registrar repetidamente o mesmo código.
                         if (
                             codigo != self.latest_code
                             or (agora - self.latest_time) >= 3
@@ -325,7 +315,6 @@ class BarcodeVideoProcessor(VideoProcessorBase):
                     break
 
         except Exception:
-            # Não interrompe o vídeo se um frame falhar.
             pass
 
         return frame
@@ -334,10 +323,37 @@ class BarcodeVideoProcessor(VideoProcessorBase):
         with self.lock:
             return self.latest_code, self.latest_type, self.latest_time
 
+# Fragmento declarado no escopo global para evitar stale closures
+@st.fragment(run_every=0.5)
+def monitorar_camera(camera_ctx, descricao_final, setor_input):
+    if not camera_ctx or not camera_ctx.state.playing:
+        return
+
+    processor = camera_ctx.video_processor
+    if processor is None:
+        return
+
+    codigo, tipo, momento = processor.get_latest()
+
+    if not codigo:
+        return
+
+    ultimo_salvo = st.session_state.get("ultimo_codigo_camera_salvo", "")
+
+    if codigo == ultimo_salvo:
+        return
+
+    try:
+        adicionar_e_salvar(codigo, descricao_final, setor_input)
+        st.session_state.ultimo_codigo_camera_salvo = codigo
+
+        st.success(f"✅ Código `{codigo}` ({tipo}) registrado automaticamente em **{descricao_final}**.")
+
+    except Exception as e:
+        st.error(f"❌ O código `{codigo}` foi detectado, mas ocorreu um erro ao gravar: {e}")
 
 # ==========================================
 # INICIALIZAÇÃO DO ESTADO DA SESSÃO DO INVENTÁRIO
-
 # ==========================================
 df_inicial, colunas_iniciais = carregar_dados_excel()
 
@@ -360,7 +376,6 @@ st.title("📦 Sistema de Controle de Patrimônio GTI-SESA")
 st.markdown(f"**Sincronização Ativa:** Salvando em `{ARQUIVO_EXCEL}` e no **Google Sheets**")
 st.divider()
 
-# --- SELEÇÃO DE COLUNA / DESCRIÇÃO ---
 st.subheader("1. Selecione ou Digite a Descrição do Patrimônio")
 
 opcoes_patrimonio = [col for col in st.session_state.df_historico.columns if col != "Local / Setor"]
@@ -389,11 +404,6 @@ with col_desc3:
 
 st.divider()
 
-# --- LEITURA AUTOMÁTICA DA CÂMERA ---
-# A câmera agora entrega o código diretamente ao Python através do WebRTC.
-# Não usamos query params, navegação do iframe ou window.parent.
-
-# --- CAPTURA E REGISTRO ---
 st.subheader("2. Realize a Leitura do Código")
 
 if not descricao_final or not setor_input.strip():
@@ -404,15 +414,11 @@ else:
         "📁 Upload de Imagem"
     ])
 
-    # ==========================================
-    # ABA UNIFICADA: SCANNER USB, DIGITAÇÃO E CÂMERA AUTOMÁTICA
-    # ==========================================
     with tab_unificada:
         st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
         
         col_usb, col_camera = st.columns(2)
 
-        # BLOCO 1: Leitor USB Bematech / Digitação Manual
         with col_usb:
             st.markdown("##### 🔌 Bipagem Scanner USB / Digitação Manual")
             with st.form(key="form_bipagem", clear_on_submit=True):
@@ -428,7 +434,6 @@ else:
                     adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
                     st.success(f"✅ Código `{codigo_input.strip()}` registrado em **'{descricao_final}'**!")
 
-        # BLOCO 2: Bipagem Automática pela Câmera
         with col_camera:
             st.markdown("##### 📱 Bipagem Automática via Câmera do Celular")
             st.caption(
@@ -436,10 +441,6 @@ else:
                 "Quando o código for reconhecido, ele será gravado automaticamente."
             )
 
-            # IMPORTANTE:
-            # O processamento ocorre no Python através do WebRTC.
-            # Isso elimina o problema anterior do iframe tentar navegar a
-            # página do Streamlit após uma leitura JavaScript.
             rtc_configuration = RTCConfiguration({
                 "iceServers": [
                     {"urls": ["stun:stun.l.google.com:19302"]}
@@ -465,55 +466,9 @@ else:
             if camera_ctx.state.playing:
                 st.success("🟢 Câmera ativa — aponte para o código de barras.")
 
-            # Fragmento executado periodicamente para buscar o último código
-            # detectado pelo processador WebRTC e gravá-lo usando a mesma
-            # função do scanner Bematech.
-            @st.fragment(run_every="0.5s")
-            def monitorar_camera():
-                if not camera_ctx.state.playing:
-                    return
+            # Invocação da função monitorar_camera configurada no escopo global
+            monitorar_camera(camera_ctx, descricao_final, setor_input)
 
-                processor = camera_ctx.video_processor
-                if processor is None:
-                    return
-
-                codigo, tipo, momento = processor.get_latest()
-
-                if not codigo:
-                    return
-
-                # Controle por sessão: cada código é salvo uma única vez
-                # enquanto a câmera continua apontada para ele.
-                ultimo_salvo = st.session_state.get(
-                    "ultimo_codigo_camera_salvo", ""
-                )
-
-                if codigo == ultimo_salvo:
-                    return
-
-                try:
-                    adicionar_e_salvar(
-                        codigo,
-                        descricao_final,
-                        setor_input
-                    )
-
-                    st.session_state.ultimo_codigo_camera_salvo = codigo
-
-                    st.success(
-                        f"✅ Código `{codigo}` ({tipo}) registrado automaticamente "
-                        f"em **{descricao_final}**."
-                    )
-
-                except Exception as e:
-                    st.error(
-                        f"❌ O código `{codigo}` foi detectado, mas ocorreu "
-                        f"um erro ao gravar: {e}"
-                    )
-
-            monitorar_camera()
-
-        # Script JS: Cancela atalhos do leitor USB e mantém o foco no input
         st.components.v1.html(
             """
             <script>
@@ -549,9 +504,6 @@ else:
             height=0
         )
 
-    # ==========================================
-    # ABA SECUNDÁRIA: UPLOAD DE IMAGEM
-    # ==========================================
     with tab_upload:
         st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
         uploaded_file = st.file_uploader("Escolha uma imagem contendo o código", type=["jpg", "png", "jpeg"])
@@ -573,9 +525,6 @@ else:
                 else:
                     st.error("Nenhum código de barras identificado.")
 
-# ==========================================
-# EXIBIÇÃO DA TABELA ATUALIZADA
-# ==========================================
 st.divider()
 st.header("📊 Tabela de Patrimônios Atualizada em Tempo Real")
 
