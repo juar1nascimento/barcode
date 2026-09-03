@@ -157,7 +157,7 @@ def renderizar_login() -> bool:
                 text-align: center; font-size: 20px; font-weight: 600; color: #24292e; margin-bottom: 25px;
             }
             button[kind="tertiary"] {
-                float: left !important; font-size: 12px !important; color: #24292e !important;
+                float: right !important; font-size: 12px !important; color: #24292e !important;
                 text-decoration: underline !important; margin-top: -10px !important; margin-bottom: 15px !important;
                 padding: 0 !important; height: auto !important; background: transparent !important; border: none !important;
             }
@@ -299,7 +299,7 @@ def renderizar_login() -> bool:
                 st.write("**Senha**")
                 senha = st.text_input("Senha", value="", type="password", label_visibility="collapsed", key="login_pass")
 
-                # Link alinhado no canto esquerdo abaixo da senha
+                # Link alinhado no canto direito abaixo do campo de senha
                 if st.form_submit_button("Esqueceu sua senha?", type="tertiary"):
                     st.session_state.tela_atual = "redefinicao_solicitar"
                     st.rerun()
