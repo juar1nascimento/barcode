@@ -124,6 +124,7 @@ if st.session_state.pagina_atual == "portal":
     ]
 
     with col2:
+        # --- 1. MÓDULO DE INVENTÁRIO ---
         with st.container(border=True):
             st.markdown("<h3 style='text-align: center;'>📦 Módulo de Inventário</h3>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão, leitura de códigos de barra e controle de patrimônio.</p>", unsafe_allow_html=True)
@@ -132,7 +133,6 @@ if st.session_state.pagina_atual == "portal":
             urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs")
             ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs")
 
-            # Atualiza o setor automaticamente caso uma das opções seja selecionada
             if urs_selecionada != "Selecione uma URS...":
                 st.session_state.saved_setor = urs_selecionada
             elif ubs_selecionada != "Selecione uma UBS...":
@@ -140,7 +140,51 @@ if st.session_state.pagina_atual == "portal":
 
             st.write("")
             
-            if st.button("📂 Abrir Inventário nesta Aba", use_container_width=True, type="primary"):
+            if st.button("📂 Abrir Inventário nesta Aba", use_container_width=True, type="primary", key="btn_inventario"):
+                st.session_state.pagina_atual = "inventario"
+                st.rerun()
+
+        st.write("")
+
+        # --- 2. ENTRADA DE EQUIPAMENTOS ---
+        with st.container(border=True):
+            st.markdown("<h3 style='text-align: center;'>📥 Entrada de Equipamentos</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de registro e recebimento de equipamentos nas unidades.</p>", unsafe_allow_html=True)
+            st.write("")
+
+            urs_entrada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_entrada")
+            ubs_entrada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_entrada")
+
+            if urs_entrada != "Selecione uma URS...":
+                st.session_state.saved_setor = urs_entrada
+            elif ubs_entrada != "Selecione uma UBS...":
+                st.session_state.saved_setor = ubs_entrada
+
+            st.write("")
+            
+            if st.button("📂 Abrir Entrada nesta Aba", use_container_width=True, type="primary", key="btn_entrada"):
+                st.session_state.pagina_atual = "inventario"
+                st.rerun()
+
+        st.write("")
+
+        # --- 3. SAÍDA DE EQUIPAMENTOS ---
+        with st.container(border=True):
+            st.markdown("<h3 style='text-align: center;'>📤 Saída de Equipamentos</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de baixa, transferência e saída de equipamentos.</p>", unsafe_allow_html=True)
+            st.write("")
+
+            urs_saida = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_saida")
+            ubs_saida = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_saida")
+
+            if urs_saida != "Selecione uma URS...":
+                st.session_state.saved_setor = urs_saida
+            elif ubs_saida != "Selecione uma UBS...":
+                st.session_state.saved_setor = ubs_saida
+
+            st.write("")
+            
+            if st.button("📂 Abrir Saída nesta Aba", use_container_width=True, type="primary", key="btn_saida"):
                 st.session_state.pagina_atual = "inventario"
                 st.rerun()
 
