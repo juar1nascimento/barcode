@@ -287,30 +287,66 @@ st.subheader("2. Realize a Leitura do Código")
 if not descricao_final or not setor_input.strip():
     st.warning("⚠️ Por favor, preencha o **Local / Setor** e selecione ou informe a **Descrição** antes de realizar a leitura.")
 else:
-    tab_manual, tab_celular, tab_upload = st.tabs([
-        "🔌 Leitor USB Bematech / Digitação Manual", 
-        "📱 Bipar com o Celular", 
+    tab_unificada, tab_upload = st.tabs([
+        "🔌 Leitor USB Bematech / Digitação / 📱 Câmera", 
         "📁 Upload de Imagem"
     ])
 
-    with tab_manual:
+    # ==========================================
+    # ABA UNIFICADA: SCANNER USB, DIGITAÇÃO E CÂMERA
+    # ==========================================
+    with tab_unificada:
         st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
         
-        # Formulario isolado sem risco de download de imagem
-        with st.form(key="form_bipagem", clear_on_submit=True):
-            codigo_input = st.text_input(
-                "Bipe com o scanner Bematech BR-310 ou digite o código de barras:", 
-                autocomplete="off",
-                placeholder="Aguardando bipagem do scanner...",
-                key="input_codigo_bip"
-            )
-            btn_adicionar = st.form_submit_button("Registrar na Tabela", type="primary")
+        col_usb, col_camera = st.columns(2)
 
-            if btn_adicionar and codigo_input.strip():
-                adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
-                st.success(f"✅ Código `{codigo_input.strip()}` registrado em **'{descricao_final}'** no setor **'{setor_input}'**!")
+        # BLOCCO 1: Leitor USB Bematech / Digitação Manual
+        with col_usb:
+            st.markdown("##### 🔌 Bipagem Scanner USB / Digitação Manual")
+            with st.form(key="form_bipagem", clear_on_submit=True):
+                codigo_input = st.text_input(
+                    "Bipe com o scanner Bematech BR-310 ou digite:", 
+                    autocomplete="off",
+                    placeholder="Aguardando bipagem do scanner...",
+                    key="input_codigo_bip"
+                )
+                btn_adicionar = st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True)
 
-        # Script JS: Cancela atalhos de download do navegador e trava o foco no campo
+                if btn_adicionar and codigo_input.strip():
+                    adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
+                    st.success(f"✅ Código `{codigo_input.strip()}` registrado em **'{descricao_final}'**!")
+
+        # BLOCO 2: Captura pela Câmera do Celular / Computador
+        with col_camera:
+            st.markdown("##### 📱 Bipagem pela Câmera (Celular / Webcam)")
+            camera_image = st.camera_input("Tire foto do código de barras", key="camera_unificada_input")
+
+            if camera_image is not None:
+                bytes_data = camera_image.getvalue()
+                hash_imagem = hashlib.sha256(bytes_data).hexdigest()
+
+                # Processa apenas fotos novas para evitar duplicações no rerun
+                if st.session_state.get("last_camera_hash") != hash_imagem:
+                    img_processada, codigos_encontrados = processar_imagem(camera_image)
+                    st.session_state["last_camera_hash"] = hash_imagem
+                    st.session_state["last_camera_img"] = img_processada
+                    st.session_state["last_camera_codes"] = codigos_encontrados
+
+                    if codigos_encontrados:
+                        for item in codigos_encontrados:
+                            adicionar_e_salvar(item['codigo'], descricao_final, setor_input)
+
+                # Feedback visual da foto tirada
+                if "last_camera_img" in st.session_state:
+                    codigos = st.session_state.get("last_camera_codes", [])
+                    if codigos:
+                        st.success(f"🎉 {len(codigos)} código(s) lido(s) pela câmera!")
+                        for item in codigos:
+                            st.write(f"**Código:** `{item['codigo']}` | **Tipo:** `{item['tipo']}`")
+                    else:
+                        st.error("❌ Nenhum código legível encontrado na foto.")
+
+        # Script JS: Cancela atalhos de download do leitor USB e mantêm foco
         st.components.v1.html(
             """
             <script>
@@ -347,52 +383,8 @@ else:
         )
 
     # ==========================================
-    # ABA REVISADA E EVOLUÍDA: BIPAR COM O CELULAR
+    # ABA SECUNDÁRIA: UPLOAD DE IMAGEM
     # ==========================================
-    with tab_celular:
-        st.markdown(f"📱 Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
-        st.info("💡 **Dica de Bipagem no Celular:** Mantenha a câmera bem focada e enquadre o código de barras horizontalmente na imagem.")
-
-        camera_image = st.camera_input("Toque abaixo para tirar a foto do código de barras", key="camera_celular_input")
-
-        if camera_image is not None:
-            # Gerar Hash MD5/SHA256 da imagem para prevenir execuções duplicadas durante reruns
-            bytes_data = camera_image.getvalue()
-            hash_imagem = hashlib.sha256(bytes_data).hexdigest()
-
-            # Executa apenas se for uma nova foto
-            if st.session_state.get("last_camera_hash") != hash_imagem:
-                img_processada, codigos_encontrados = processar_imagem(camera_image)
-                st.session_state["last_camera_hash"] = hash_imagem
-                st.session_state["last_camera_img"] = img_processada
-                st.session_state["last_camera_codes"] = codigos_encontrados
-
-                # Salvar os códigos detectados da mesma forma que o Leitor Bematech
-                if codigos_encontrados:
-                    for item in codigos_encontrados:
-                        adicionar_e_salvar(item['codigo'], descricao_final, setor_input)
-
-            # Exibição do feedback visual
-            if "last_camera_img" in st.session_state:
-                col_img1, col_img2 = st.columns(2)
-                
-                with col_img1:
-                    st.image(st.session_state["last_camera_img"], caption="📸 Captura Processada", use_container_width=True)
-
-                with col_img2:
-                    codigos = st.session_state.get("last_camera_codes", [])
-                    if codigos:
-                        st.success(f"🎉 {len(codigos)} código(s) detectado(s) e registrado(s) com sucesso!")
-                        for item in codigos:
-                            st.markdown(f"""
-                            * **Setor:** `{setor_input}`
-                            * **Coluna:** `{descricao_final}`
-                            * **Código Registrado:** `{item['codigo']}`
-                            * **Formato:** `{item['tipo']}`
-                            """)
-                    else:
-                        st.error("❌ Nenhum código de barras legível foi identificado nesta foto. Tente aproximação/foco adequado e tire outra foto.")
-
     with tab_upload:
         st.markdown(f"Registrando para o setor **`{setor_input}`** na coluna: **`{descricao_final}`**")
         uploaded_file = st.file_uploader("Escolha uma imagem contendo o código", type=["jpg", "png", "jpeg"])
