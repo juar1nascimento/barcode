@@ -231,7 +231,6 @@ def renderizar_sistema_inventario():
         st.session_state.saved_descricao = ""
 
     st.title("📦 Sistema de Inventários - GTI-SESA")
-    st.caption(f"☁️ Sincronizado com `{ARQUIVO_EXCEL}` e Google Sheets")
     st.divider()
 
     st.subheader("1. Selecione o Local e a Coluna")
