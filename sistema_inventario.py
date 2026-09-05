@@ -233,7 +233,7 @@ def renderizar_sistema_inventario():
     st.title("📦 Sistema de Inventários - GTI-SESA")
     st.divider()
 
-    st.subheader("1. Selecione o Local e a Coluna")
+    st.subheader("Selecione o setor e tipo de patrimônio")
 
     opcoes_patrimonio = [col for col in st.session_state.df_historico.columns if col != "Local / Setor"]
     opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
@@ -241,14 +241,14 @@ def renderizar_sistema_inventario():
     col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
 
     with col_desc1:
-        setor_input = st.text_input("Local / Setor:", value=st.session_state.saved_setor, placeholder="Ex: Consultório 1...", key="setor_input_key")
+        setor_input = st.text_input("Local:", value=st.session_state.saved_setor, placeholder="Ex: Consultório 1...", key="setor_input_key")
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
-        opcao_selecionada = st.selectbox("Coluna de destino:", opcoes_patrimonio, key="opcao_selecionada_key")
+        opcao_selecionada = st.selectbox("Tipo de patrimônio:", opcoes_patrimonio, key="opcao_selecionada_key")
 
     with col_desc3:
-        if opcao_selecionada == "➕ Outra descrição (Criar nova coluna ao final)":
+        if opcao_selecionada == "➕ Insira outros tipos de patrimônio":
             descricao_final = st.text_input("Nome da nova coluna:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
         else:
             descricao_final = opcao_selecionada
