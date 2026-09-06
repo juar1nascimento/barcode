@@ -261,7 +261,6 @@ def renderizar_sistema_inventario():
         st.session_state.saved_descricao = descricao_final
 
     st.divider()
-    st.subheader("2. Realize a Leitura do Código")
 
     if not descricao_final or not setor_input.strip():
         st.warning("⚠️ Preencha o **Setor** e selecione o **Tipo de patrimônio** para ativar o leitor.")
