@@ -8,7 +8,7 @@ import os
 # ==========================================
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
-COLUNAS_PADRAO = ["Local / Setor", "Patrimônio PC", "Patrimônio Tela", "Patrimônio Nobreak"]
+COLUNAS_PADRAO = ["Local / Setor", "Gabinete", "Monitor", "Patrimônio Nobreak"]
 
 
 @st.cache_resource
@@ -241,8 +241,9 @@ def renderizar_sistema_inventario():
     else:
         st.subheader("Selecione o setor e tipo de patrimônio")
 
-    opcoes_patrimonio = [col for col in st.session_state.df_historico.columns if col != "Local / Setor"]
-    opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
+    # Garante itens únicos preservando a ordem
+    opcoes_existentes = list(dict.fromkeys([col for col in st.session_state.df_historico.columns if col != "Local / Setor"]))
+    opcoes_patrimonio = opcoes_existentes + ["➕ Outros Patrimônios"]
 
     col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
 
@@ -254,7 +255,7 @@ def renderizar_sistema_inventario():
         opcao_selecionada = st.selectbox("Tipo de patrimônio:", opcoes_patrimonio, key="opcao_selecionada_key")
 
     with col_desc3:
-        if opcao_selecionada == "➕ Outra descrição (Criar nova coluna ao final)":
+        if opcao_selecionada == "➕ Outros Patrimônios":
             descricao_final = st.text_input("Nome da nova coluna:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
         else:
             descricao_final = opcao_selecionada
