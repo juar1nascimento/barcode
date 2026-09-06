@@ -15,8 +15,25 @@ ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 # Link da planilha compartilhada no Google Sheets para sincronização em nuvem
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
 
-# Estrutura base de colunas que a planilha deve sempre possuir
-COLUNAS_PADRAO = ["Local / Setor", "CPU", "Monitores", "Nobreak"]
+# Estrutura base de colunas oficiais e funcionais que a tabela deve possuir
+COLUNAS_PADRAO = [
+    "Local / Setor",
+    "CPU",
+    "Monitores",
+    "Nobreak",
+    "Teclado",
+    "Mouse",
+    "Impressora"
+]
+
+# Lista de colunas obsoletas ou não funcionais a serem purgadas automaticamente
+COLUNAS_OBSOLETAS = [
+    "Patrimônio PC",
+    "Patrimônio Tela",
+    "Patrimônio Nobreak",
+    "➕ Outra descrição (Criar nova coluna ao final)",
+    "cameras"
+]
 
 
 # ==========================================
@@ -43,13 +60,20 @@ conn = obter_conexao_gsheets()
 # ==========================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Garante que todas as colunas padrão existam no DataFrame e organiza a 
-    ordem das colunas (padrão primeiro, seguidas por colunas adicionais).
+    Remove colunas obsoletas/não funcionais, garante a existência das colunas 
+    padrão e reorganiza a ordem das colunas ativas.
     """
+    # 1. Exclui colunas indesejadas e não sincronizadas com o menu
+    colunas_para_remover = [c for c in df.columns if c in COLUNAS_OBSOLETAS or c.startswith("➕")]
+    if colunas_para_remover:
+        df = df.drop(columns=colunas_para_remover, errors='ignore')
+
+    # 2. Assegura a presença de todas as colunas padrão
     for col in COLUNAS_PADRAO:
         if col not in df.columns:
             df[col] = ""
             
+    # 3. Organiza: Colunas padrão primeiro, seguidas por colunas customizadas válidas
     outras_colunas = [c for c in df.columns if c not in COLUNAS_PADRAO]
     ordem_final = COLUNAS_PADRAO + outras_colunas
     return df[ordem_final].fillna("").astype(str)
@@ -67,7 +91,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
     wb = openpyxl.load_workbook(caminho_arquivo)
     ws = wb['Patrimônios']
 
-    # Definições de Estilo (Cores, Fontes e Bordas)
+    # Definições de Estilo
     header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     row_fill_even = PatternFill(start_color="F2F4F7", end_color="F2F4F7", fill_type="solid")
@@ -147,7 +171,7 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
         with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Patrimônios', index=False)
         aplicar_estilo_excel(ARQUIVO_EXCEL)
-        carregar_dados_excel.clear()  # Invalida o cache para recarregar dados atualizados
+        carregar_dados_excel.clear()
     except Exception as e:
         st.error(f"Erro ao salvar e formatar a planilha local: {e}")
 
@@ -170,7 +194,6 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     setor_limpo = setor.strip() if setor else "Não informado"
     codigo_limpo = str(codigo).strip()
     
-    # Adiciona a coluna se for um tipo de patrimônio inédito
     if coluna_alvo not in df.columns:
         df[coluna_alvo] = ""
     
@@ -251,7 +274,7 @@ def processar_imagem(image_file) -> tuple:
 
 
 # ==========================================
-# 7. COMPONENTES VISUAIS E COMPONENTES DE INTERFACE (UI)
+# 7. COMPONENTES VISUAIS E INTERFACE (UI)
 # ==========================================
 def renderizar_card_inventario(lista_urs, lista_ubs):
     """
@@ -282,13 +305,10 @@ def renderizar_card_inventario(lista_urs, lista_ubs):
 
 def renderizar_sistema_inventario():
     """
-    Renderiza a interface completa da aplicação de inventário:
-    - Campos de seleção de Setor e Tipo de Patrimônio.
-    - Scanner via WebCam (JavaScript/HTML5 QR Code) e entrada USB.
-    - Leitor de código por upload de imagem.
-    - Exibição, recarregamento e exportação da tabela final em CSV.
+    Renderiza a interface completa da aplicação de inventário com menus sincronizados
+    e tabela higienizada.
     """
-    df_inicial, colunas_iniciais = carregar_dados_excel()
+    df_inicial, _ = carregar_dados_excel()
 
     # Inicialização do estado da sessão do Streamlit
     if "df_historico" not in st.session_state:
@@ -309,7 +329,7 @@ def renderizar_sistema_inventario():
     else:
         st.subheader("Selecione o setor e tipo de patrimônio")
 
-    # Lista de opções padrão para o menu suspenso de Setor
+    # Opções padrão do menu suspenso de Setor
     opcoes_setor = [
         "Consultório",
         "Gerência",
@@ -324,26 +344,15 @@ def renderizar_sistema_inventario():
         "➕ Outro Setor"
     ]
 
-    # Lista de opções a serem filtradas/removidas do menu suspenso de patrimônio
-    opcoes_remover = {
-        "Patrimônio PC", 
-        "Patrimônio Tela", 
-        "Patrimônio Nobreak", 
-        "➕ Outra descrição (Criar nova coluna ao final)"
-    }
-
-    # Extrai colunas existentes excluindo as indesejadas
-    opcoes_existentes = list(dict.fromkeys([
+    # Extrai colunas reais existentes descartando setor e obsoletas
+    colunas_df_atuais = [
         col for col in st.session_state.df_historico.columns 
-        if col != "Local / Setor" and col not in opcoes_remover
-    ]))
+        if col != "Local / Setor" and col not in COLUNAS_OBSOLETAS
+    ]
 
-    # Novas opções padrão adicionadas ao menu de patrimônio
-    opcoes_adicionais = ["Teclado", "Mouse", "Impressora"]
-
-    # Consolida as opções sem duplicatas mantendo a ordem e insere a opção customizada no final
-    opcoes_combinadas = list(dict.fromkeys(opcoes_existentes + opcoes_adicionais))
-    opcoes_patrimonio = opcoes_combinadas + ["➕ Outros Patrimônios"]
+    # Consolida opções de patrimônio sem duplicatas
+    opcoes_patrimonio = list(dict.fromkeys(colunas_df_atuais + [c for c in COLUNAS_PADRAO if c != "Local / Setor"]))
+    opcoes_patrimonio.append("➕ Outros Patrimônios")
 
     # --- Seção de Filtros e Seleção ---
     col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
@@ -359,7 +368,7 @@ def renderizar_sistema_inventario():
         
         if setor_selecionado == "➕ Outro Setor":
             val_custom_setor = st.session_state.saved_setor if st.session_state.saved_setor not in opcoes_setor else ""
-            setor_input = st.text_input("Nome do Setor:", value=val_custom_setor, placeholder="Ex: Consultório 2, Raio-X...", key="setor_custom_key")
+            setor_input = st.text_input("Nome do Setor:", value=val_custom_setor, placeholder="Ex: Raio-X...", key="setor_custom_key")
         else:
             setor_input = setor_selecionado
         st.session_state.saved_setor = setor_input
@@ -369,7 +378,7 @@ def renderizar_sistema_inventario():
 
     with col_desc3:
         if opcao_selecionada == "➕ Outros Patrimônios":
-            descricao_final = st.text_input("Novo Patrimônio:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
+            descricao_final = st.text_input("Novo Patrimônio:", placeholder="Ex: Servidor", key="descricao_nova_key")
         else:
             descricao_final = opcao_selecionada
         st.session_state.saved_descricao = descricao_final
@@ -390,7 +399,6 @@ def renderizar_sistema_inventario():
             with col_camera:
                 st.caption("Aponte a câmera para o código de barras.")
 
-                # Componente HTML/JS customizado para leitura por webcam e bip sonoro
                 html_scanner = """
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
