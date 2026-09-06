@@ -424,7 +424,7 @@ def renderizar_sistema_inventario() -> None:
 
         # Aba 1: Leitor Câmera / USB
         with tab_unificada:
-            st.markdown(f"📍 Setor Ativo: **`{setor_input}`** | Coluna Destino: **`{descricao_final}`**")
+            st.markdown(f"📍 Setor Selecionado: **`{setor_input}`** | Patrimonio Selecionado: **`{descricao_final}`**")
             col_camera, col_usb = st.columns([1.2, 1])
 
             with col_camera:
