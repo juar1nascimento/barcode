@@ -283,7 +283,7 @@ def renderizar_card_inventario(lista_urs, lista_ubs):
 def renderizar_sistema_inventario():
     """
     Renderiza a interface completa da aplicação de inventário:
-    - Campos de entrada de Setor e Tipo de Patrimônio.
+    - Campos de seleção de Setor e Tipo de Patrimônio.
     - Scanner via WebCam (JavaScript/HTML5 QR Code) e entrada USB.
     - Leitor de código por upload de imagem.
     - Exibição, recarregamento e exportação da tabela final em CSV.
@@ -309,7 +309,22 @@ def renderizar_sistema_inventario():
     else:
         st.subheader("Selecione o setor e tipo de patrimônio")
 
-    # Lista de opções a serem filtradas/removidas do menu suspenso
+    # Lista de opções padrão para o menu suspenso de Setor
+    opcoes_setor = [
+        "Consultório",
+        "Gerência",
+        "Administração",
+        "Farmácia",
+        "Almoxarifado",
+        "Sala de Preparo",
+        "Sala dos Agentes de Saúde",
+        "Sala de Curativo",
+        "Recepção",
+        "Sala de Vacina",
+        "➕ Outro Setor"
+    ]
+
+    # Lista de opções a serem filtradas/removidas do menu suspenso de patrimônio
     opcoes_remover = {
         "Patrimônio PC", 
         "Patrimônio Tela", 
@@ -323,7 +338,7 @@ def renderizar_sistema_inventario():
         if col != "Local / Setor" and col not in opcoes_remover
     ]))
 
-    # Novas opções padrão adicionadas ao menu
+    # Novas opções padrão adicionadas ao menu de patrimônio
     opcoes_adicionais = ["Teclado", "Mouse", "Impressora"]
 
     # Consolida as opções sem duplicatas mantendo a ordem e insere a opção customizada no final
@@ -334,7 +349,19 @@ def renderizar_sistema_inventario():
     col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
 
     with col_desc1:
-        setor_input = st.text_input("Setor:", value=st.session_state.saved_setor, placeholder="Ex: Consultório 1, Recepção...", key="setor_input_key")
+        idx_setor = 0
+        if st.session_state.saved_setor in opcoes_setor:
+            idx_setor = opcoes_setor.index(st.session_state.saved_setor)
+        elif st.session_state.saved_setor:
+            idx_setor = opcoes_setor.index("➕ Outro Setor")
+
+        setor_selecionado = st.selectbox("Setor:", opcoes_setor, index=idx_setor, key="setor_selecionado_key")
+        
+        if setor_selecionado == "➕ Outro Setor":
+            val_custom_setor = st.session_state.saved_setor if st.session_state.saved_setor not in opcoes_setor else ""
+            setor_input = st.text_input("Nome do Setor:", value=val_custom_setor, placeholder="Ex: Consultório 2, Raio-X...", key="setor_custom_key")
+        else:
+            setor_input = setor_selecionado
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
