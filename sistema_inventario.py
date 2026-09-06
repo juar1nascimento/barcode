@@ -113,12 +113,12 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
         ws = wb[NOME_ABA_GSHEETS] if NOME_ABA_GSHEETS in wb.sheetnames else wb.active
 
         # Estilos Corporativos
-        header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid") # Dark Slate / Navy
+        header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
         header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
         
         row_even_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-        row_odd_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid") # Soft Light Gray
-        col_chave_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid") # Accent Setor
+        row_odd_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+        col_chave_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
 
         thin_border_side = Side(border_style="thin", color="CBD5E1")
         border_box = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
@@ -166,7 +166,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
         st.warning(f"Aviso de formatação no Excel local: {e}")
 
 # ==============================================================================
-# 5. PERSISTÊNCIA DE DADOS E SINCRONIZAÇÃO
+# 5. PERSISTÊNCIA DE DADOS, SINCRONIZAÇÃO E EXCLUSÕES
 # ==============================================================================
 @st.cache_data(ttl=60)
 def carregar_dados_excel() -> Tuple[pd.DataFrame, List[str]]:
@@ -228,6 +228,32 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     df = padronizar_e_organizar_df(df)
     salvar_no_excel(df)
     st.session_state.df_historico = df
+
+
+def excluir_setor(setor_nome: str) -> None:
+    """Exclui a linha inteira referente ao setor especificado."""
+    df, _ = carregar_dados_excel()
+    if df.empty or COLUNA_CHAVE not in df.columns:
+        return
+
+    mascara_manter = ~df[COLUNA_CHAVE].str.strip().str.lower().eq(setor_nome.strip().lower())
+    df_filtrado = df[mascara_manter].copy()
+    
+    salvar_no_excel(df_filtrado)
+    st.session_state.df_historico = df_filtrado
+
+
+def excluir_patrimonio(setor_nome: str, coluna_patrimonio: str) -> None:
+    """Limpa somente o valor do patrimônio específico dentro da linha do setor selecionado."""
+    df, _ = carregar_dados_excel()
+    if df.empty or COLUNA_CHAVE not in df.columns or coluna_patrimonio not in df.columns:
+        return
+
+    mascara_setor = df[COLUNA_CHAVE].str.strip().str.lower().eq(setor_nome.strip().lower())
+    if mascara_setor.any():
+        df.loc[mascara_setor, coluna_patrimonio] = ""
+        salvar_no_excel(df)
+        st.session_state.df_historico = df
 
 
 def sincronizar_estrutura_menus() -> None:
@@ -522,3 +548,55 @@ def renderizar_sistema_inventario() -> None:
                 mime="text/csv",
                 use_container_width=True
             )
+
+        # Controles de Exclusão
+        with st.expander("🗑️ Opções de Exclusão e Gerenciamento", expanded=False):
+            st.markdown("Selecione o tipo de exclusão que deseja realizar na tabela:")
+            
+            lista_setores_existentes = [s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]
+            lista_colunas_patrimonio = [c for c in df_atual.columns if c != COLUNA_CHAVE and c not in COLUNAS_OBSOLETAS]
+
+            tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor (Linha Inteira)", "❌ Excluir Patrimônio Específico"])
+
+            # Aba: Exclusão do Setor Completo
+            with tab_excluir_setor:
+                if lista_setores_existentes:
+                    setor_para_excluir = st.selectbox(
+                        "Selecione o Setor para apagar inteiramente:", 
+                        lista_setores_existentes, 
+                        key="sb_excluir_setor"
+                    )
+                    st.caption("⚠️ Ao excluir o setor, **toda a linha** correspondente será removida da tabela.")
+                    
+                    if st.button(f"🔥 Confirmar Exclusão da Linha de '{setor_para_excluir}'", type="primary", key="btn_del_setor"):
+                        excluir_setor(setor_para_excluir)
+                        st.success(f"Linha referente ao setor **'{setor_para_excluir}'** foi excluída com sucesso!")
+                        st.rerun()
+                else:
+                    st.info("Nenhum setor disponível para exclusão.")
+
+            # Aba: Exclusão de Item/Patrimônio Específico
+            with tab_excluir_patrimonio:
+                if lista_setores_existentes and lista_colunas_patrimonio:
+                    c_del1, c_del2 = st.columns(2)
+                    with c_del1:
+                        setor_patrimonio_del = st.selectbox(
+                            "Selecione o Setor:", 
+                            lista_setores_existentes, 
+                            key="sb_setor_del_patrimonio"
+                        )
+                    with c_del2:
+                        coluna_patrimonio_del = st.selectbox(
+                            "Selecione o Tipo de Patrimônio:", 
+                            lista_colunas_patrimonio, 
+                            key="sb_coluna_del_patrimonio"
+                        )
+
+                    st.caption(f"ℹ️ Somente o código na coluna **'{coluna_patrimonio_del}'** da linha **'{setor_patrimonio_del}'** será apagado.")
+
+                    if st.button(f"🗑️ Apagar '{coluna_patrimonio_del}' em '{setor_patrimonio_del}'", type="secondary", key="btn_del_patrimonio"):
+                        excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del)
+                        st.success(f"O item **'{coluna_patrimonio_del}'** do setor **'{setor_patrimonio_del}'** foi apagado com sucesso!")
+                        st.rerun()
+                else:
+                    st.info("Nenhum dado/patrimônio disponível para exclusão.")
