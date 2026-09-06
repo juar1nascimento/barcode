@@ -263,7 +263,7 @@ def renderizar_sistema_inventario():
         tab_unificada, tab_upload = st.tabs(["⚡ Câmera do Celular / Scanner USB", "📁 Upload de Imagem"])
 
         with tab_unificada:
-            st.markdown(f"📍 Setor: **`{setor_input}`** | Coluna: **`{descricao_final}`**")
+            st.markdown(f"📍  **`{setor_input}`** |  **`{descricao_final}`**")
             col_camera, col_usb = st.columns([1.2, 1])
 
             with col_camera:
