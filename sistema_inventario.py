@@ -170,17 +170,40 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
 # ==============================================================================
 @st.cache_data(ttl=60)
 def carregar_dados_excel() -> Tuple[pd.DataFrame, List[str]]:
-    """Carrega os dados diretamente da tabela simples."""
+    """Carrega os dados e garante que a estrutura completa de setores/colunas padrão exista ativamente."""
     if os.path.exists(ARQUIVO_EXCEL):
         try:
             df = pd.read_excel(ARQUIVO_EXCEL, sheet_name=NOME_ABA_GSHEETS, dtype=str, keep_default_na=False)
-            df = padronizar_e_organizar_df(df)
-            return df, list(df.columns)
         except Exception as err:
             st.error(f"Erro ao ler a planilha local: {err}")
+            df = pd.DataFrame(columns=COLUNAS_PADRAO)
+    else:
+        df = pd.DataFrame(columns=COLUNAS_PADRAO)
 
-    df_vazio = padronizar_e_organizar_df(pd.DataFrame(columns=COLUNAS_PADRAO))
-    return df_vazio, COLUNAS_PADRAO
+    # Automatização ativa da estrutura dos menus
+    df = padronizar_e_organizar_df(df)
+    
+    houve_alteracao = False
+    for col in COLUNAS_PADRAO:
+        if col not in df.columns:
+            df[col] = ""
+            houve_alteracao = True
+
+    for setor in SETORES_PADRAO:
+        mascara_setor = df[COLUNA_CHAVE].str.lower().eq(setor.lower())
+        if not mascara_setor.any():
+            nova_linha = {col: "" for col in df.columns}
+            nova_linha[COLUNA_CHAVE] = setor
+            df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+            houve_alteracao = True
+
+    df = padronizar_e_organizar_df(df)
+
+    # Persiste apenas se houver novos setores ou colunas adicionadas no carregamento
+    if houve_alteracao or not os.path.exists(ARQUIVO_EXCEL):
+        salvar_no_excel(df)
+
+    return df, list(df.columns)
 
 
 def salvar_no_excel(df: pd.DataFrame) -> None:
@@ -254,26 +277,6 @@ def excluir_patrimonio(setor_nome: str, coluna_patrimonio: str) -> None:
         df.loc[mascara_setor, coluna_patrimonio] = ""
         salvar_no_excel(df)
         st.session_state.df_historico = df
-
-
-def sincronizar_estrutura_menus() -> None:
-    """Sincroniza os setores e colunas padrão com a planilha remota."""
-    df, _ = carregar_dados_excel()
-
-    for col in COLUNAS_PADRAO:
-        if col not in df.columns:
-            df[col] = ""
-
-    for setor in SETORES_PADRAO:
-        mascara_setor = df[COLUNA_CHAVE].str.lower().eq(setor.lower())
-        if not mascara_setor.any():
-            nova_linha = {col: "" for col in df.columns}
-            nova_linha[COLUNA_CHAVE] = setor
-            df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
-
-    df = padronizar_e_organizar_df(df)
-    salvar_no_excel(df)
-    st.session_state.df_historico = df
 
 # ==============================================================================
 # 6. PROCESSAMENTO E DECODIFICAÇÃO DE IMAGENS (OPENCV & ZXING)
@@ -367,12 +370,6 @@ def renderizar_sistema_inventario() -> None:
         st.session_state.saved_descricao = ""
 
     st.title("📦 Sistema de Inventários - GTI-SESA")
-
-    if st.button("🌐 Sincronizar Estrutura dos Menus com Google Sheets", type="secondary"):
-        sincronizar_estrutura_menus()
-        st.success("Setores e colunas sincronizados com sucesso na planilha online!")
-        st.rerun()
-
     st.divider()
 
     unidade = st.session_state.get("unidade_selecionada", "")
