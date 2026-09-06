@@ -336,7 +336,7 @@ def renderizar_sistema_inventario():
 
     with col_desc3:
         if opcao_selecionada == "➕ Outros Patrimônios":
-            descricao_final = st.text_input("Nome da nova coluna:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
+            descricao_final = st.text_input("Novo Patrimônio:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
         else:
             descricao_final = opcao_selecionada
         st.session_state.saved_descricao = descricao_final
