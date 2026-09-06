@@ -11,6 +11,7 @@ import streamlit as st
 # ==========================================
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
+NOME_ABA_GSHEETS = "Patrimônios"
 
 # Coluna primária de localização
 COLUNA_CHAVE = "Local / Setor"
@@ -96,7 +97,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
         return
 
     wb = openpyxl.load_workbook(caminho_arquivo)
-    ws = wb.active if 'Patrimônios' not in wb.sheetnames else wb['Patrimônios']
+    ws = wb.active if NOME_ABA_GSHEETS not in wb.sheetnames else wb[NOME_ABA_GSHEETS]
 
     # Paleta de Cores e Estilos
     header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")  # Azul Marinho
@@ -160,9 +161,9 @@ def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
     """Carrega os dados salvos localmente e retorna o DataFrame limpo e a lista de colunas."""
     if os.path.exists(ARQUIVO_EXCEL):
         try:
-            df = pd.read_excel(ARQUIVO_EXCEL, sheet_name='Patrimônios', dtype=str, keep_default_na=False)
+            df = pd.read_excel(ARQUIVO_EXCEL, sheet_name=NOME_ABA_GSHEETS, dtype=str, keep_default_na=False)
             if not df.empty and df.columns[0].startswith("Tabela de Patrimônios"):
-                df = pd.read_excel(ARQUIVO_EXCEL, sheet_name='Patrimônios', header=1, dtype=str, keep_default_na=False)
+                df = pd.read_excel(ARQUIVO_EXCEL, sheet_name=NOME_ABA_GSHEETS, header=1, dtype=str, keep_default_na=False)
             df = padronizar_e_organizar_df(df)
             return df, list(df.columns)
         except Exception as e:
@@ -180,16 +181,16 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
     # 1. Salva localmente
     try:
         with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Patrimônios', index=False)
+            df.to_excel(writer, sheet_name=NOME_ABA_GSHEETS, index=False)
         aplicar_estilo_excel(ARQUIVO_EXCEL)
         carregar_dados_excel.clear()
     except Exception as e:
         st.error(f"Erro ao salvar arquivo Excel local: {e}")
 
-    # 2. Sincroniza remotamente com o Google Sheets
+    # 2. Sincroniza remotamente com o Google Sheets na aba "Patrimônios"
     if conn is not None:
         try:
-            conn.update(spreadsheet=GOOGLE_SHEET_URL, data=df)
+            conn.update(spreadsheet=GOOGLE_SHEET_URL, worksheet=NOME_ABA_GSHEETS, data=df)
             st.toast("☁️ Google Sheets sincronizado com sucesso!")
         except Exception as e:
             st.toast(f"⚠️ Salvo localmente. Erro no Google Sheets: {e}")
