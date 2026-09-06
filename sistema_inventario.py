@@ -549,12 +549,11 @@ def renderizar_sistema_inventario() -> None:
                 use_container_width=True
             )
 
-        # Controles de Exclusão
+        # Controles de Exclusão Otimizados
         with st.expander("🗑️ Gerenciador de Exclusão", expanded=False):
             st.markdown("Selecione o tipo de exclusão que deseja realizar na tabela:")
             
             lista_setores_existentes = [s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]
-            lista_colunas_patrimonio = [c for c in df_atual.columns if c != COLUNA_CHAVE and c not in COLUNAS_OBSOLETAS]
 
             tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor", "❌ Excluir Patrimônio"])
 
@@ -575,28 +574,49 @@ def renderizar_sistema_inventario() -> None:
                 else:
                     st.info("Nenhum setor disponível para exclusão.")
 
-            # Aba: Exclusão de Item/Patrimônio Específico
+            # Aba: Exclusão de Item/Patrimônio Específico (Filtrando apenas células preenchidas)
             with tab_excluir_patrimonio:
-                if lista_setores_existentes and lista_colunas_patrimonio:
+                if lista_setores_existentes:
                     c_del1, c_del2 = st.columns(2)
+                    
                     with c_del1:
                         setor_patrimonio_del = st.selectbox(
                             "Selecione o Setor:", 
                             lista_setores_existentes, 
                             key="sb_setor_del_patrimonio"
                         )
+                    
+                    # Obter a linha do setor selecionado para filtrar quais colunas possuem valor
+                    mascara_setor_del = df_atual[COLUNA_CHAVE].str.strip().str.lower().eq(setor_patrimonio_del.strip().lower())
+                    linha_setor_df = df_atual[mascara_setor_del]
+
+                    colunas_com_dados: List[str] = []
+                    if not linha_setor_df.empty:
+                        linha_dados = linha_setor_df.iloc[0]
+                        for col in df_atual.columns:
+                            if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS:
+                                val = str(linha_dados[col]).strip()
+                                # Exibe no dropdown SOMENTE colunas que contêm código de barras preenchido
+                                if val != "":
+                                    colunas_com_dados.append(col)
+
                     with c_del2:
-                        coluna_patrimonio_del = st.selectbox(
-                            "Selecione o Tipo de Patrimônio:", 
-                            lista_colunas_patrimonio, 
-                            key="sb_coluna_del_patrimonio"
-                        )
+                        if colunas_com_dados:
+                            coluna_patrimonio_del = st.selectbox(
+                                "Selecione o Tipo de Patrimônio:", 
+                                colunas_com_dados, 
+                                key="sb_coluna_del_patrimonio"
+                            )
+                        else:
+                            coluna_patrimonio_del = None
+                            st.info("Nenhum patrimônio cadastrado para este setor.")
 
-                    st.caption(f"ℹ️ Somente o código na coluna **'{coluna_patrimonio_del}'** da linha **'{setor_patrimonio_del}'** será apagado.")
+                    if coluna_patrimonio_del:
+                        st.caption(f"ℹ️ Somente o código na coluna **'{coluna_patrimonio_del}'** da linha **'{setor_patrimonio_del}'** será apagado.")
 
-                    if st.button(f"🗑️ Apagar '{coluna_patrimonio_del}' em '{setor_patrimonio_del}'", type="secondary", key="btn_del_patrimonio"):
-                        excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del)
-                        st.success(f"O item **'{coluna_patrimonio_del}'** do setor **'{setor_patrimonio_del}'** foi apagado com sucesso!")
-                        st.rerun()
+                        if st.button(f"🗑️ Apagar '{coluna_patrimonio_del}' em '{setor_patrimonio_del}'", type="secondary", key="btn_del_patrimonio"):
+                            excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del)
+                            st.success(f"O item **'{coluna_patrimonio_del}'** do setor **'{setor_patrimonio_del}'** foi apagado com sucesso!")
+                            st.rerun()
                 else:
-                    st.info("Nenhum dado/patrimônio disponível para exclusão.")
+                    st.info("Nenhum setor disponível para exclusão.")
