@@ -94,7 +94,13 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def aplicar_estilo_excel(caminho_arquivo: str) -> None:
-    """Aplica formatação básica na planilha Excel local (autofit de colunas e bordas)."""
+    """
+    Aplica formatação corporativa moderna na planilha Excel local:
+    - Cabeçalho Navy escuro com texto branco.
+    - Zebra striping (linhas alternadas em cinza suave).
+    - Bordas suaves e alinhamento profissional.
+    - Largura adaptativa das colunas.
+    """
     if not os.path.exists(caminho_arquivo):
         return
 
@@ -106,28 +112,54 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
         wb = openpyxl.load_workbook(caminho_arquivo)
         ws = wb[NOME_ABA_GSHEETS] if NOME_ABA_GSHEETS in wb.sheetnames else wb.active
 
-        header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
+        # Estilos Corporativos
+        header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid") # Dark Slate / Navy
         header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+        
+        row_even_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        row_odd_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid") # Soft Light Gray
+        col_chave_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid") # Accent Setor
+
+        thin_border_side = Side(border_style="thin", color="CBD5E1")
+        border_box = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+
         align_center = Alignment(horizontal="center", vertical="center")
         align_left = Alignment(horizontal="left", vertical="center")
+        font_data = Font(name="Segoe UI", size=10, color="0F172A")
+        font_sector = Font(name="Segoe UI", size=10, bold=True, color="0F172A")
 
-        ws.row_dimensions[1].height = 26
+        # Configurar Cabeçalho
+        ws.row_dimensions[1].height = 28
         for cell in ws[1]:
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = align_center
+            cell.border = border_box
 
+        # Configurar Linhas de Dados
         for r in range(2, ws.max_row + 1):
-            ws.row_dimensions[r].height = 20
+            ws.row_dimensions[r].height = 22
+            current_fill = row_odd_fill if r % 2 == 1 else row_even_fill
+
             for c in range(1, ws.max_column + 1):
                 cell = ws.cell(row=r, column=c)
-                cell.alignment = align_left if c == 1 else align_center
+                cell.border = border_box
                 cell.number_format = "@"
 
+                if c == 1:
+                    cell.fill = col_chave_fill
+                    cell.font = font_sector
+                    cell.alignment = align_left
+                else:
+                    cell.fill = current_fill
+                    cell.font = font_data
+                    cell.alignment = align_center
+
+        # Autoadaptar Largura de Colunas
         for col in ws.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
             col_letter = get_column_letter(col[0].column)
-            ws.column_dimensions[col_letter].width = max(max_len + 4, 15)
+            ws.column_dimensions[col_letter].width = max(max_len + 5, 16)
 
         wb.save(caminho_arquivo)
     except Exception as e:
@@ -378,9 +410,9 @@ def renderizar_sistema_inventario() -> None:
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
                 <style>
-                    #reader { width: 100% !important; max-width: 100% !important; border-radius: 12px; overflow: hidden; border: 2px solid #1B365D; background-color: #000; }
+                    #reader { width: 100% !important; max-width: 100% !important; border-radius: 12px; overflow: hidden; border: 2px solid #1E293B; background-color: #000; }
                     #reader video { object-fit: cover !important; border-radius: 10px; }
-                    #scan-status { text-align: center; margin-top: 8px; font-weight: bold; color: #1B365D; font-family: sans-serif; font-size: 14px; }
+                    #scan-status { text-align: center; margin-top: 8px; font-weight: bold; color: #1E293B; font-family: sans-serif; font-size: 14px; }
                 </style>
                 <div class="scanner-wrapper">
                     <div id="reader"></div>
@@ -459,13 +491,23 @@ def renderizar_sistema_inventario() -> None:
                             st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}** | Setor: **{setor_input}**")
                         st.rerun()
 
-    # Exibição da Tabela Simples Sincronizada
+    # Exibição da Tabela Simples e Estilizada no Streamlit
     st.divider()
     st.header("📊 Tabela de Patrimônios (Sincronizada)")
     df_atual, _ = carregar_dados_excel()
 
     if not df_atual.empty:
-        st.dataframe(df_atual, use_container_width=True)
+        # Aplicar estilo corporativo na exibição interativa
+        df_styled = df_atual.style.set_properties(**{
+            'font-family': 'Segoe UI, sans-serif',
+            'font-size': '14px'
+        }).set_table_styles([
+            {'selector': 'th', 'props': [('background-color', '#1E293B'), ('color', '#FFFFFF'), ('font-weight', 'bold'), ('text-align', 'center')]},
+            {'selector': 'td:first-child', 'props': [('font-weight', 'bold'), ('background-color', '#F1F5F9')]}
+        ])
+
+        st.dataframe(df_styled, use_container_width=True)
+        
         col_btn1, col_btn2 = st.columns([1, 1])
         with col_btn1:
             if st.button("🔄 Recarregar Dados", use_container_width=True):
