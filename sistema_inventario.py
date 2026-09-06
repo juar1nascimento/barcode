@@ -230,6 +230,36 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     st.session_state.df_historico = df
 
 
+def sincronizar_estrutura_menus():
+    """Garante que todos os setores e tipos de patrimônio dos menus existam na tabela."""
+    df, _ = carregar_dados_excel()
+    
+    setores_menu = [
+        "Consultório", "Gerência", "Administração", "Farmácia",
+        "Almoxarifado", "Sala de Preparo", "Sala dos Agentes de Saúde",
+        "Sala de Curativo", "Recepção", "Sala de Vacina"
+    ]
+    
+    # 1. Garante que as colunas padrão (Tipos de Patrimônio) existam
+    for col in COLUNAS_PADRAO:
+        if col not in df.columns:
+            df[col] = ""
+            
+    # 2. Garante que as linhas (Setores Padrão) existam
+    for setor in setores_menu:
+        mascara_setor = df[COLUNA_CHAVE].str.lower() == setor.lower()
+        if not mascara_setor.any():
+            nova_linha = {col: "" for col in df.columns}
+            nova_linha[COLUNA_CHAVE] = setor
+            df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+            
+    df = padronizar_e_organizar_df(df)
+    
+    # Salva e sincroniza com a URL do Google Sheets configurada
+    salvar_no_excel(df) 
+    st.session_state.df_historico = df
+
+
 # ==========================================
 # 6. PROCESSAMENTO DE IMAGEM (UPLOAD)
 # ==========================================
@@ -319,6 +349,13 @@ def renderizar_sistema_inventario():
         st.session_state.saved_descricao = ""
 
     st.title("📦 Sistema de Inventários - GTI-SESA")
+    
+    # Botão para forçar a criação dos cabeçalhos e linhas do menu no Google Sheets
+    if st.button("🌐 Sincronizar Estrutura dos Menus com Google Sheets", type="secondary"):
+        sincronizar_estrutura_menus()
+        st.success("Cabeçalhos e setores sincronizados com sucesso na planilha online!")
+        st.rerun()
+        
     st.divider()
 
     unidade = st.session_state.get("unidade_selecionada", "")
