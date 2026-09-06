@@ -9,15 +9,15 @@ import streamlit as st
 # ==========================================
 # 2. CONFIGURAÇÕES E CONSTANTES GLOBAIS
 # ==========================================
-# Caminho da planilha Excel local para persistência de dados
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
-
-# Link da planilha compartilhada no Google Sheets para sincronização em nuvem
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
 
-# Estrutura base de colunas oficiais e funcionais que a tabela deve possuir
+# Coluna primária de localização
+COLUNA_CHAVE = "Local / Setor"
+
+# Estrutura base de colunas padrão
 COLUNAS_PADRAO = [
-    "Local / Setor",
+    COLUNA_CHAVE,
     "CPU",
     "Monitores",
     "Nobreak",
@@ -26,7 +26,7 @@ COLUNAS_PADRAO = [
     "Impressora"
 ]
 
-# Lista de colunas obsoletas ou não funcionais a serem purgadas automaticamente
+# Lista de colunas obsoletas a serem removidas na higienização
 COLUNAS_OBSOLETAS = [
     "Patrimônio PC",
     "Patrimônio Tela",
@@ -37,83 +37,93 @@ COLUNAS_OBSOLETAS = [
 
 
 # ==========================================
-# 3. CONEXÃO COM SERVIÇOS EXTERNOS
+# 3. CONEXÃO COM GOOGLE SHEETS
 # ==========================================
 @st.cache_resource
 def obter_conexao_gsheets():
-    """
-    Estabelece e armazena em cache a conexão com a API do Google Sheets.
-    Retorna None se a biblioteca ou credenciais não estiverem configuradas.
-    """
+    """Conecta com a API do Google Sheets via Streamlit GSheets Connection."""
     try:
         from streamlit_gsheets import GSheetsConnection
         return st.connection("gsheets", type=GSheetsConnection)
     except Exception:
         return None
 
-# Instancia a conexão globalmente
 conn = obter_conexao_gsheets()
 
 
 # ==========================================
-# 4. MANIPULAÇÃO E ESTILIZAÇÃO DE DADOS
+# 4. MANIPULAÇÃO E HIGIENIZAÇÃO DE DADOS
 # ==========================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Remove colunas obsoletas/não funcionais, garante a existência das colunas 
-    padrão e reorganiza a ordem das colunas ativas.
+    Higieniza o DataFrame, remove colunas obsoletas, garante a coluna chave
+    e organiza a ordem mantendo colunas padrão primeiro e dinâmicas depois.
     """
-    # 1. Exclui colunas indesejadas e não sincronizadas com o menu
-    colunas_para_remover = [c for c in df.columns if c in COLUNAS_OBSOLETAS or c.startswith("➕")]
+    # 1. Limpeza de colunas vazias ou obsoletas
+    colunas_para_remover = [c for c in df.columns if c in COLUNAS_OBSOLETAS or c.startswith("➕") or "Unnamed" in c]
     if colunas_para_remover:
         df = df.drop(columns=colunas_para_remover, errors='ignore')
 
-    # 2. Assegura a presença de todas as colunas padrão
+    # 2. Garante a coluna primária de Setor
+    if COLUNA_CHAVE not in df.columns:
+        df.insert(0, COLUNA_CHAVE, "")
+
+    # 3. Assegura a presença das colunas padrão
     for col in COLUNAS_PADRAO:
         if col not in df.columns:
             df[col] = ""
-            
-    # 3. Organiza: Colunas padrão primeiro, seguidas por colunas customizadas válidas
-    outras_colunas = [c for c in df.columns if c not in COLUNAS_PADRAO]
+
+    # 4. Reorganiza a ordem mantendo as colunas padrão no início e dinâmicas no final
+    outras_colunas = [c.strip() for c in df.columns if c not in COLUNAS_PADRAO]
     ordem_final = COLUNAS_PADRAO + outras_colunas
-    return df[ordem_final].fillna("").astype(str)
+    
+    # Normalização de tipos para string (evita perda de zeros em códigos de barra)
+    df = df.reindex(columns=ordem_final).fillna("").astype(str)
+    df[COLUNA_CHAVE] = df[COLUNA_CHAVE].str.strip()
+    return df
 
 
 def aplicar_estilo_excel(caminho_arquivo: str) -> None:
     """
-    Aplica formatação visual profissional na planilha Excel gerada (cores de cabeçalho,
-    zebrado de linhas, bordas finas e auto-ajuste de largura de colunas).
+    Aplica formatação visual profissional na planilha Excel (cores, bordas,
+    largura adaptativa e alinhamento).
     """
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
-    wb = openpyxl.load_workbook(caminho_arquivo)
-    ws = wb['Patrimônios']
+    if not os.path.exists(caminho_arquivo):
+        return
 
-    # Definições de Estilo
-    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    row_fill_even = PatternFill(start_color="F2F4F7", end_color="F2F4F7", fill_type="solid")
+    wb = openpyxl.load_workbook(caminho_arquivo)
+    ws = wb.active if 'Patrimônios' not in wb.sheetnames else wb['Patrimônios']
+
+    # Paleta de Cores e Estilos
+    header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")  # Azul Marinho
+    header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+    
+    row_fill_even = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
     row_fill_odd = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+    
     thin_border = Border(
-        left=Side(style='thin', color='D9D9D9'),
-        right=Side(style='thin', color='D9D9D9'),
-        top=Side(style='thin', color='D9D9D9'),
-        bottom=Side(style='thin', color='D9D9D9')
+        left=Side(style='thin', color='E2E8F0'),
+        right=Side(style='thin', color='E2E8F0'),
+        top=Side(style='thin', color='E2E8F0'),
+        bottom=Side(style='thin', color='E2E8F0')
     )
+    
     align_center = Alignment(horizontal="center", vertical="center")
     align_left = Alignment(horizontal="left", vertical="center")
 
-    # Formatação do Cabeçalho
+    # 1. Formatação do Cabeçalho
+    ws.row_dimensions[1].height = 28
     for cell in ws[1]:
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = align_center
         cell.border = thin_border
-    ws.row_dimensions[1].height = 28
 
-    # Formatação do Corpo da Tabela
+    # 2. Formatação das Linhas de Dados
     max_row = ws.max_row
     max_col = ws.max_column
 
@@ -124,12 +134,18 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
             cell = ws.cell(row=r, column=c)
             cell.fill = fill
             cell.border = thin_border
-            cell.font = Font(name="Calibri", size=10)
+            cell.font = Font(name="Segoe UI", size=10)
             cell.alignment = align_left if c == 1 else align_center
+            # Força o formato texto na célula para preservar zeros à esquerda
+            cell.number_format = '@'
 
-    # Ajuste Automático de Largura das Colunas
+    # 3. Auto-Ajuste Largura de Colunas
     for col in ws.columns:
-        max_len = max(len(str(cell.value or '')) for cell in col)
+        max_len = 0
+        for cell in col:
+            val = str(cell.value or '')
+            if len(val) > max_len:
+                max_len = len(val)
         col_letter = get_column_letter(col[0].column)
         ws.column_dimensions[col_letter].width = max(max_len + 5, 18)
 
@@ -137,24 +153,20 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
 
 
 # ==========================================
-# 5. GERENCIAMENTO DE PERSISTÊNCIA (LEITURA/ESCRITA)
+# 5. GERENCIAMENTO DE PERSISTÊNCIA E SINCRONIZAÇÃO
 # ==========================================
 @st.cache_data(ttl=60)
 def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
-    """
-    Carrega os dados salvos do Excel local. Retorna o DataFrame limpo e a lista de colunas.
-    Se o arquivo não existir, retorna uma estrutura vazia padronizada.
-    """
+    """Carrega os dados salvos localmente e retorna o DataFrame limpo e a lista de colunas."""
     if os.path.exists(ARQUIVO_EXCEL):
         try:
             df = pd.read_excel(ARQUIVO_EXCEL, sheet_name='Patrimônios', dtype=str, keep_default_na=False)
             if not df.empty and df.columns[0].startswith("Tabela de Patrimônios"):
                 df = pd.read_excel(ARQUIVO_EXCEL, sheet_name='Patrimônios', header=1, dtype=str, keep_default_na=False)
-            df = df.dropna(how='all')
             df = padronizar_e_organizar_df(df)
             return df, list(df.columns)
         except Exception as e:
-            st.error(f"Erro ao carregar a planilha existente: {e}")
+            st.error(f"Erro ao carregar planilha local: {e}")
             
     df_empty = pd.DataFrame(columns=COLUNAS_PADRAO)
     df_empty = padronizar_e_organizar_df(df_empty)
@@ -162,51 +174,54 @@ def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
 
 
 def salvar_no_excel(df: pd.DataFrame) -> None:
-    """
-    Salva o DataFrame no arquivo Excel local, aplica a estilização, limpa o cache
-    de leitura e tenta atualizar a cópia remota no Google Sheets.
-    """
+    """Salva no Excel local, formata a planilha e sincroniza com o Google Sheets."""
     df = padronizar_e_organizar_df(df)
+    
+    # 1. Salva localmente
     try:
         with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Patrimônios', index=False)
         aplicar_estilo_excel(ARQUIVO_EXCEL)
         carregar_dados_excel.clear()
     except Exception as e:
-        st.error(f"Erro ao salvar e formatar a planilha local: {e}")
+        st.error(f"Erro ao salvar arquivo Excel local: {e}")
 
-    # Sincronização em nuvem se houver conexão ativa
+    # 2. Sincroniza remotamente com o Google Sheets
     if conn is not None:
         try:
             conn.update(spreadsheet=GOOGLE_SHEET_URL, data=df)
-            st.toast("☁️ Dados sincronizados no Google Sheets!")
+            st.toast("☁️ Google Sheets sincronizado com sucesso!")
         except Exception as e:
-            st.error(f"Falha na sincronização com Google Sheets: {e}")
+            st.toast(f"⚠️ Salvo localmente. Erro no Google Sheets: {e}")
 
 
 def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     """
-    Registra um novo item bipado. Se o setor já existir na tabela, insere/atualiza
-    o código na coluna especificada. Caso contrário, cria uma nova linha.
+    Sincroniza o código de barras no cruzamento exato do Setor e da Coluna selecionada no Menu.
+    Cria novas colunas ou setores dinamicamente caso não existam.
     """
     df, _ = carregar_dados_excel()
     coluna_alvo = descricao.strip()
     setor_limpo = setor.strip() if setor else "Não informado"
     codigo_limpo = str(codigo).strip()
     
+    # Sincronização da Coluna: Adiciona se for uma nova opção do menu
     if coluna_alvo not in df.columns:
         df[coluna_alvo] = ""
     
     df = padronizar_e_organizar_df(df)
-    df["Local / Setor"] = df["Local / Setor"].str.strip()
-    mascara_setor = df["Local / Setor"].str.lower() == setor_limpo.lower()
+    
+    # Localização da Linha (Setor)
+    mascara_setor = df[COLUNA_CHAVE].str.lower() == setor_limpo.lower()
     
     if mascara_setor.any():
+        # Atualiza a célula existente
         idx = df[mascara_setor].index[0]
         df.at[idx, coluna_alvo] = codigo_limpo
     else:
+        # Cria uma nova linha para o setor
         nova_linha = {col: "" for col in df.columns}
-        nova_linha["Local / Setor"] = setor_limpo
+        nova_linha[COLUNA_CHAVE] = setor_limpo
         nova_linha[coluna_alvo] = codigo_limpo
         df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
     
@@ -216,16 +231,9 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
 
 
 # ==========================================
-# 6. PROCESSAMENTO DE IMAGEM E LEITURA VISUAL
+# 6. PROCESSAMENTO DE IMAGEM (UPLOAD)
 # ==========================================
 def processar_imagem(image_file) -> tuple:
-    """
-    Processa um arquivo de imagem enviado por upload:
-    - Decodifica a imagem com OpenCV.
-    - Localiza e decodifica códigos de barras com ZXing.
-    - Desenha um retângulo verde ao redor dos códigos encontrados.
-    Retorna a imagem processada (RGB) e a lista de códigos lidos.
-    """
     import cv2
     import zxingcpp
     try:
@@ -269,21 +277,17 @@ def processar_imagem(image_file) -> tuple:
 
         return img_rgb, resultados
     except Exception as e:
-        st.error(f"Erro ao processar imagem: {e}")
+        st.error(f"Erro no processamento da imagem: {e}")
         return None, []
 
 
 # ==========================================
-# 7. COMPONENTES VISUAIS E INTERFACE (UI)
+# 7. INTERFACE STREAMLIT
 # ==========================================
 def renderizar_card_inventario(lista_urs, lista_ubs):
-    """
-    Renderiza um cartão de seleção de unidade (URS / UBS) para o portal principal.
-    Permite direcionar o usuário para a tela de inventário com a unidade selecionada.
-    """
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão, leitura de códigos de barra e controle de patrimônio.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra.</p>", unsafe_allow_html=True)
         st.write("")
 
         urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_inv")
@@ -296,21 +300,15 @@ def renderizar_card_inventario(lista_urs, lista_ubs):
             unidade_escolhida = ubs_selecionada
 
         st.write("")
-        
-        if st.button("📂 Abrir Inventário nesta Aba", use_container_width=True, type="primary", key="btn_inventario"):
+        if st.button("📂 Abrir Inventário", use_container_width=True, type="primary", key="btn_inventario"):
             st.session_state.unidade_selecionada = unidade_escolhida
             st.session_state.pagina_atual = "inventario"
             st.rerun()
 
 
 def renderizar_sistema_inventario():
-    """
-    Renderiza a interface completa da aplicação de inventário com menus sincronizados
-    e tabela higienizada.
-    """
     df_inicial, _ = carregar_dados_excel()
 
-    # Inicialização do estado da sessão do Streamlit
     if "df_historico" not in st.session_state:
         st.session_state.df_historico = df_inicial
 
@@ -325,11 +323,8 @@ def renderizar_sistema_inventario():
 
     unidade = st.session_state.get("unidade_selecionada", "")
     if unidade:
-        st.subheader(f"🏥 {unidade}")
-    else:
-        st.subheader("Selecione o setor e tipo de patrimônio")
+        st.subheader(f"🏥 Unidade: {unidade}")
 
-    # Opções padrão do menu suspenso de Setor
     opcoes_setor = [
         "Consultório",
         "Gerência",
@@ -344,17 +339,16 @@ def renderizar_sistema_inventario():
         "➕ Outro Setor"
     ]
 
-    # Extrai colunas reais existentes descartando setor e obsoletas
+    # Alimenta o menu dinamicamente com as colunas reais já existentes na planilha
     colunas_df_atuais = [
         col for col in st.session_state.df_historico.columns 
-        if col != "Local / Setor" and col not in COLUNAS_OBSOLETAS
+        if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS
     ]
 
-    # Consolida opções de patrimônio sem duplicatas
-    opcoes_patrimonio = list(dict.fromkeys(colunas_df_atuais + [c for c in COLUNAS_PADRAO if c != "Local / Setor"]))
+    opcoes_patrimonio = list(dict.fromkeys(colunas_df_atuais + [c for c in COLUNAS_PADRAO if c != COLUNA_CHAVE]))
     opcoes_patrimonio.append("➕ Outros Patrimônios")
 
-    # --- Seção de Filtros e Seleção ---
+    # --- Filtros e Seleção ---
     col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
 
     with col_desc1:
@@ -374,38 +368,36 @@ def renderizar_sistema_inventario():
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
-        opcao_selecionada = st.selectbox("Tipo de patrimônio:", opcoes_patrimonio, key="opcao_selecionada_key")
+        opcao_selecionada = st.selectbox("Tipo de patrimônio (Coluna):", opcoes_patrimonio, key="opcao_selecionada_key")
 
     with col_desc3:
         if opcao_selecionada == "➕ Outros Patrimônios":
-            descricao_final = st.text_input("Novo Patrimônio:", placeholder="Ex: Servidor", key="descricao_nova_key")
+            descricao_final = st.text_input("Nome da Nova Coluna:", placeholder="Ex: Servidor", key="descricao_nova_key")
         else:
             descricao_final = opcao_selecionada
         st.session_state.saved_descricao = descricao_final
 
     st.divider()
 
-    # Validação antes de habilitar a leitura
     if not descricao_final or not setor_input.strip():
-        st.warning("⚠️ Preencha o **Setor** e selecione o **Tipo de patrimônio** para ativar o leitor.")
+        st.warning("⚠️ Preencha o **Setor** e o **Tipo de patrimônio** para habilitar o leitor.")
     else:
-        tab_unificada, tab_upload = st.tabs(["⚡ Câmera do Celular / Scanner USB", "📁 Upload de Imagem"])
+        tab_unificada, tab_upload = st.tabs(["⚡ Câmera / Scanner USB", "📁 Upload de Imagem"])
 
-        # --- Aba 1: Leitor por Câmera / USB ---
+        # --- Aba 1: Leitor Câmera / USB ---
         with tab_unificada:
-            st.markdown(f"📍 **`{setor_input}`** | **`{descricao_final}`**")
+            st.markdown(f"📍 Setor Ativo: **`{setor_input}`** | Coluna Destino: **`{descricao_final}`**")
             col_camera, col_usb = st.columns([1.2, 1])
 
             with col_camera:
                 st.caption("Aponte a câmera para o código de barras.")
-
                 html_scanner = """
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
                 <style>
-                    #reader { width: 100% !important; max-width: 100% !important; border-radius: 12px; overflow: hidden; border: 2px solid #1F4E78; background-color: #000; }
+                    #reader { width: 100% !important; max-width: 100% !important; border-radius: 12px; overflow: hidden; border: 2px solid #1B365D; background-color: #000; }
                     #reader video { object-fit: cover !important; border-radius: 10px; }
-                    #scan-status { text-align: center; margin-top: 8px; font-weight: bold; color: #1F4E78; font-family: sans-serif; font-size: 14px; }
+                    #scan-status { text-align: center; margin-top: 8px; font-weight: bold; color: #1B365D; font-family: sans-serif; font-size: 14px; }
                 </style>
                 <div class="scanner-wrapper">
                     <div id="reader"></div>
@@ -459,37 +451,43 @@ def renderizar_sistema_inventario():
                     btn_adicionar = st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True)
                     if btn_adicionar and codigo_input.strip():
                         adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
-                        st.success(f"✅ Registrado: `{codigo_input.strip()}` em **'{descricao_final}'** no setor **'{setor_input}'**")
+                        st.success(f"✅ Código `{codigo_input.strip()}` registrado na coluna **'{descricao_final}'** | Setor **'{setor_input}'**")
                         st.rerun()
 
         # --- Aba 2: Upload de Imagem ---
         with tab_upload:
-            uploaded_file = st.file_uploader("Escolha uma imagem contendo o código", type=["jpg", "png", "jpeg"])
+            uploaded_file = st.file_uploader("Envie uma imagem do código de barras", type=["jpg", "png", "jpeg"])
             if uploaded_file is not None:
                 img_processada, codigos_encontrados = processar_imagem(uploaded_file)
                 col_img1, col_img2 = st.columns(2)
                 with col_img1:
                     if img_processada is not None:
-                        st.image(img_processada, caption="Imagem Processada", use_container_width=True)
+                        st.image(img_processada, caption="Imagem Analisada", use_container_width=True)
                 with col_img2:
                     if codigos_encontrados:
-                        st.success(f"{len(codigos_encontrados)} código(s) detectado(s)!")
+                        st.success(f"{len(codigos_encontrados)} código(s) encontrado(s)!")
                         for item in codigos_encontrados:
                             adicionar_e_salvar(item['codigo'], descricao_final, setor_input)
                             st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}** | Setor: **{setor_input}**")
                         st.rerun()
 
-    # --- Seção do Visualizador e Exportador de Dados ---
+    # --- Visualizador da Tabela Sincronizada ---
     st.divider()
-    st.header("📊 Tabela de Patrimônios")
+    st.header("📊 Tabela de Patrimônios (Sincronizada)")
     df_atual, _ = carregar_dados_excel()
     if not df_atual.empty:
-        st.dataframe(df_atual.fillna("").astype(str), use_container_width=True)
+        st.dataframe(df_atual, use_container_width=True)
         col_btn1, col_btn2 = st.columns([1, 1])
         with col_btn1:
-            if st.button("🔄 Recarregar Planilha", use_container_width=True):
+            if st.button("🔄 Recarregar Dados", use_container_width=True):
                 carregar_dados_excel.clear()
                 st.rerun()
         with col_btn2:
             csv = df_atual.to_csv(index=False).encode('utf-8')
-            st.download_button(label="⬇️ Baixar Tabela (CSV)", data=csv, file_name="Tabela_Patrimonios.csv", mime="text/csv", use_container_width=True)
+            st.download_button(
+                label="⬇️ Baixar Tabela (CSV)",
+                data=csv,
+                file_name="Tabela_Patrimonios_Sincronizada.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
