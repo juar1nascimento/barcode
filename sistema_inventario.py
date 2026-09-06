@@ -63,8 +63,16 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
 # ==============================================================================
 # PORTAL DE NAVEGAÇÃO E SELEÇÃO DE UNIDADES
 # ==============================================================================
-def renderizar_portal_principal() -> None:
+def renderizar_portal_principal(
+    lista_urs: Optional[List[str]] = None, 
+    lista_ubs: Optional[List[str]] = None,
+    *args, 
+    **kwargs
+) -> None:
     """Renderiza a página inicial/portal no estilo do Portal GTI-SESA."""
+    urs_opcoes = lista_urs if lista_urs is not None else LISTA_URS_PADRAO
+    ubs_opcoes = lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO
+
     st.markdown("## 💻 Portal de Sistemas GTI-SESA")
     st.markdown("Bem-vindo ao painel central de aplicações. Escolha o sistema e a unidade que deseja acessar:")
     st.divider()
@@ -77,8 +85,8 @@ def renderizar_portal_principal() -> None:
             st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra por URS/UBS.</p>", unsafe_allow_html=True)
             
-            urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", LISTA_URS_PADRAO, key="sel_urs_portal")
-            ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", LISTA_UBS_PADRAO, key="sel_ubs_portal")
+            urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", urs_opcoes, key="sel_urs_portal")
+            ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", ubs_opcoes, key="sel_ubs_portal")
 
             unidade_escolhida = ""
             if urs_selecionada and not urs_selecionada.startswith("Selecione"):
@@ -99,18 +107,23 @@ def renderizar_portal_principal() -> None:
             st.markdown("<h3 style='text-align: center;'>📥 Entrada de Equipamentos</h3>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de registro e recebimento de equipamentos nas unidades.</p>", unsafe_allow_html=True)
             
-            st.selectbox("URS - Unidade Regional de Saúde ", LISTA_URS_PADRAO, key="sel_urs_entrada")
-            st.selectbox("UBS - Unidade Básica de Saúde ", LISTA_UBS_PADRAO, key="sel_ubs_entrada")
+            st.selectbox("URS - Unidade Regional de Saúde ", urs_opcoes, key="sel_urs_entrada")
+            st.selectbox("UBS - Unidade Básica de Saúde ", ubs_opcoes, key="sel_ubs_entrada")
             st.button("📥 Abrir Entrada de Equipamentos", use_container_width=True, disabled=True, key="btn_abrir_entrada")
 
-def renderizar_card_inventario() -> None:
-    """Compatibilidade para importação no app.py."""
-    renderizar_portal_principal()
+def renderizar_card_inventario(
+    lista_urs: Optional[List[str]] = None, 
+    lista_ubs: Optional[List[str]] = None, 
+    *args, 
+    **kwargs
+) -> None:
+    """Compatibilidade para chamada via app.py com suporte a argumentos flexíveis."""
+    renderizar_portal_principal(lista_urs=lista_urs, lista_ubs=lista_ubs, *args, **kwargs)
 
 # ==============================================================================
 # PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
 # ==============================================================================
-def renderizar_sistema_inventario() -> None:
+def renderizar_sistema_inventario(*args, **kwargs) -> None:
     """Renderiza a página exclusiva de inventário com tabela e dados dedicados à URS/UBS."""
     unidade = st.session_state.get("unidade_selecionada", "")
     
