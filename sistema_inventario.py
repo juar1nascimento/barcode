@@ -103,6 +103,10 @@ def renderizar_portal_principal() -> None:
             st.selectbox("UBS - Unidade Básica de Saúde ", LISTA_UBS_PADRAO, key="sel_ubs_entrada")
             st.button("📥 Abrir Entrada de Equipamentos", use_container_width=True, disabled=True, key="btn_abrir_entrada")
 
+def renderizar_card_inventario() -> None:
+    """Compatibilidade para importação no app.py."""
+    renderizar_portal_principal()
+
 # ==============================================================================
 # PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
 # ==============================================================================
@@ -311,4 +315,4 @@ if __name__ == "__main__":
     if st.session_state.pagina_atual == "inventario_unidade" and st.session_state.unidade_selecionada:
         renderizar_sistema_inventario()
     else:
-        renderizar_portal_principal()
+        renderizar_card_inventario()
