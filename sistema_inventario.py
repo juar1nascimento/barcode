@@ -317,12 +317,18 @@ def renderizar_sistema_inventario():
         "➕ Outra descrição (Criar nova coluna ao final)"
     }
 
-    # Garante itens únicos para o dropdown preservando a ordem, excluindo as opções indesejadas
+    # Extrai colunas existentes excluindo as indesejadas
     opcoes_existentes = list(dict.fromkeys([
         col for col in st.session_state.df_historico.columns 
         if col != "Local / Setor" and col not in opcoes_remover
     ]))
-    opcoes_patrimonio = opcoes_existentes + ["➕ Outros Patrimônios"]
+
+    # Novas opções padrão adicionadas ao menu
+    opcoes_adicionais = ["Teclado", "Mouse", "Impressora"]
+
+    # Consolida as opções sem duplicatas mantendo a ordem e insere a opção customizada no final
+    opcoes_combinadas = list(dict.fromkeys(opcoes_existentes + opcoes_adicionais))
+    opcoes_patrimonio = opcoes_combinadas + ["➕ Outros Patrimônios"]
 
     # --- Seção de Filtros e Seleção ---
     col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
