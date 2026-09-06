@@ -203,7 +203,6 @@ def renderizar_card_inventario(lista_urs, lista_ubs):
         urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_inv")
         ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_inv")
 
-        # Armazena a URS ou UBS escolhida para exibir no título do sistema
         unidade_escolhida = ""
         if urs_selecionada and not urs_selecionada.startswith("Selecione"):
             unidade_escolhida = urs_selecionada
@@ -236,7 +235,6 @@ def renderizar_sistema_inventario():
     st.title("📦 Sistema de Inventários - GTI-SESA")
     st.divider()
 
-    # Exibe o nome da URS/UBS escolhida na página do Portal
     unidade = st.session_state.get("unidade_selecionada", "")
     if unidade:
         st.subheader(f"🏥 {unidade}")
@@ -275,7 +273,6 @@ def renderizar_sistema_inventario():
             col_camera, col_usb = st.columns([1.2, 1])
 
             with col_camera:
-                st.markdown("##### 📱 Câmera (Bip e Registro Automático)")
                 st.caption("Aponte a câmera para o código de barras.")
 
                 html_scanner = """
