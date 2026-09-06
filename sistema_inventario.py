@@ -61,64 +61,47 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
         return None, []
 
 # ==============================================================================
-# PORTAL DE NAVEGAÇÃO E SELEÇÃO DE UNIDADES
+# CARD DE INVENTÁRIO E PORTAL DE NAVEGAÇÃO
 # ==============================================================================
-def renderizar_portal_principal(
-    lista_urs: Optional[List[str]] = None, 
-    lista_ubs: Optional[List[str]] = None,
-    *args, 
-    **kwargs
-) -> None:
-    """Renderiza a página inicial/portal no estilo do Portal GTI-SESA."""
-    urs_opcoes = lista_urs if lista_urs is not None else LISTA_URS_PADRAO
-    ubs_opcoes = lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO
-
-    st.markdown("## 💻 Portal de Sistemas GTI-SESA")
-    st.markdown("Bem-vindo ao painel central de aplicações. Escolha o sistema e a unidade que deseja acessar:")
-    st.divider()
-
-    col_center, _ = st.columns([2, 1])
-
-    with col_center:
-        # Card 1: Sistema de Inventários
-        with st.container(border=True):
-            st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra por URS/UBS.</p>", unsafe_allow_html=True)
-            
-            urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", urs_opcoes, key="sel_urs_portal")
-            ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", ubs_opcoes, key="sel_ubs_portal")
-
-            unidade_escolhida = ""
-            if urs_selecionada and not urs_selecionada.startswith("Selecione"):
-                unidade_escolhida = urs_selecionada
-            elif ubs_selecionada and not ubs_selecionada.startswith("Selecione"):
-                unidade_escolhida = ubs_selecionada
-
-            if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
-                if not unidade_escolhida:
-                    st.warning("⚠️ Selecione uma URS ou UBS válida para continuar.")
-                else:
-                    st.session_state.unidade_selecionada = unidade_escolhida
-                    st.session_state.pagina_atual = "inventario_unidade"
-                    st.rerun()
-
-        # Card 2: Entrada de Equipamentos
-        with st.container(border=True):
-            st.markdown("<h3 style='text-align: center;'>📥 Entrada de Equipamentos</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de registro e recebimento de equipamentos nas unidades.</p>", unsafe_allow_html=True)
-            
-            st.selectbox("URS - Unidade Regional de Saúde ", urs_opcoes, key="sel_urs_entrada")
-            st.selectbox("UBS - Unidade Básica de Saúde ", ubs_opcoes, key="sel_ubs_entrada")
-            st.button("📥 Abrir Entrada de Equipamentos", use_container_width=True, disabled=True, key="btn_abrir_entrada")
-
 def renderizar_card_inventario(
     lista_urs: Optional[List[str]] = None, 
     lista_ubs: Optional[List[str]] = None, 
     *args, 
     **kwargs
 ) -> None:
-    """Compatibilidade para chamada via app.py com suporte a argumentos flexíveis."""
-    renderizar_portal_principal(lista_urs=lista_urs, lista_ubs=lista_ubs, *args, **kwargs)
+    """Renderiza exclusivamente o Card do Sistema de Inventários com chaves isoladas."""
+    urs_opcoes = lista_urs if lista_urs is not None else LISTA_URS_PADRAO
+    ubs_opcoes = lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO
+
+    with st.container(border=True):
+        st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra por URS/UBS.</p>", unsafe_allow_html=True)
+        
+        urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", urs_opcoes, key="sel_urs_card_inventario")
+        ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", ubs_opcoes, key="sel_ubs_card_inventario")
+
+        unidade_escolhida = ""
+        if urs_selecionada and not urs_selecionada.startswith("Selecione"):
+            unidade_escolhida = urs_selecionada
+        elif ubs_selecionada and not ubs_selecionada.startswith("Selecione"):
+            unidade_escolhida = ubs_selecionada
+
+        if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
+            if not unidade_escolhida:
+                st.warning("⚠️ Selecione uma URS ou UBS válida para continuar.")
+            else:
+                st.session_state.unidade_selecionada = unidade_escolhida
+                st.session_state.pagina_atual = "inventario"
+                st.rerun()
+
+def renderizar_portal_principal(
+    lista_urs: Optional[List[str]] = None, 
+    lista_ubs: Optional[List[str]] = None,
+    *args, 
+    **kwargs
+) -> None:
+    """Suporte para execução standalone ou redirecionamento para o card de inventário."""
+    renderizar_card_inventario(lista_urs=lista_urs, lista_ubs=lista_ubs, *args, **kwargs)
 
 # ==============================================================================
 # PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
@@ -325,7 +308,7 @@ if __name__ == "__main__":
     st.session_state.setdefault("pagina_atual", "portal")
     st.session_state.setdefault("unidade_selecionada", "")
 
-    if st.session_state.pagina_atual == "inventario_unidade" and st.session_state.unidade_selecionada:
+    if st.session_state.pagina_atual in ["inventario", "inventario_unidade"] and st.session_state.unidade_selecionada:
         renderizar_sistema_inventario()
     else:
         renderizar_card_inventario()
