@@ -383,11 +383,11 @@ def renderizar_sistema_inventario() -> None:
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
-        opcao_selecionada = st.selectbox("Tipo de patrimônio (Coluna):", opcoes_patrimonio, key="opcao_selecionada_key")
+        opcao_selecionada = st.selectbox("Tipo de patrimônio:", opcoes_patrimonio, key="opcao_selecionada_key")
 
     with col_desc3:
         if opcao_selecionada == "➕ Outros Patrimônios":
-            descricao_final = st.text_input("Nome da Nova Coluna:", placeholder="Ex: Servidor", key="descricao_nova_key")
+            descricao_final = st.text_input("Nome do Novo Patrimonio:", placeholder="Ex: Servidor", key="descricao_nova_key")
         else:
             descricao_final = opcao_selecionada
         st.session_state.saved_descricao = descricao_final
@@ -493,7 +493,7 @@ def renderizar_sistema_inventario() -> None:
 
     # Exibição da Tabela Simples e Estilizada no Streamlit
     st.divider()
-    st.header("📊 Tabela de Patrimônios (Sincronizada)")
+    st.header("📊 Tabela de Patrimônios")
     df_atual, _ = carregar_dados_excel()
 
     if not df_atual.empty:
