@@ -2,9 +2,10 @@ import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
-# Importação dos módulos independentes da Tabela de Dados
+# Importação dos módulos independentes e constantes
 from Tabela_de_dados_Inventário import (
     COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
+    LISTA_URS_PADRAO, LISTA_UBS_PADRAO,
     carregar_dados_excel, adicionar_e_salvar, excluir_setor, excluir_patrimonio
 )
 
@@ -60,37 +61,78 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
         return None, []
 
 # ==============================================================================
-# CAMADA DE APRESENTAÇÃO / INTERFACE DO USUÁRIO
+# PORTAL DE NAVEGAÇÃO E SELEÇÃO DE UNIDADES
 # ==============================================================================
-def renderizar_card_inventario(lista_urs: List[str], lista_ubs: List[str]) -> None:
-    """Renderiza o card inicial de seleção da unidade de saúde."""
-    with st.container(border=True):
-        st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra.</p>", unsafe_allow_html=True)
-        
-        urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_inv")
-        ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_inv")
+def renderizar_portal_principal() -> None:
+    """Renderiza a página inicial/portal no estilo do Portal GTI-SESA."""
+    st.markdown("## 💻 Portal de Sistemas GTI-SESA")
+    st.markdown("Bem-vindo ao painel central de aplicações. Escolha o sistema e a unidade que deseja acessar:")
+    st.divider()
 
-        unidade_escolhida = urs_selecionada if urs_selecionada and not urs_selecionada.startswith("Selecione") else ubs_selecionada if ubs_selecionada and not ubs_selecionada.startswith("Selecione") else ""
+    col_center, _ = st.columns([2, 1])
 
-        if st.button("📂 Abrir Inventário", use_container_width=True, type="primary", key="btn_inventario"):
-            st.session_state.unidade_selecionada = unidade_escolhida
-            st.session_state.pagina_atual = "inventario"
-            st.rerun()
+    with col_center:
+        # Card 1: Sistema de Inventários
+        with st.container(border=True):
+            st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra por URS/UBS.</p>", unsafe_allow_html=True)
+            
+            urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", LISTA_URS_PADRAO, key="sel_urs_portal")
+            ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", LISTA_UBS_PADRAO, key="sel_ubs_portal")
 
+            unidade_escolhida = ""
+            if urs_selecionada and not urs_selecionada.startswith("Selecione"):
+                unidade_escolhida = urs_selecionada
+            elif ubs_selecionada and not ubs_selecionada.startswith("Selecione"):
+                unidade_escolhida = ubs_selecionada
+
+            if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
+                if not unidade_escolhida:
+                    st.warning("⚠️ Selecione uma URS ou UBS válida para continuar.")
+                else:
+                    st.session_state.unidade_selecionada = unidade_escolhida
+                    st.session_state.pagina_atual = "inventario_unidade"
+                    st.rerun()
+
+        # Card 2: Entrada de Equipamentos
+        with st.container(border=True):
+            st.markdown("<h3 style='text-align: center;'>📥 Entrada de Equipamentos</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de registro e recebimento de equipamentos nas unidades.</p>", unsafe_allow_html=True)
+            
+            st.selectbox("URS - Unidade Regional de Saúde ", LISTA_URS_PADRAO, key="sel_urs_entrada")
+            st.selectbox("UBS - Unidade Básica de Saúde ", LISTA_UBS_PADRAO, key="sel_ubs_entrada")
+            st.button("📥 Abrir Entrada de Equipamentos", use_container_width=True, disabled=True, key="btn_abrir_entrada")
+
+# ==============================================================================
+# PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
+# ==============================================================================
 def renderizar_sistema_inventario() -> None:
-    """Renderiza o painel completo de bipagem, tabelas e exclusão de patrimônios."""
-    df_inicial, _ = carregar_dados_excel()
+    """Renderiza a página exclusiva de inventário com tabela e dados dedicados à URS/UBS."""
+    unidade = st.session_state.get("unidade_selecionada", "")
+    
+    if not unidade:
+        st.session_state.pagina_atual = "portal"
+        st.rerun()
+
+    # Carrega dados da aba específica da URS/UBS
+    df_inicial, _ = carregar_dados_excel(unidade)
     st.session_state.setdefault("df_historico", df_inicial)
     st.session_state.setdefault("saved_setor", "")
     st.session_state.setdefault("saved_descricao", "")
 
-    st.title("📦 Sistema de Inventários - GTI-SESA")
-    st.divider()
+    # Cabeçalho da página
+    col_titulo, col_voltar = st.columns([3, 1])
+    with col_titulo:
+        st.title("📦 Sistema de Inventários - GTI-SESA")
+        st.subheader(f"🏥 Tabela Exclusiva: **`{unidade}`**")
+    with col_voltar:
+        st.write("")
+        if st.button("⬅️ Trocar de Unidade / Portal", use_container_width=True):
+            st.session_state.unidade_selecionada = ""
+            st.session_state.pagina_atual = "portal"
+            st.rerun()
 
-    unidade = st.session_state.get("unidade_selecionada", "")
-    if unidade:
-        st.subheader(f"🏥 Unidade: {unidade}")
+    st.divider()
 
     opcoes_setor = SETORES_PADRAO + ["➕ Outro Setor"]
     colunas_df_atuais = [col for col in st.session_state.df_historico.columns if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS]
@@ -119,7 +161,7 @@ def renderizar_sistema_inventario() -> None:
         tab_unificada, tab_upload = st.tabs(["⚡ Câmera / Scanner USB", "📁 Upload de Imagem"])
         
         with tab_unificada:
-            st.markdown(f"📍 Setor Selecionado: **`{setor_input}`** | Patrimonio Selecionado: **`{descricao_final}`**")
+            st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Patrimônio:** `{descricao_final}`")
             col_camera, col_usb = st.columns([1.2, 1])
 
             with col_camera:
@@ -182,8 +224,8 @@ def renderizar_sistema_inventario() -> None:
                 with st.form(key="form_bipagem", clear_on_submit=True):
                     codigo_input = st.text_input("Código Lido / Bipado:", autocomplete="off", placeholder="Aguardando bipagem...", key="input_codigo_bip")
                     if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
-                        adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
-                        st.success(f"✅ Código `{codigo_input.strip()}` registrado.")
+                        adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade)
+                        st.success(f"✅ Código `{codigo_input.strip()}` salvo na aba `{unidade}`.")
                         st.rerun()
 
         with tab_upload:
@@ -198,13 +240,13 @@ def renderizar_sistema_inventario() -> None:
                     if codigos_encontrados:
                         st.success(f"{len(codigos_encontrados)} código(s) encontrado(s)!")
                         for item in codigos_encontrados:
-                            adicionar_e_salvar(item["codigo"], descricao_final, setor_input)
-                            st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}** | Setor: **{setor_input}**")
+                            adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade)
+                            st.write(f"**Código:** `{item['codigo']}` ➡️ Aba: **{unidade}** | Setor: **{setor_input}**")
                         st.rerun()
 
     st.divider()
-    st.header("📊 Tabela de Patrimônios")
-    df_atual, _ = carregar_dados_excel()
+    st.header(f"📊 Tabela de Patrimônios — {unidade}")
+    df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
         df_styled = df_atual.style.set_properties(**{'font-family': 'Segoe UI, sans-serif', 'font-size': '14px'}).set_table_styles([
@@ -215,21 +257,22 @@ def renderizar_sistema_inventario() -> None:
         
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
-            if st.button("🔄 Recarregar Dados", use_container_width=True):
+            if st.button("🔄 Recarregar Dados da Unidade", use_container_width=True):
                 carregar_dados_excel.clear()
                 st.rerun()
         with col_btn2:
-            st.download_button("⬇️ Baixar Tabela (CSV)", data=df_atual.to_csv(index=False).encode("utf-8"), file_name="Tabela_Patrimonios_Sincronizada.csv", mime="text/csv", use_container_width=True)
+            nome_arquivo_csv = f"Tabela_{unidade.replace(' ', '_')}.csv"
+            st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=nome_arquivo_csv, mime="text/csv", use_container_width=True)
 
-        with st.expander("🗑️ Gerenciador de Exclusão", expanded=False):
+        with st.expander(f"🗑️ Gerenciador de Exclusão — Aba ({unidade})", expanded=False):
             lista_setores_existentes = [s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]
             tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor", "❌ Excluir Patrimônio"])
 
             with tab_excluir_setor:
                 if lista_setores_existentes:
                     setor_para_excluir = st.selectbox("Selecione o Setor para apagar inteiramente:", lista_setores_existentes, key="sb_excluir_setor")
-                    if st.button(f"🔥 Confirmar Exclusão da Linha de '{setor_para_excluir}'", type="primary", key="btn_del_setor"):
-                        excluir_setor(setor_para_excluir)
+                    if st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary", key="btn_del_setor"):
+                        excluir_setor(setor_para_excluir, unidade)
                         st.rerun()
 
             with tab_excluir_patrimonio:
@@ -253,9 +296,19 @@ def renderizar_sistema_inventario() -> None:
                         coluna_patrimonio_del = st.selectbox("Selecione o Tipo de Patrimônio:", options=colunas_com_dados, format_func=lambda c: f"{c} (Código: {valores_map.get(c, '')})", key=f"sb_coluna_del_{setor_patrimonio_del}") if colunas_com_dados else None
                     
                     if coluna_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary", key=f"btn_del_patrimonio_{setor_patrimonio_del}"):
-                        excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del)
+                        excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
                         st.rerun()
 
+# ==============================================================================
+# PONTO DE ENTRADA DO APLICATIVO E ROTEAMENTO
+# ==============================================================================
 if __name__ == "__main__":
-    st.set_page_config(page_title="Sistema de Inventários", layout="wide")
-    renderizar_sistema_inventario()
+    st.set_page_config(page_title="Portal GTI-SESA / Inventários", layout="wide")
+    
+    st.session_state.setdefault("pagina_atual", "portal")
+    st.session_state.setdefault("unidade_selecionada", "")
+
+    if st.session_state.pagina_atual == "inventario_unidade" and st.session_state.unidade_selecionada:
+        renderizar_sistema_inventario()
+    else:
+        renderizar_portal_principal()

@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Optional, Tuple, List, Any
 import pandas as pd
 import streamlit as st
@@ -8,7 +9,6 @@ import streamlit as st
 # ==============================================================================
 ARQUIVO_EXCEL: str = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 GOOGLE_SHEET_URL: str = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
-NOME_ABA_GSHEETS: str = "Patrimônios"
 
 COLUNA_CHAVE: str = "Local / Setor"
 
@@ -26,6 +26,36 @@ SETORES_PADRAO: List[str] = [
     "Almoxarifado", "Sala de Preparo", "Sala dos Agentes de Saúde",
     "Sala de Curativo", "Recepção", "Sala de Vacina"
 ]
+
+# Listas padrão de URS e UBS para seleção no Portal
+LISTA_URS_PADRAO: List[str] = [
+    "Selecione uma URS...",
+    "URS Feu Rosa",
+    "URS Jacaraípe",
+    "URS Novo Horizonte",
+    "URS Serra Dourada"
+]
+
+LISTA_UBS_PADRAO: List[str] = [
+    "Selecione uma UBS...",
+    "UBS Planalto Serrano",
+    "UBS Bairro das Laranjeiras",
+    "UBS Nova Carapina",
+    "UBS Vila Nova de Colares",
+    "UBS Porto Canoa"
+]
+
+# ==============================================================================
+# FUNÇÃO AUXILIAR DE SANITIZAÇÃO DE NOMES DE ABAS
+# ==============================================================================
+def sanitizar_nome_aba(nome_unidade: str) -> str:
+    """Higieniza o nome da URS/UBS para ser um nome de aba válido no Excel e Google Sheets."""
+    if not nome_unidade or not str(nome_unidade).strip():
+        return "Geral"
+    # Remove caracteres inválidos em abas do Excel: \ / ? * : [ ]
+    nome_limpo = re.sub(r'[\\/*?:\[\]]', '_', str(nome_unidade).strip())
+    # O Excel limita o nome de abas a 31 caracteres
+    return nome_limpo[:31]
 
 # ==============================================================================
 # CAMADA DE CONEXÃO REMOTA (GOOGLE SHEETS)
@@ -68,8 +98,8 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     df_processado[COLUNA_CHAVE] = df_processado[COLUNA_CHAVE].str.strip()
     return df_processado
 
-def aplicar_estilo_excel(caminho_arquivo: str) -> None:
-    """Aplica formatação visual profissional à planilha Excel usando OpenPyXL."""
+def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
+    """Aplica formatação visual profissional à aba específica do arquivo Excel."""
     if not os.path.exists(caminho_arquivo):
         return
     try:
@@ -78,7 +108,9 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
         from openpyxl.utils import get_column_letter
 
         wb = openpyxl.load_workbook(caminho_arquivo)
-        ws = wb[NOME_ABA_GSHEETS] if NOME_ABA_GSHEETS in wb.sheetnames else wb.active
+        if nome_aba not in wb.sheetnames:
+            return
+        ws = wb[nome_aba]
 
         header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
         header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
@@ -123,17 +155,23 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
 
         wb.save(caminho_arquivo)
     except Exception as e:
-        st.warning(f"Aviso de formatação no Excel local: {e}")
+        st.warning(f"Aviso de formatação no Excel local ({nome_aba}): {e}")
 
 # ==============================================================================
-# CAMADA DE PERSISTÊNCIA E CRUD
+# CAMADA DE PERSISTÊNCIA E CRUD MULTI-ABAS
 # ==============================================================================
 @st.cache_data(ttl=60)
-def carregar_dados_excel() -> Tuple[pd.DataFrame, List[str]]:
-    """Carrega, sincroniza e estrutura a base de dados."""
+def carregar_dados_excel(unidade_nome: str = "Geral") -> Tuple[pd.DataFrame, List[str]]:
+    """Carrega os dados exclusivamente da aba da URS ou UBS selecionada."""
+    nome_aba = sanitizar_nome_aba(unidade_nome)
+    
     if os.path.exists(ARQUIVO_EXCEL):
         try:
-            df = pd.read_excel(ARQUIVO_EXCEL, sheet_name=NOME_ABA_GSHEETS, dtype=str, keep_default_na=False)
+            xls = pd.ExcelFile(ARQUIVO_EXCEL)
+            if nome_aba in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=nome_aba, dtype=str, keep_default_na=False)
+            else:
+                df = pd.DataFrame(columns=COLUNAS_PADRAO)
         except Exception:
             df = pd.DataFrame(columns=COLUNAS_PADRAO)
     else:
@@ -156,31 +194,45 @@ def carregar_dados_excel() -> Tuple[pd.DataFrame, List[str]]:
 
     df = padronizar_e_organizar_df(df)
     if houve_alteracao or not os.path.exists(ARQUIVO_EXCEL):
-        salvar_no_excel(df)
+        salvar_no_excel(df, unidade_nome=nome_aba)
 
     return df, list(df.columns)
 
-def salvar_no_excel(df: pd.DataFrame) -> None:
-    """Persiste os dados em arquivo local Excel e tenta sincronizar com Google Sheets."""
+def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> None:
+    """Persiste os dados na aba correspondente à URS/UBS no Excel local e no Google Sheets."""
+    nome_aba = sanitizar_nome_aba(unidade_nome)
     df_limpo = padronizar_e_organizar_df(df)
+
     try:
-        with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl") as writer:
-            df_limpo.to_excel(writer, sheet_name=NOME_ABA_GSHEETS, index=False)
-        aplicar_estilo_excel(ARQUIVO_EXCEL)
+        import openpyxl
+        if not os.path.exists(ARQUIVO_EXCEL):
+            with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl") as writer:
+                df_limpo.to_excel(writer, sheet_name=nome_aba, index=False)
+        else:
+            wb = openpyxl.load_workbook(ARQUIVO_EXCEL)
+            if nome_aba in wb.sheetnames:
+                del wb[nome_aba]
+            wb.save(ARQUIVO_EXCEL)
+            wb.close()
+
+            with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl", mode="a") as writer:
+                df_limpo.to_excel(writer, sheet_name=nome_aba, index=False)
+
+        aplicar_estilo_excel(ARQUIVO_EXCEL, nome_aba)
         carregar_dados_excel.clear()
     except Exception as err:
-        st.error(f"Erro ao salvar arquivo Excel localmente: {err}")
+        st.error(f"Erro ao salvar a aba '{nome_aba}' localmente: {err}")
 
     if conn is not None:
         try:
-            conn.update(spreadsheet=GOOGLE_SHEET_URL, worksheet=NOME_ABA_GSHEETS, data=df_limpo)
-            st.toast("☁️ Google Sheets sincronizado com sucesso!")
+            conn.update(spreadsheet=GOOGLE_SHEET_URL, worksheet=nome_aba, data=df_limpo)
+            st.toast(f"☁️ Aba '{nome_aba}' sincronizada no Google Sheets!")
         except Exception as err:
-            st.toast(f"⚠️ Salvo localmente. Erro na sincronização online: {err}")
+            st.toast(f"⚠️ Salvo localmente. Erro ao sincronizar aba online '{nome_aba}': {err}")
 
-def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
-    """Adiciona ou atualiza um patrimônio vinculado a um setor."""
-    df, _ = carregar_dados_excel()
+def adicionar_e_salvar(codigo: str, descricao: str, setor: str, unidade_nome: str) -> None:
+    """Adiciona ou atualiza um patrimônio na aba exclusiva da URS/UBS."""
+    df, _ = carregar_dados_excel(unidade_nome)
     coluna_alvo = descricao.strip()
     setor_limpo = setor.strip() if setor else "Não informado"
     codigo_limpo = str(codigo).strip()
@@ -200,26 +252,26 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
         df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
 
     df = padronizar_e_organizar_df(df)
-    salvar_no_excel(df)
+    salvar_no_excel(df, unidade_nome)
     st.session_state.df_historico = df
 
-def excluir_setor(setor_nome: str) -> None:
-    """Remove um setor inteiro (linha) da tabela."""
-    df, _ = carregar_dados_excel()
+def excluir_setor(setor_nome: str, unidade_nome: str) -> None:
+    """Remove um setor inteiro (linha) da aba da unidade correspondente."""
+    df, _ = carregar_dados_excel(unidade_nome)
     if df.empty or COLUNA_CHAVE not in df.columns:
         return
     mascara_manter = ~df[COLUNA_CHAVE].str.strip().str.lower().eq(setor_nome.strip().lower())
     df_filtrado = df[mascara_manter].copy()
-    salvar_no_excel(df_filtrado)
+    salvar_no_excel(df_filtrado, unidade_nome)
     st.session_state.df_historico = df_filtrado
 
-def excluir_patrimonio(setor_nome: str, coluna_patrimonio: str) -> None:
-    """Limpa a célula do patrimônio específico em um determinado setor."""
-    df, _ = carregar_dados_excel()
+def excluir_patrimonio(setor_nome: str, coluna_patrimonio: str, unidade_nome: str) -> None:
+    """Limpa a célula do patrimônio específico na aba da unidade correspondente."""
+    df, _ = carregar_dados_excel(unidade_nome)
     if df.empty or COLUNA_CHAVE not in df.columns or coluna_patrimonio not in df.columns:
         return
     mascara_setor = df[COLUNA_CHAVE].str.strip().str.lower().eq(setor_nome.strip().lower())
     if mascara_setor.any():
         df.loc[mascara_setor, coluna_patrimonio] = ""
-        salvar_no_excel(df)
+        salvar_no_excel(df, unidade_nome)
         st.session_state.df_historico = df
