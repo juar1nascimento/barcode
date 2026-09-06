@@ -57,7 +57,7 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
             })
         return img_rgb, resultados
     except Exception as err:
-        st.error(f"Erro durante o processamento da imagem: {err}")
+        print(f"[ERRO PROCESSAR IMAGEM]: {err}")
         return None, []
 
 # ==============================================================================
@@ -114,8 +114,14 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         st.session_state.pagina_atual = "portal"
         st.rerun()
 
-    # Carrega dados da aba específica da URS/UBS
-    df_inicial, _ = carregar_dados_excel(unidade)
+    # Carrega dados da aba específica da URS/UBS com captura segura de cache
+    try:
+        df_inicial, _ = carregar_dados_excel(unidade)
+    except Exception as e:
+        print(f"[CACHE ERRO]: Falha ao recuperar cache para {unidade}: {e}")
+        carregar_dados_excel.clear()
+        df_inicial, _ = carregar_dados_excel(unidade)
+
     st.session_state.setdefault("df_historico", df_inicial)
     st.session_state.setdefault("saved_setor", "")
     st.session_state.setdefault("saved_descricao", "")
@@ -225,6 +231,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     codigo_input = st.text_input("Código Lido / Bipado:", autocomplete="off", placeholder="Aguardando bipagem...", key="input_codigo_bip")
                     if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
                         adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade)
+                        carregar_dados_excel.clear()
                         st.success(f"✅ Código `{codigo_input.strip()}` salvo na aba `{unidade}`.")
                         st.rerun()
 
@@ -242,11 +249,17 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         for item in codigos_encontrados:
                             adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade)
                             st.write(f"**Código:** `{item['codigo']}` ➡️ Aba: **{unidade}** | Setor: **{setor_input}**")
+                        carregar_dados_excel.clear()
                         st.rerun()
 
     st.divider()
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
-    df_atual, _ = carregar_dados_excel(unidade)
+    
+    try:
+        df_atual, _ = carregar_dados_excel(unidade)
+    except Exception:
+        carregar_dados_excel.clear()
+        df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
         df_styled = df_atual.style.set_properties(**{'font-family': 'Segoe UI, sans-serif', 'font-size': '14px'}).set_table_styles([
@@ -273,6 +286,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     setor_para_excluir = st.selectbox("Selecione o Setor para apagar inteiramente:", lista_setores_existentes, key="sb_excluir_setor")
                     if st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary", key="btn_del_setor"):
                         excluir_setor(setor_para_excluir, unidade)
+                        carregar_dados_excel.clear()
                         st.rerun()
 
             with tab_excluir_patrimonio:
@@ -297,6 +311,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     
                     if coluna_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary", key=f"btn_del_patrimonio_{setor_patrimonio_del}"):
                         excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
+                        carregar_dados_excel.clear()
                         st.rerun()
 
 # ==============================================================================
