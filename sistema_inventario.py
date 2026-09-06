@@ -586,37 +586,42 @@ def renderizar_sistema_inventario() -> None:
                             key="sb_setor_del_patrimonio"
                         )
                     
-                    # Obter a linha do setor selecionado para filtrar quais colunas possuem valor
+                    # Obter a linha do setor selecionado para filtrar quais colunas possuem valor salvo
                     mascara_setor_del = df_atual[COLUNA_CHAVE].str.strip().str.lower().eq(setor_patrimonio_del.strip().lower())
                     linha_setor_df = df_atual[mascara_setor_del]
 
                     colunas_com_dados: List[str] = []
+                    valores_map: Dict[str, str] = {}
+                    
                     if not linha_setor_df.empty:
                         linha_dados = linha_setor_df.iloc[0]
                         for col in df_atual.columns:
                             if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS:
                                 val = str(linha_dados[col]).strip()
-                                # Exibe no dropdown SOMENTE colunas que contêm código de barras preenchido
-                                if val != "":
+                                # Exibe no dropdown SOMENTE colunas que contêm dados salvos na célula (não vazia)
+                                if val and val.lower() not in ["", "nan", "none", "null", "<na>"]:
                                     colunas_com_dados.append(col)
+                                    valores_map[col] = val
 
                     with c_del2:
                         if colunas_com_dados:
                             coluna_patrimonio_del = st.selectbox(
                                 "Selecione o Tipo de Patrimônio:", 
-                                colunas_com_dados, 
-                                key="sb_coluna_del_patrimonio"
+                                options=colunas_com_dados,
+                                format_func=lambda c: f"{c} (Código: {valores_map.get(c, '')})",
+                                key=f"sb_coluna_del_{setor_patrimonio_del}"
                             )
                         else:
                             coluna_patrimonio_del = None
-                            st.info("Nenhum patrimônio cadastrado para este setor.")
+                            st.info(f"ℹ️ Não há patrimônios registrados para o setor **'{setor_patrimonio_del}'** no momento.")
 
                     if coluna_patrimonio_del:
-                        st.caption(f"ℹ️ Somente o código na coluna **'{coluna_patrimonio_del}'** da linha **'{setor_patrimonio_del}'** será apagado.")
+                        codigo_atual = valores_map.get(coluna_patrimonio_del, "")
+                        st.caption(f"ℹ️ Somente o código `{codigo_atual}` na coluna **'{coluna_patrimonio_del}'** do setor **'{setor_patrimonio_del}'** será apagado.")
 
-                        if st.button(f"🗑️ Apagar '{coluna_patrimonio_del}' em '{setor_patrimonio_del}'", type="secondary", key="btn_del_patrimonio"):
+                        if st.button(f"🗑️ Apagar '{coluna_patrimonio_del}' em '{setor_patrimonio_del}'", type="secondary", key=f"btn_del_patrimonio_{setor_patrimonio_del}_{coluna_patrimonio_del}"):
                             excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del)
-                            st.success(f"O item **'{coluna_patrimonio_del}'** do setor **'{setor_patrimonio_del}'** foi apagado com sucesso!")
+                            st.success(f"O item **'{coluna_patrimonio_del}'** (Código: `{codigo_atual}`) do setor **'{setor_patrimonio_del}'** foi apagado com sucesso!")
                             st.rerun()
                 else:
                     st.info("Nenhum setor disponível para exclusão.")
