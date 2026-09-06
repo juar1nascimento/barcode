@@ -309,8 +309,19 @@ def renderizar_sistema_inventario():
     else:
         st.subheader("Selecione o setor e tipo de patrimônio")
 
-    # Garante itens únicos para o dropdown preservando a ordem
-    opcoes_existentes = list(dict.fromkeys([col for col in st.session_state.df_historico.columns if col != "Local / Setor"]))
+    # Lista de opções a serem filtradas/removidas do menu suspenso
+    opcoes_remover = {
+        "Patrimônio PC", 
+        "Patrimônio Tela", 
+        "Patrimônio Nobreak", 
+        "➕ Outra descrição (Criar nova coluna ao final)"
+    }
+
+    # Garante itens únicos para o dropdown preservando a ordem, excluindo as opções indesejadas
+    opcoes_existentes = list(dict.fromkeys([
+        col for col in st.session_state.df_historico.columns 
+        if col != "Local / Setor" and col not in opcoes_remover
+    ]))
     opcoes_patrimonio = opcoes_existentes + ["➕ Outros Patrimônios"]
 
     # --- Seção de Filtros e Seleção ---
