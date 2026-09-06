@@ -203,11 +203,6 @@ def renderizar_card_inventario(lista_urs, lista_ubs):
         urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_inv")
         ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_inv")
 
-        if urs_selecionada != "Selecione uma URS...":
-            st.session_state.saved_setor = urs_selecionada
-        elif ubs_selecionada != "Selecione uma UBS...":
-            st.session_state.saved_setor = ubs_selecionada
-
         st.write("")
         
         if st.button("📂 Abrir Inventário nesta Aba", use_container_width=True, type="primary", key="btn_inventario"):
@@ -241,14 +236,15 @@ def renderizar_sistema_inventario():
     col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
 
     with col_desc1:
-        setor_input = st.text_input("Local:", value=st.session_state.saved_setor, placeholder="Ex: Consultório 1...", key="setor_input_key")
+        # Alterado de "Local:" para "Setor:" e permite digitação livre do Setor
+        setor_input = st.text_input("Setor:", value=st.session_state.saved_setor, placeholder="Ex: Consultório 1, Recepção...", key="setor_input_key")
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
         opcao_selecionada = st.selectbox("Tipo de patrimônio:", opcoes_patrimonio, key="opcao_selecionada_key")
 
     with col_desc3:
-        if opcao_selecionada == "➕ Insira outros tipos de patrimônio":
+        if opcao_selecionada == "➕ Outra descrição (Criar nova coluna ao final)":
             descricao_final = st.text_input("Nome da nova coluna:", placeholder="Ex: Patrimônio Impressora", key="descricao_nova_key")
         else:
             descricao_final = opcao_selecionada
@@ -258,7 +254,7 @@ def renderizar_sistema_inventario():
     st.subheader("2. Realize a Leitura do Código")
 
     if not descricao_final or not setor_input.strip():
-        st.warning("⚠️ Preencha o **Local / Setor** e selecione a **Coluna de Destino** para ativar o leitor.")
+        st.warning("⚠️ Preencha o **Setor** e selecione o **Tipo de patrimônio** para ativar o leitor.")
     else:
         tab_unificada, tab_upload = st.tabs(["⚡ Câmera do Celular / Scanner USB", "📁 Upload de Imagem"])
 
@@ -330,7 +326,7 @@ def renderizar_sistema_inventario():
                     btn_adicionar = st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True)
                     if btn_adicionar and codigo_input.strip():
                         adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input)
-                        st.success(f"✅ Registrado: `{codigo_input.strip()}` em **'{descricao_final}'**")
+                        st.success(f"✅ Registrado: `{codigo_input.strip()}` em **'{descricao_final}'** no setor **'{setor_input}'**")
                         st.rerun()
 
         with tab_upload:
@@ -346,7 +342,7 @@ def renderizar_sistema_inventario():
                         st.success(f"{len(codigos_encontrados)} código(s) detectado(s)!")
                         for item in codigos_encontrados:
                             adicionar_e_salvar(item['codigo'], descricao_final, setor_input)
-                            st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}**")
+                            st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}** | Setor: **{setor_input}**")
                         st.rerun()
 
     st.divider()
