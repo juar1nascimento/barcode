@@ -8,7 +8,7 @@ import os
 # ==========================================
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
-COLUNAS_PADRAO = ["Local / Setor", "Gabinete", "Monitor", "Patrimônio Nobreak"]
+COLUNAS_PADRAO = ["Local / Setor", "CPU", "Monitores", "Nobreak"]
 
 
 @st.cache_resource
