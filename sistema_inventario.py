@@ -203,9 +203,17 @@ def renderizar_card_inventario(lista_urs, lista_ubs):
         urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_inv")
         ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_inv")
 
+        # Armazena a URS ou UBS escolhida para exibir no título do sistema
+        unidade_escolhida = ""
+        if urs_selecionada and not urs_selecionada.startswith("Selecione"):
+            unidade_escolhida = urs_selecionada
+        elif ubs_selecionada and not ubs_selecionada.startswith("Selecione"):
+            unidade_escolhida = ubs_selecionada
+
         st.write("")
         
         if st.button("📂 Abrir Inventário nesta Aba", use_container_width=True, type="primary", key="btn_inventario"):
+            st.session_state.unidade_selecionada = unidade_escolhida
             st.session_state.pagina_atual = "inventario"
             st.rerun()
 
@@ -228,7 +236,12 @@ def renderizar_sistema_inventario():
     st.title("📦 Sistema de Inventários - GTI-SESA")
     st.divider()
 
-    st.subheader("Selecione o setor e tipo de patrimônio")
+    # Exibe o nome da URS/UBS escolhida na página do Portal
+    unidade = st.session_state.get("unidade_selecionada", "")
+    if unidade:
+        st.subheader(f"🏥 {unidade}")
+    else:
+        st.subheader("Selecione o setor e tipo de patrimônio")
 
     opcoes_patrimonio = [col for col in st.session_state.df_historico.columns if col != "Local / Setor"]
     opcoes_patrimonio.append("➕ Outra descrição (Criar nova coluna ao final)")
@@ -236,7 +249,6 @@ def renderizar_sistema_inventario():
     col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
 
     with col_desc1:
-        # Alterado de "Local:" para "Setor:" e permite digitação livre do Setor
         setor_input = st.text_input("Setor:", value=st.session_state.saved_setor, placeholder="Ex: Consultório 1, Recepção...", key="setor_input_key")
         st.session_state.saved_setor = setor_input
 
