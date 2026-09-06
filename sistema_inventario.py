@@ -550,13 +550,13 @@ def renderizar_sistema_inventario() -> None:
             )
 
         # Controles de Exclusão
-        with st.expander("🗑️ Opções de Exclusão e Gerenciamento", expanded=False):
+        with st.expander("🗑️ Gerenciador de Exclusão", expanded=False):
             st.markdown("Selecione o tipo de exclusão que deseja realizar na tabela:")
             
             lista_setores_existentes = [s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]
             lista_colunas_patrimonio = [c for c in df_atual.columns if c != COLUNA_CHAVE and c not in COLUNAS_OBSOLETAS]
 
-            tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor (Linha Inteira)", "❌ Excluir Patrimônio Específico"])
+            tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor", "❌ Excluir Patrimônio"])
 
             # Aba: Exclusão do Setor Completo
             with tab_excluir_setor:
