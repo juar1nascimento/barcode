@@ -1,38 +1,65 @@
-import streamlit as st
+# ==========================================
+# 1. IMPORTAÇÕES DE BIBLIOTECAS
+# ==========================================
+import os
 import numpy as np
 import pandas as pd
-import os
+import streamlit as st
 
 # ==========================================
-# CONFIGURAÇÕES E CONSTANTES
+# 2. CONFIGURAÇÕES E CONSTANTES GLOBAIS
 # ==========================================
+# Caminho da planilha Excel local para persistência de dados
 ARQUIVO_EXCEL = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
+
+# Link da planilha compartilhada no Google Sheets para sincronização em nuvem
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
+
+# Estrutura base de colunas que a planilha deve sempre possuir
 COLUNAS_PADRAO = ["Local / Setor", "CPU", "Monitores", "Nobreak"]
 
 
+# ==========================================
+# 3. CONEXÃO COM SERVIÇOS EXTERNOS
+# ==========================================
 @st.cache_resource
 def obter_conexao_gsheets():
+    """
+    Estabelece e armazena em cache a conexão com a API do Google Sheets.
+    Retorna None se a biblioteca ou credenciais não estiverem configuradas.
+    """
     try:
         from streamlit_gsheets import GSheetsConnection
         return st.connection("gsheets", type=GSheetsConnection)
     except Exception:
         return None
 
-
+# Instancia a conexão globalmente
 conn = obter_conexao_gsheets()
 
 
+# ==========================================
+# 4. MANIPULAÇÃO E ESTILIZAÇÃO DE DADOS
+# ==========================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Garante que todas as colunas padrão existam no DataFrame e organiza a 
+    ordem das colunas (padrão primeiro, seguidas por colunas adicionais).
+    """
     for col in COLUNAS_PADRAO:
         if col not in df.columns:
             df[col] = ""
+            
     outras_colunas = [c for c in df.columns if c not in COLUNAS_PADRAO]
     ordem_final = COLUNAS_PADRAO + outras_colunas
     return df[ordem_final].fillna("").astype(str)
 
 
 def aplicar_estilo_excel(caminho_arquivo: str) -> None:
+    """
+    Aplica formatação visual profissional na planilha Excel gerada (cores de cabeçalho,
+    zebrado de linhas, bordas finas e auto-ajuste de largura de colunas).
+    """
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
@@ -40,6 +67,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
     wb = openpyxl.load_workbook(caminho_arquivo)
     ws = wb['Patrimônios']
 
+    # Definições de Estilo (Cores, Fontes e Bordas)
     header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     row_fill_even = PatternFill(start_color="F2F4F7", end_color="F2F4F7", fill_type="solid")
@@ -53,6 +81,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
     align_center = Alignment(horizontal="center", vertical="center")
     align_left = Alignment(horizontal="left", vertical="center")
 
+    # Formatação do Cabeçalho
     for cell in ws[1]:
         cell.fill = header_fill
         cell.font = header_font
@@ -60,6 +89,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
         cell.border = thin_border
     ws.row_dimensions[1].height = 28
 
+    # Formatação do Corpo da Tabela
     max_row = ws.max_row
     max_col = ws.max_column
 
@@ -73,6 +103,7 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
             cell.font = Font(name="Calibri", size=10)
             cell.alignment = align_left if c == 1 else align_center
 
+    # Ajuste Automático de Largura das Colunas
     for col in ws.columns:
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = get_column_letter(col[0].column)
@@ -81,8 +112,15 @@ def aplicar_estilo_excel(caminho_arquivo: str) -> None:
     wb.save(caminho_arquivo)
 
 
+# ==========================================
+# 5. GERENCIAMENTO DE PERSISTÊNCIA (LEITURA/ESCRITA)
+# ==========================================
 @st.cache_data(ttl=60)
 def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
+    """
+    Carrega os dados salvos do Excel local. Retorna o DataFrame limpo e a lista de colunas.
+    Se o arquivo não existir, retorna uma estrutura vazia padronizada.
+    """
     if os.path.exists(ARQUIVO_EXCEL):
         try:
             df = pd.read_excel(ARQUIVO_EXCEL, sheet_name='Patrimônios', dtype=str, keep_default_na=False)
@@ -93,21 +131,27 @@ def carregar_dados_excel() -> tuple[pd.DataFrame, list[str]]:
             return df, list(df.columns)
         except Exception as e:
             st.error(f"Erro ao carregar a planilha existente: {e}")
+            
     df_empty = pd.DataFrame(columns=COLUNAS_PADRAO)
     df_empty = padronizar_e_organizar_df(df_empty)
     return df_empty, COLUNAS_PADRAO
 
 
 def salvar_no_excel(df: pd.DataFrame) -> None:
+    """
+    Salva o DataFrame no arquivo Excel local, aplica a estilização, limpa o cache
+    de leitura e tenta atualizar a cópia remota no Google Sheets.
+    """
     df = padronizar_e_organizar_df(df)
     try:
         with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Patrimônios', index=False)
         aplicar_estilo_excel(ARQUIVO_EXCEL)
-        carregar_dados_excel.clear()
+        carregar_dados_excel.clear()  # Invalida o cache para recarregar dados atualizados
     except Exception as e:
         st.error(f"Erro ao salvar e formatar a planilha local: {e}")
 
+    # Sincronização em nuvem se houver conexão ativa
     if conn is not None:
         try:
             conn.update(spreadsheet=GOOGLE_SHEET_URL, data=df)
@@ -117,11 +161,16 @@ def salvar_no_excel(df: pd.DataFrame) -> None:
 
 
 def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
+    """
+    Registra um novo item bipado. Se o setor já existir na tabela, insere/atualiza
+    o código na coluna especificada. Caso contrário, cria uma nova linha.
+    """
     df, _ = carregar_dados_excel()
     coluna_alvo = descricao.strip()
     setor_limpo = setor.strip() if setor else "Não informado"
     codigo_limpo = str(codigo).strip()
     
+    # Adiciona a coluna se for um tipo de patrimônio inédito
     if coluna_alvo not in df.columns:
         df[coluna_alvo] = ""
     
@@ -143,7 +192,17 @@ def adicionar_e_salvar(codigo: str, descricao: str, setor: str) -> None:
     st.session_state.df_historico = df
 
 
+# ==========================================
+# 6. PROCESSAMENTO DE IMAGEM E LEITURA VISUAL
+# ==========================================
 def processar_imagem(image_file) -> tuple:
+    """
+    Processa um arquivo de imagem enviado por upload:
+    - Decodifica a imagem com OpenCV.
+    - Localiza e decodifica códigos de barras com ZXing.
+    - Desenha um retângulo verde ao redor dos códigos encontrados.
+    Retorna a imagem processada (RGB) e a lista de códigos lidos.
+    """
     import cv2
     import zxingcpp
     try:
@@ -192,9 +251,13 @@ def processar_imagem(image_file) -> tuple:
 
 
 # ==========================================
-# CARD PARA O PORTAL PRINCIPAL
+# 7. COMPONENTES VISUAIS E COMPONENTES DE INTERFACE (UI)
 # ==========================================
 def renderizar_card_inventario(lista_urs, lista_ubs):
+    """
+    Renderiza um cartão de seleção de unidade (URS / UBS) para o portal principal.
+    Permite direcionar o usuário para a tela de inventário com a unidade selecionada.
+    """
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão, leitura de códigos de barra e controle de patrimônio.</p>", unsafe_allow_html=True)
@@ -217,12 +280,17 @@ def renderizar_card_inventario(lista_urs, lista_ubs):
             st.rerun()
 
 
-# ==========================================
-# TELA COMPLETA DO SISTEMA DE INVENTÁRIOS
-# ==========================================
 def renderizar_sistema_inventario():
+    """
+    Renderiza a interface completa da aplicação de inventário:
+    - Campos de entrada de Setor e Tipo de Patrimônio.
+    - Scanner via WebCam (JavaScript/HTML5 QR Code) e entrada USB.
+    - Leitor de código por upload de imagem.
+    - Exibição, recarregamento e exportação da tabela final em CSV.
+    """
     df_inicial, colunas_iniciais = carregar_dados_excel()
 
+    # Inicialização do estado da sessão do Streamlit
     if "df_historico" not in st.session_state:
         st.session_state.df_historico = df_inicial
 
@@ -241,10 +309,11 @@ def renderizar_sistema_inventario():
     else:
         st.subheader("Selecione o setor e tipo de patrimônio")
 
-    # Garante itens únicos preservando a ordem
+    # Garante itens únicos para o dropdown preservando a ordem
     opcoes_existentes = list(dict.fromkeys([col for col in st.session_state.df_historico.columns if col != "Local / Setor"]))
     opcoes_patrimonio = opcoes_existentes + ["➕ Outros Patrimônios"]
 
+    # --- Seção de Filtros e Seleção ---
     col_desc1, col_desc2, col_desc3 = st.columns([1, 1, 1])
 
     with col_desc1:
@@ -263,11 +332,13 @@ def renderizar_sistema_inventario():
 
     st.divider()
 
+    # Validação antes de habilitar a leitura
     if not descricao_final or not setor_input.strip():
         st.warning("⚠️ Preencha o **Setor** e selecione o **Tipo de patrimônio** para ativar o leitor.")
     else:
         tab_unificada, tab_upload = st.tabs(["⚡ Câmera do Celular / Scanner USB", "📁 Upload de Imagem"])
 
+        # --- Aba 1: Leitor por Câmera / USB ---
         with tab_unificada:
             st.markdown(f"📍 **`{setor_input}`** | **`{descricao_final}`**")
             col_camera, col_usb = st.columns([1.2, 1])
@@ -275,6 +346,7 @@ def renderizar_sistema_inventario():
             with col_camera:
                 st.caption("Aponte a câmera para o código de barras.")
 
+                # Componente HTML/JS customizado para leitura por webcam e bip sonoro
                 html_scanner = """
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -338,6 +410,7 @@ def renderizar_sistema_inventario():
                         st.success(f"✅ Registrado: `{codigo_input.strip()}` em **'{descricao_final}'** no setor **'{setor_input}'**")
                         st.rerun()
 
+        # --- Aba 2: Upload de Imagem ---
         with tab_upload:
             uploaded_file = st.file_uploader("Escolha uma imagem contendo o código", type=["jpg", "png", "jpeg"])
             if uploaded_file is not None:
@@ -354,6 +427,7 @@ def renderizar_sistema_inventario():
                             st.write(f"**Código:** `{item['codigo']}` ➡️ Coluna: **{descricao_final}** | Setor: **{setor_input}**")
                         st.rerun()
 
+    # --- Seção do Visualizador e Exportador de Dados ---
     st.divider()
     st.header("📊 Tabela de Patrimônios")
     df_atual, _ = carregar_dados_excel()
