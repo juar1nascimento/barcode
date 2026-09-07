@@ -8,36 +8,15 @@ import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
 
-# ==============================================================================\n# MODELO CANÔNICO DE ARMAZENAMENTO\n# ==============================================================================\nARQUIVO_EXCEL = "inventario_dados.xlsx"
+ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Fabricante", "Data Cadastro", "Origem"]
-TIPOS_PATRIMONIO = (
-    "CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos",
-)
-COLUNAS_INVENTARIO = [
-    "Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Código de Barras",
-    "Fabricante", "Data Cadastro", "Origem", "Status",
-]
+TIPOS_PATRIMONIO = ("CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos")
+COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Código de Barras", "Fabricante", "Data Cadastro", "Origem", "Status"]
 COLUNAS_PADRAO = COLUNAS_INVENTARIO.copy()
-SETORES_PADRAO = [
-    "Consultório", "Almoxarifado", "Farmacia", "Sala de Preparo", "Sala de Vacina",
-    "Sala de curativo", "Gerencia", "Administração", "Odontologia", "Recepção", "Outro Setor",
-]
-LISTA_URS_PADRAO = [
-    "URS Novo Horizonte", "URS Jacaraípe", "URS Boa Vista", "URS Feu Rosa",
-    "URS Serra Sede", "URS Serra Dourada",
-]
-LISTA_UBS_PADRAO = [
-    "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona",
-    "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande",
-    "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina",
-    "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos",
-    "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II",
-    "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)",
-    "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos",
-    "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra",
-    "UBS Itinerante (atendimento na UBS)",
-]
+SETORES_PADRAO = ["Consultório", "Almoxarifado", "Farmacia", "Sala de Preparo", "Sala de Vacina", "Sala de curativo", "Gerencia", "Administração", "Odontologia", "Recepção", "Outro Setor"]
+LISTA_URS_PADRAO = ["URS Novo Horizonte", "URS Jacaraípe", "URS Boa Vista", "URS Feu Rosa", "URS Serra Sede", "URS Serra Dourada"]
+LISTA_UBS_PADRAO = ["UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)", "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos", "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra", "UBS Itinerante (atendimento na UBS)"]
 UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO
 
 
@@ -52,11 +31,7 @@ def formatar_nome_fabricante(patrimonio: str) -> str:
 
 def _normalizar_tipo(valor: str) -> str:
     valor = re.sub(r"\s+", " ", str(valor or "").strip())
-    mapa = {
-        "computador": "CPU", "cpu": "CPU", "monitor": "Monitores", "monitores": "Monitores",
-        "teclado": "Teclado", "mouse": "Mouse", "impressora": "Imprenssoras",
-        "impressoras": "Imprenssoras",
-    }
+    mapa = {"computador": "CPU", "cpu": "CPU", "monitor": "Monitores", "monitores": "Monitores", "teclado": "Teclado", "mouse": "Mouse", "impressora": "Imprenssoras", "impressoras": "Imprenssoras"}
     return mapa.get(valor.casefold(), valor if valor in TIPOS_PATRIMONIO else "Outros Dispositivos")
 
 
@@ -96,7 +71,6 @@ def _inferir_tipo_fabricante(cabecalho: str) -> Optional[str]:
 
 
 def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Converte o formato antigo de colunas por patrimônio para uma linha por ativo."""
     if df is None or df.empty:
         return pd.DataFrame(columns=COLUNAS_INVENTARIO)
     df = df.fillna("").copy()
@@ -121,11 +95,7 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 if "fabricante" in str(c2).casefold() and _inferir_tipo_fabricante(c2) == tipo:
                     fabricante = _valor_texto(row.get(c2, ""))
                     break
-            registros.append({
-                "Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": valor,
-                "Código de Barras": "", "Fabricante": fabricante, "Data Cadastro": "",
-                "Origem": "Migração do formato anterior", "Status": "Ativo",
-            })
+            registros.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": valor, "Código de Barras": "", "Fabricante": fabricante, "Data Cadastro": "", "Origem": "Migração do formato anterior", "Status": "Ativo"})
     return pd.DataFrame(registros, columns=COLUNAS_INVENTARIO).fillna("").astype(str)
 
 
@@ -138,10 +108,7 @@ def conectar_google_sheets():
         else:
             return None
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        creds_dict = {k: sec.get(k) for k in (
-            "type", "project_id", "private_key_id", "private_key", "client_email", "client_id",
-            "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url",
-        )}
+        creds_dict = {k: sec.get(k) for k in ("type", "project_id", "private_key_id", "private_key", "client_email", "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url")}
         creds_dict["type"] = creds_dict.get("type") or "service_account"
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
@@ -169,8 +136,7 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
                 nomes.append("URS Jacara_pe")
             elif nome_aba == "UBS Bairro de Fátima":
                 nomes.append("UBS Bairro de F_tima")
-            partes = []
-            fontes = []
+            partes, fontes = [], []
             for nome in nomes:
                 try:
                     aba = planilha.worksheet(nome)
@@ -181,10 +147,7 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
                     partes.append(_normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])))
                     fontes.append(nome)
             if partes:
-                combinado = pd.concat(partes, ignore_index=True).drop_duplicates(
-                    subset=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Código de Barras"],
-                    keep="first",
-                )
+                combinado = pd.concat(partes, ignore_index=True).drop_duplicates(subset=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Código de Barras"], keep="first")
                 return combinado.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), f"Google Sheets ({' + '.join(fontes)})"
             return pd.DataFrame(columns=COLUNAS_INVENTARIO), f"Google Sheets ({nome_aba})"
         except Exception as e:
@@ -210,7 +173,6 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
                 aba = planilha.worksheet(nome_aba)
             except gspread.exceptions.WorksheetNotFound:
                 aba = planilha.add_worksheet(title=nome_aba, rows=max(100, len(df_salvar) + 10), cols=12)
-            # Limpa apenas valores; evita a perda de formatação/validações da aba.
             aba.batch_clear([f"A1:Z{max(100, aba.row_count)}"])
             aba.resize(rows=max(100, len(df_salvar) + 10), cols=12)
             valores = [COLUNAS_INVENTARIO] + df_salvar[COLUNAS_INVENTARIO].values.tolist()
@@ -226,8 +188,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     return sucesso_sheets or os.path.exists(nome_arquivo_local)
 
 
-def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str,
-                         fabricante: str = "", numero_patrimonio: str = "") -> bool:
+def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
     codigo = _valor_texto(codigo_barras)
     setor = _valor_texto(setor)
     tipo = _normalizar_tipo(tipo_patrimonio)
@@ -240,25 +201,19 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     if (df["Código de Barras"].astype(str).str.strip() == codigo).any():
         st.warning(f"O código de barras `{codigo}` já está cadastrado nesta unidade.")
         return False
-    nova = {
-        "Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero,
-        "Código de Barras": codigo, "Fabricante": fabricante,
-        "Data Cadastro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Origem": "Sistema de Inventários", "Status": "Ativo",
-    }
+    nova = {"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Código de Barras": codigo, "Fabricante": fabricante, "Data Cadastro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Origem": "Sistema de Inventários", "Status": "Ativo"}
     df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
     return salvar_no_excel(df, unidade)
 
 
-def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str,
-                                        fabricante: str = "", numero_patrimonio: str = "") -> bool:
+def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
     return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio)
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
 
 
-def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> tuple[pd.DataFrame, bool]:
+def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> Tuple[pd.DataFrame, bool]:
     df = _normalizar_legacy_dataframe(df)
     if df.empty:
         return df.copy(), False
@@ -266,8 +221,7 @@ def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> tuple[pd.DataFrame,
     return (df.loc[~mask].copy(), True) if mask.any() else (df.copy(), False)
 
 
-def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> tuple[pd.DataFrame, bool]:
-    """Compatibilidade com o gerenciador antigo e exclusão segura no modelo normalizado."""
+def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> Tuple[pd.DataFrame, bool]:
     df = _normalizar_legacy_dataframe(df)
     if df.empty:
         return df.copy(), False
