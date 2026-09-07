@@ -1,10 +1,11 @@
 import os
+import re
 import pandas as pd
 import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
-from Tabela_de_dados_Inventário_6 import (
+from Tabela_de_dados_Inventario_6 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio,
     carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio
@@ -316,7 +317,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
-        # Estilização Moderna Profissional[cite: 12]
         df_styled = df_atual.style.set_properties(**{
             'font-family': 'Inter, system-ui, -apple-system, sans-serif', 
             'font-size': '14px',
