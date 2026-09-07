@@ -212,11 +212,21 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     st.divider()
 
-    opcoes_setor = [s for s in (SETORES_PADRAO if isinstance(SETORES_PADRAO, (list, tuple)) else []) if not str(s).startswith("Selecione")]
-    if "Consultório" not in opcoes_setor:
-        opcoes_setor.append("Consultório")
-    if "➕ Outro Setor" not in opcoes_setor:
-        opcoes_setor.append("➕ Outro Setor")
+    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
+    # Não é montado a partir dos dados existentes na planilha.
+    opcoes_setor = [
+        "Consultório",
+        "Almoxarifado",
+        "Farmacia",
+        "Sala de Preparo",
+        "Sala de Vacina",
+        "Sala de curativo",
+        "Gerencia",
+        "Administração",
+        "Odontologia",
+        "Recepção",
+        "Outro Setor",
+    ]
 
     # IMPORTANTE: o menu de Tipo de patrimônio NÃO é montado a partir das colunas
     # existentes na planilha. Isso impede que opções antigas como Monitor,
@@ -228,14 +238,9 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         setor_selecionado = st.selectbox("Setor:", opcoes_setor, index=None, placeholder="Selecione um setor...")
         setor_input = ""
         if setor_selecionado == "Consultório":
-            col_num, col_esp = st.columns([1, 1.5])
-            with col_num:
-                num_consultorio = st.number_input("Nº Consultório:", min_value=1, max_value=999, value=1, step=1)
-            with col_esp:
-                especialidade = st.text_input("Especialidade:", placeholder="Ex: Odontologia...")
-            setor_input = f"Consultório {num_consultorio} - {especialidade.strip()}" if especialidade.strip() else f"Consultório {num_consultorio}"
-        elif setor_selecionado == "➕ Outro Setor":
-            setor_input = st.text_input("Nome do Setor:", placeholder="Ex: Raio-X...")
+            setor_input = "Consultório"
+        elif setor_selecionado == "Outro Setor":
+            setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...")
         elif setor_selecionado:
             setor_input = setor_selecionado
         st.session_state.saved_setor = setor_input
