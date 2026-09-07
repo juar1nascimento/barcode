@@ -1,3 +1,4 @@
+# Auditoria final do Gerenciamento de Exclusão
 from pathlib import Path
 import re
 
