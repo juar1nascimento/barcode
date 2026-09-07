@@ -5,7 +5,8 @@ import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
-from Tabela_de_dados_Inventario_6 import (
+# Importação corrigida apontando para a versão 7 sem acento
+from Tabela_de_dados_Inventario_7 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio,
     carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio

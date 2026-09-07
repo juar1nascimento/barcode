@@ -108,7 +108,6 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     Higieniza o DataFrame, aplica a regra de cabeçalho ' - N de Patrimônio'
     e agrupa cada fabricante ao lado de seu respectivo patrimônio.
     """
-    # 1. Remove colunas obsoletas ou indesejadas
     colunas_invisiveis = [
         c for c in df.columns 
         if c in COLUNAS_OBSOLETAS or str(c).startswith("➕") or "Unnamed" in str(c)
@@ -116,7 +115,6 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     if colunas_invisiveis:
         df = df.drop(columns=colunas_invisiveis, errors="ignore")
 
-    # 2. Renomeia colunas antigas para adotar o sufixo ' - N de Patrimônio'
     renomear_map = {}
     for col in df.columns:
         if col != COLUNA_CHAVE and not str(col).startswith("Fabricante "):
@@ -130,12 +128,10 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     if COLUNA_CHAVE not in df.columns:
         df.insert(0, COLUNA_CHAVE, "")
 
-    # 3. Garante existência das colunas padrão atualizadas
     for col in COLUNAS_PADRAO:
         if col not in df.columns:
             df[col] = ""
 
-    # 4. Ordenação Inteligente: Coloca 'Fabricante <Patrimônio>' imediatamente após seu Patrimônio
     ordem_colunas = [COLUNA_CHAVE]
     todas_colunas = [str(c).strip() for c in df.columns]
 
@@ -145,7 +141,6 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
         if col not in ordem_colunas:
             ordem_colunas.append(col)
         
-        # Procura coluna do fabricante
         col_fab = f"Fabricante {col}"
         if col_fab in todas_colunas and col_fab not in ordem_colunas:
             ordem_colunas.append(col_fab)
