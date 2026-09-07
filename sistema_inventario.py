@@ -4,44 +4,12 @@ import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
-# Importação dos módulos independentes e constantes (AGORA INCLUI ARQUIVO_EXCEL)
+# Importação dos módulos independentes e constantes
 from Tabela_de_dados_Inventário import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO,
-    carregar_dados_excel, excluir_setor, excluir_patrimonio
+    carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio
 )
-
-# ==============================================================================
-# SALVAMENTO SEGURO EM EXCEL
-# ==============================================================================
-def salvar_excel_seguro(df: pd.DataFrame, caminho_excel: str, sheet_name: str) -> bool:
-    """
-    Salva o DataFrame na aba especificada do Excel de forma segura,
-    evitando erros de substituição de abas inexistentes.
-    """
-    try:
-        if os.path.exists(caminho_excel):
-            try:
-                with pd.ExcelFile(caminho_excel, engine="openpyxl") as reader:
-                    abas_existentes = reader.sheet_names
-            except Exception:
-                abas_existentes = []
-
-            if sheet_name in abas_existentes:
-                with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-            else:
-                with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="a") as writer:
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-        else:
-            with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="w") as writer:
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-        return True
-    except Exception as err:
-        st.error(f"❌ Erro ao salvar na planilha Excel: {err}")
-        print(f"[ERRO AO SALVAR PLANILHA]: {err}")
-        return False
-
 
 # ==============================================================================
 # LÓGICA DE CADASTRO SEM SOBRESCREVER (MÚLTIPLOS PATRIMÔNIOS POR SETOR)
@@ -50,6 +18,7 @@ def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str
     """
     Garante que o cadastro do código não sobrescreva patrimônios existentes.
     Se o setor já possui aquele patrimônio preenchido, insere em uma nova linha.
+    Salva localmente e sincroniza com o Google Sheets.
     """
     setor_limpo = setor.strip()
     codigo_limpo = codigo.strip()
@@ -58,15 +27,13 @@ def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str
     if not setor_limpo or not codigo_limpo or not patrimonio_limpo or not unidade:
         return False
 
-    # 1. Carrega o DataFrame atual e o caminho da planilha (CORRIGIDO)
+    # 1. Carrega o DataFrame atual da unidade
     try:
         df_atual, _ = carregar_dados_excel(unidade)
         df = df_atual.copy()
-        caminho_excel = ARQUIVO_EXCEL
     except Exception as e:
         print(f"[ERRO CARREGAR EXCEL]: {e}")
         df = pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO)
-        caminho_excel = ARQUIVO_EXCEL
 
     if df.empty or COLUNA_CHAVE not in df.columns:
         df = pd.DataFrame(columns=[COLUNA_CHAVE])
@@ -98,8 +65,8 @@ def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str
         nova_linha[patrimonio_limpo] = codigo_limpo
         df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
 
-    # 5. Salva no Excel de forma segura
-    sucesso = salvar_excel_seguro(df, caminho_excel, unidade)
+    # 5. Salva no Excel local e sincroniza no Google Sheets
+    sucesso = salvar_no_excel(df, unidade)
 
     # 6. Invalida cache do Streamlit para recarregar dados novos
     carregar_dados_excel.clear()
@@ -281,7 +248,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         )
 
         setor_input = ""
-        # Regra para 'Consultório' (Contador + Especialidade)
         if setor_selecionado == "Consultório":
             col_num, col_esp = st.columns([1, 1.5])
             with col_num:
@@ -305,7 +271,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             else:
                 setor_input = f"Consultório {num_consultorio}"
 
-        # Regra para '➕ Outro Setor'
         elif setor_selecionado == "➕ Outro Setor":
             setor_input = st.text_input(
                 "Nome do Setor:",

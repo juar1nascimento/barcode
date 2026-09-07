@@ -27,7 +27,6 @@ SETORES_PADRAO: List[str] = [
     "Sala de Curativo", "Recepção", "Sala de Vacina"
 ]
 
-# Listas padrão de URS e UBS para seleção no Portal
 LISTA_URS_PADRAO: List[str] = [
     "Selecione uma URS...",
     "URS Feu Rosa",
@@ -46,31 +45,39 @@ LISTA_UBS_PADRAO: List[str] = [
 ]
 
 # ==============================================================================
-# FUNÇÃO AUXILIAR DE SANITIZAÇÃO DE NOMES DE ABAS
+# FUNÇÃO AUXILIAR DE SANITIZAÇÃO
 # ==============================================================================
 def sanitizar_nome_aba(nome_unidade: str) -> str:
-    """Higieniza o nome da URS/UBS para ser um nome de aba válido no Excel e Google Sheets."""
+    """Higieniza o nome da URS/UBS para ser um nome de aba válido."""
     if not nome_unidade or not str(nome_unidade).strip():
         return "Geral"
-    # Remove caracteres inválidos em abas do Excel: \ / ? * : [ ]
     nome_limpo = re.sub(r'[\\/*?:\[\]]', '_', str(nome_unidade).strip())
-    # O Excel limita o nome de abas a 31 caracteres
     return nome_limpo[:31]
 
 # ==============================================================================
 # CAMADA DE CONEXÃO REMOTA (GOOGLE SHEETS)
 # ==============================================================================
-@st.cache_resource
 def obter_conexao_gsheets() -> Optional[Any]:
     """Estabelece conexão com o Google Sheets usando a lib streamlit-gsheets."""
     try:
         from streamlit_gsheets import GSheetsConnection
         return st.connection("gsheets", type=GSheetsConnection)
     except Exception as err:
-        st.caption(f"⚠️ Módulo GSheetsConnection indisponível: {err}")
+        print(f"[AVISO GSHEETS]: {err}")
         return None
 
-conn = obter_conexao_gsheets()
+def sincronizar_google_sheets(df: pd.DataFrame, nome_aba: str) -> bool:
+    """Garante o envio dos dados atualizados para a planilha do Google Sheets."""
+    try:
+        conn = obter_conexao_gsheets()
+        if conn is not None:
+            conn.update(spreadsheet=GOOGLE_SHEET_URL, worksheet=nome_aba, data=df)
+            st.toast(f"☁️ Aba '{nome_aba}' sincronizada no Google Sheets!")
+            return True
+    except Exception as err:
+        print(f"[ERRO AO SINCRONIZAR GSHEETS]: {err}")
+        st.toast(f"⚠️ Salvo localmente. Erro ao sincronizar Google Sheets: {err}")
+    return False
 
 # ==============================================================================
 # REGRAS DE NEGÓCIO E TRATAMENTO DE DADOS
@@ -155,7 +162,7 @@ def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
 
         wb.save(caminho_arquivo)
     except Exception as e:
-        st.warning(f"Aviso de formatação no Excel local ({nome_aba}): {e}")
+        print(f"[AVISO FORMATAÇÃO EXCEL]: {e}")
 
 # ==============================================================================
 # CAMADA DE PERSISTÊNCIA E CRUD MULTI-ABAS
@@ -198,10 +205,11 @@ def carregar_dados_excel(unidade_nome: str = "Geral") -> Tuple[pd.DataFrame, Lis
 
     return df, list(df.columns)
 
-def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> None:
-    """Persiste os dados na aba correspondente à URS/UBS no Excel local e no Google Sheets."""
+def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> bool:
+    """Persiste os dados localmente no Excel e realiza o sync com o Google Sheets."""
     nome_aba = sanitizar_nome_aba(unidade_nome)
     df_limpo = padronizar_e_organizar_df(df)
+    sucesso_local = False
 
     try:
         import openpyxl
@@ -220,15 +228,15 @@ def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> None:
 
         aplicar_estilo_excel(ARQUIVO_EXCEL, nome_aba)
         carregar_dados_excel.clear()
+        sucesso_local = True
     except Exception as err:
-        st.error(f"Erro ao salvar a aba '{nome_aba}' localmente: {err}")
+        st.error(f"❌ Erro ao salvar a aba '{nome_aba}' localmente: {err}")
+        print(f"[ERRO SALVAR EXCEL]: {err}")
 
-    if conn is not None:
-        try:
-            conn.update(spreadsheet=GOOGLE_SHEET_URL, worksheet=nome_aba, data=df_limpo)
-            st.toast(f"☁️ Aba '{nome_aba}' sincronizada no Google Sheets!")
-        except Exception as err:
-            st.toast(f"⚠️ Salvo localmente. Erro ao sincronizar aba online '{nome_aba}': {err}")
+    # Aciona a sincronização remota
+    sincronizar_google_sheets(df_limpo, nome_aba)
+
+    return sucesso_local
 
 def adicionar_e_salvar(codigo: str, descricao: str, setor: str, unidade_nome: str) -> None:
     """Adiciona ou atualiza um patrimônio na aba exclusiva da URS/UBS."""
