@@ -12,26 +12,58 @@ from Tabela_de_dados_Inventário import (
 )
 
 # ==============================================================================
+# SALVAMENTO SEGURO EM EXCEL
+# ==============================================================================
+def salvar_excel_seguro(df: pd.DataFrame, caminho_excel: str, sheet_name: str) -> bool:
+    """
+    Salva o DataFrame na aba especificada do Excel de forma segura,
+    evitando erros de substituição de abas inexistentes.
+    """
+    try:
+        if os.path.exists(caminho_excel):
+            try:
+                with pd.ExcelFile(caminho_excel, engine="openpyxl") as reader:
+                    abas_existentes = reader.sheet_names
+            except Exception:
+                abas_existentes = []
+
+            if sheet_name in abas_existentes:
+                with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+            else:
+                with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="a") as writer:
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+        else:
+            with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="w") as writer:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+        return True
+    except Exception as err:
+        st.error(f"❌ Erro ao salvar na planilha Excel: {err}")
+        print(f"[ERRO AO SALVAR PLANILHA]: {err}")
+        return False
+
+
+# ==============================================================================
 # LÓGICA DE CADASTRO SEM SOBRESCREVER (MÚLTIPLOS PATRIMÔNIOS POR SETOR)
 # ==============================================================================
-def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str) -> None:
+def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str) -> bool:
     """
-    Garante que o cadastro de código de barras não sobrescreva um patrimônio já cadastrado.
-    Se a coluna do patrimônio no setor já estiver preenchida, cria uma nova linha na tabela
-    para o mesmo setor.
+    Garante que o cadastro do código não sobrescreva patrimônios existentes.
+    Se o setor já possui aquele patrimônio preenchido, insere em uma nova linha.
     """
     setor_limpo = setor.strip()
     codigo_limpo = codigo.strip()
     patrimonio_limpo = patrimonio.strip()
 
     if not setor_limpo or not codigo_limpo or not patrimonio_limpo or not unidade:
-        return
+        return False
 
-    # 1. Carrega o DataFrame atual da unidade
+    # 1. Carrega o DataFrame atual e o caminho da planilha
     try:
         df_atual, caminho_excel = carregar_dados_excel(unidade)
         df = df_atual.copy()
-    except Exception:
+    except Exception as e:
+        print(f"[ERRO CARREGAR EXCEL]: {e}")
         df = pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO)
         caminho_excel = "Inventario_GTI.xlsx"
 
@@ -42,23 +74,21 @@ def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str
     if patrimonio_limpo not in df.columns:
         df[patrimonio_limpo] = ""
 
-    # Normaliza valores nulos/NaN para string vazia
+    # Normaliza valores para string
     df = df.fillna("").astype(str)
 
-    # 3. Localiza as linhas existentes associadas a este setor
+    # 3. Localiza linhas do setor onde a célula deste patrimônio esteja vaga
     mask_setor = df[COLUNA_CHAVE].str.strip().str.lower() == setor_limpo.lower()
     indices_setor = df[mask_setor].index
 
     linha_destino_idx = None
-
-    # 4. Procura uma linha do setor onde a célula do patrimônio esteja livre/vazia
     for idx in indices_setor:
         val_celula = str(df.at[idx, patrimonio_limpo]).strip().lower()
         if val_celula in ["", "nan", "none", "<na>", "null"]:
             linha_destino_idx = idx
             break
 
-    # 5. Se encontrou uma linha com espaço vago, preenche nela. Caso contrário, adiciona nova linha!
+    # 4. Preenche em linha com espaço vago ou adiciona nova linha ao setor
     if linha_destino_idx is not None:
         df.at[linha_destino_idx, patrimonio_limpo] = codigo_limpo
     else:
@@ -67,19 +97,13 @@ def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str
         nova_linha[patrimonio_limpo] = codigo_limpo
         df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
 
-    # 6. Salva as alterações na planilha Excel mantendo as demais abas intactas
-    try:
-        if os.path.exists(caminho_excel):
-            with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
-                df.to_excel(writer, sheet_name=unidade, index=False)
-        else:
-            with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="w") as writer:
-                df.to_excel(writer, sheet_name=unidade, index=False)
-    except Exception as err:
-        print(f"[ERRO AO SALVAR PLANILHA]: {err}")
+    # 5. Salva no Excel de forma segura
+    sucesso = salvar_excel_seguro(df, caminho_excel, unidade)
 
-    # 7. Limpa o cache do Streamlit para recarregar a tabela atualizada
+    # 6. Invalida cache do Streamlit para recarregar dados novos
     carregar_dados_excel.clear()
+    
+    return sucesso
 
 
 # Substitui a função global para uso unificado no sistema
@@ -202,7 +226,12 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         st.session_state.pagina_atual = "portal"
         st.rerun()
 
-    # Carrega dados da aba específica da URS/UBS com captura segura de cache
+    # Exibe mensagem de confirmação persistente após rerun
+    if st.session_state.get("mensagem_sucesso"):
+        st.success(st.session_state.mensagem_sucesso)
+        del st.session_state["mensagem_sucesso"]
+
+    # Carrega dados atualizados da aba específica da URS/UBS
     try:
         df_inicial, _ = carregar_dados_excel(unidade)
     except Exception as e:
@@ -210,7 +239,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         carregar_dados_excel.clear()
         df_inicial, _ = carregar_dados_excel(unidade)
 
-    st.session_state.setdefault("df_historico", df_inicial)
+    # Atualiza o DataFrame no estado da sessão
+    st.session_state.df_historico = df_inicial
     st.session_state.setdefault("saved_setor", "")
     st.session_state.setdefault("saved_descricao", "")
 
@@ -380,8 +410,9 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 with st.form(key="form_bipagem", clear_on_submit=True):
                     codigo_input = st.text_input("Código Lido / Bipado:", autocomplete="off", placeholder="Aguardando bipagem...", key="input_codigo_bip")
                     if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
-                        adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade)
-                        st.success(f"✅ Código `{codigo_input.strip()}` registrado na aba `{unidade}`.")
+                        salvou = adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade)
+                        if salvou:
+                            st.session_state.mensagem_sucesso = f"✅ Código `{codigo_input.strip()}` registrado com sucesso no setor `{setor_input}` ({unidade})."
                         st.rerun()
 
         with tab_upload:
@@ -394,10 +425,13 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         st.image(img_processada, caption="Imagem Analisada", use_container_width=True)
                 with col_img2:
                     if codigos_encontrados:
-                        st.success(f"{len(codigos_encontrados)} código(s) encontrado(s)!")
+                        codigos_registrados = []
                         for item in codigos_encontrados:
-                            adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade)
-                            st.write(f"**Código:** `{item['codigo']}` ➡️ Aba: **{unidade}** | Setor: **{setor_input}**")
+                            if adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade):
+                                codigos_registrados.append(item["codigo"])
+                        
+                        if codigos_registrados:
+                            st.session_state.mensagem_sucesso = f"✅ {len(codigos_registrados)} código(s) registrado(s) com sucesso!"
                         st.rerun()
 
     st.divider()
@@ -441,6 +475,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if setor_para_excluir and st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary", key="btn_del_setor"):
                         excluir_setor(setor_para_excluir, unidade)
                         carregar_dados_excel.clear()
+                        st.session_state.mensagem_sucesso = f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso."
                         st.rerun()
 
             with tab_excluir_patrimonio:
@@ -479,6 +514,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if coluna_patrimonio_del and setor_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary", key=f"btn_del_patrimonio_{setor_patrimonio_del}"):
                         excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
                         carregar_dados_excel.clear()
+                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' excluído do setor '{setor_patrimonio_del}'."
                         st.rerun()
 
 
