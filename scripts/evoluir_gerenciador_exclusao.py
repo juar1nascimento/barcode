@@ -13,4 +13,4 @@ if old not in text:
     raise SystemExit("alvo não encontrado")
 text = text.replace(old, new, 1)
 path.write_text(text, encoding="utf-8")
-print("GERENCIADOR_EVOLUIDO_OK")
+print("GERENCIADOR_EVOLUIDO_OK_V2")
