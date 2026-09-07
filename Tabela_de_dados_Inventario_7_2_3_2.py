@@ -12,7 +12,7 @@ ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Local / Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Setor"]
 
-# Ordem oficial: equipamento em ordem alfabética, sempre Patrimônio + Fabricante lado a lado.
+# Ordem Oficial das Colunas: Organizadas em ORDEM ALFABÉTICA por Equipamento (Patrimônio + Fabricante lado a lado)
 ORDEM_COLUNAS_OFICIAL = [
     "Local / Setor",
     "CPU - Nº de Patrimônio", "Fabricante CPU",
@@ -22,143 +22,31 @@ ORDEM_COLUNAS_OFICIAL = [
     "Mouse - Nº de Patrimônio", "Fabricante Mouse",
     "Nobreak - Nº de Patrimônio", "Fabricante Nobreak",
     "Switch - Nº de Patrimônio", "Fabricante Switch",
-    "Teclado - Nº de Patrimônio", "Fabricante Teclado",
+    "Teclado - Nº de Patrimônio", "Fabricante Teclado"
 ]
-
-# Nomes aceitos na entrada são convertidos para UMA ÚNICA coluna canônica.
-# A regra evita que variações como "Monitor", "Monitores" ou
-# "Fabricante do Monitor" criem novas colunas.
-MAPA_RENOMEAR_COLUNAS = {
-    # Local
-    "Setor": "Local / Setor",
-    "Local": "Local / Setor",
-    "Local/Setor": "Local / Setor",
-
-    # CPU / Computador
-    "Computador - Nº de Patrimônio": "CPU - Nº de Patrimônio",
-    "Computador - N° de Patrimônio": "CPU - Nº de Patrimônio",
-    "CPU - N° de Patrimônio": "CPU - Nº de Patrimônio",
-    "CPU - No de Patrimônio": "CPU - Nº de Patrimônio",
-    "Fabricante Computador": "Fabricante CPU",
-    "Fabricante do Computador": "Fabricante CPU",
-    "Fabricante CPU": "Fabricante CPU",
-
-    # Estabilizador
-    "Estabilizador - N° de Patrimônio": "Estabilizador - Nº de Patrimônio",
-    "Fabricante do Estabilizador": "Fabricante Estabilizador",
-    "Fabricante Estabilizador": "Fabricante Estabilizador",
-
-    # Impressora
-    "Impressora - N° de Patrimônio": "Impressora - Nº de Patrimônio",
-    "Fabricante da Impressora": "Fabricante Impressora",
-    "Fabricante Impressora": "Fabricante Impressora",
-
-    # Monitor
-    "Monitor - Nº de Patrimônio": "Monitores - Nº de Patrimônio",
-    "Monitor - N° de Patrimônio": "Monitores - Nº de Patrimônio",
-    "Monitores - N° de Patrimônio": "Monitores - Nº de Patrimônio",
-    "Fabricante Monitor": "Fabricante dos Monitores",
-    "Fabricante do Monitor": "Fabricante dos Monitores",
-    "Fabricante Monitores": "Fabricante dos Monitores",
-    "Fabricante dos Monitores": "Fabricante dos Monitores",
-
-    # Mouse
-    "Mouse - N° de Patrimônio": "Mouse - Nº de Patrimônio",
-    "Fabricante do Mouse": "Fabricante Mouse",
-    "Fabricante Mouse": "Fabricante Mouse",
-
-    # Nobreak
-    "Nobreak - N° de Patrimônio": "Nobreak - Nº de Patrimônio",
-    "Fabricante do Nobreak": "Fabricante Nobreak",
-    "Fabricante Nobreak": "Fabricante Nobreak",
-
-    # Switch
-    "Switch - N° de Patrimônio": "Switch - Nº de Patrimônio",
-    "Fabricante do Switch": "Fabricante Switch",
-    "Fabricante Switch": "Fabricante Switch",
-
-    # Teclado
-    "Teclado - N° de Patrimônio": "Teclado - Nº de Patrimônio",
-    "Fabricante do Teclado": "Fabricante Teclado",
-    "Fabricante Teclado": "Fabricante Teclado",
-}
-
-def _normalizar_nome_coluna(nome: str) -> str:
-    """Normaliza espaços, acentos de variações comuns e símbolos para comparação."""
-    nome = str(nome or "").strip()
-    nome = re.sub(r"\s+", " ", nome)
-    nome = nome.replace("N°", "Nº").replace("No", "Nº")
-    nome = nome.replace("Nº.", "Nº")
-    return nome
-
-def _coluna_canonica(nome: str) -> str:
-    """Retorna a coluna oficial sem criar uma nova coluna para variações."""
-    nome = _normalizar_nome_coluna(nome)
-    if nome in ORDEM_COLUNAS_OFICIAL:
-        return nome
-
-    # Primeiro tenta o mapa explícito.
-    if nome in MAPA_RENOMEAR_COLUNAS:
-        return MAPA_RENOMEAR_COLUNAS[nome]
-
-    # Depois aplica comparação flexível para diferenças de singular/plural,
-    # "do/da/dos" e N°/Nº.
-    chave = nome.lower()
-    chave = re.sub(r"\s+", " ", chave)
-    chave = chave.replace("n°", "nº")
-    chave = re.sub(r"\bfabricante (do|da|dos|das)\b", "fabricante", chave)
-    chave = chave.replace("monitores", "monitor")
-
-    for oficial in ORDEM_COLUNAS_OFICIAL:
-        ko = oficial.lower().replace("monitores", "monitor")
-        ko = re.sub(r"\bfabricante\b", "fabricante", ko)
-        ko = re.sub(r"\s+", " ", ko)
-        if chave == ko:
-            return oficial
-
-    return nome
-
-def consolidar_colunas_sem_repeticao(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Regra central de deduplicação:
-    1. Toda coluna recebida é convertida para o nome canônico.
-    2. Colunas que apontam para o mesmo nome são mescladas.
-    3. Quando houver duas colunas equivalentes, mantém o primeiro valor
-       preenchido e usa a segunda apenas para preencher células vazias.
-    4. Nenhuma coluna fora da ordem oficial é preservada.
-    """
-    df = df.copy()
-    resultado = pd.DataFrame(index=df.index)
-
-    for coluna in df.columns:
-        canonica = _coluna_canonica(coluna)
-
-        if canonica not in ORDEM_COLUNAS_OFICIAL:
-            # Ignora colunas desconhecidas para impedir colunas extras.
-            continue
-
-        serie = df[coluna].fillna("").astype(str).str.strip()
-
-        if canonica not in resultado.columns:
-            resultado[canonica] = serie
-        else:
-            atual = resultado[canonica].fillna("").astype(str).str.strip()
-            vazio = atual.eq("")
-            resultado.loc[vazio, canonica] = serie.loc[vazio]
-
-    # Garante todas as colunas oficiais, uma única vez.
-    for coluna in ORDEM_COLUNAS_OFICIAL:
-        if coluna not in resultado.columns:
-            resultado[coluna] = ""
-
-    return resultado[ORDEM_COLUNAS_OFICIAL]
-
 
 SETORES_PADRAO = ["Recepção", "Triagem", "Farmácia", "Consultório", "Almoxarifado"]
 LISTA_URS_PADRAO = ["URS I", "URS II", "URS III"]
 LISTA_UBS_PADRAO = ["UBS Central", "UBS Jardim", "UBS Vila Nova"]
 
 # Mapeamento para redirecionar nomes duplicados/alternativos para a coluna única e oficial
+MAPA_RENOMEAR_COLUNAS = {
+    # CPU
+    "Computador - Nº de Patrimônio": "CPU - Nº de Patrimônio",
+    "Fabricante Computador": "Fabricante CPU",
+    "Fabricante do Computador": "Fabricante CPU",
+    
+    # Monitores
+    "Monitor - Nº de Patrimônio": "Monitores - Nº de Patrimônio",
+    "Fabricante Monitor": "Fabricante dos Monitores",
+    "Fabricante do Monitor": "Fabricante dos Monitores",
+    
+    # Teclado, Mouse, Impressora e Nobreak
+    "Fabricante do Teclado": "Fabricante Teclado",
+    "Fabricante do Mouse": "Fabricante Mouse",
+    "Fabricante da Impressora": "Fabricante Impressora",
+    "Fabricante do Nobreak": "Fabricante Nobreak"
+}
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
     p_limpo = patrimonio.strip()
@@ -216,36 +104,46 @@ def conectar_google_sheets():
 
 def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Padroniza a tabela e impede colunas repetidas.
-    A ordem final é sempre:
-    Local / Setor + equipamento em ordem alfabética +
-    Nº de Patrimônio ao lado do respectivo Fabricante.
+    Padroniza, consolida colunas duplicadas, elimina colunas desnecessárias,
+    ordena as colunas em ordem alfabética de equipamento e ordena as linhas por setor.
     """
-    df = df.copy().fillna("").astype(str)
+    df = df.copy()
+    
+    # 1. Elimina coluna antiga 'Setor' migrando valores para 'Local / Setor'
+    if "Setor" in df.columns:
+        if COLUNA_CHAVE in df.columns:
+            df[COLUNA_CHAVE] = df[COLUNA_CHAVE].replace("", np.nan).fillna(df["Setor"]).fillna("")
+        else:
+            df[COLUNA_CHAVE] = df["Setor"]
+        df = df.drop(columns=["Setor"])
 
-    # Consolida TODAS as variações antes de ordenar.
-    df = consolidar_colunas_sem_repeticao(df)
+    # 2. Consolida dados de colunas duplicadas/renomeadas antes de excluí-las
+    for col_antiga, col_oficial in MAPA_RENOMEAR_COLUNAS.items():
+        if col_antiga in df.columns:
+            if col_oficial not in df.columns:
+                df[col_oficial] = df[col_antiga]
+            else:
+                df[col_oficial] = df[col_oficial].replace("", np.nan).fillna(df[col_antiga]).fillna("")
+            df = df.drop(columns=[col_antiga])
 
-    # Remove linhas completamente vazias, preservando o cabeçalho.
-    if not df.empty:
-        colunas_dados = [c for c in ORDEM_COLUNAS_OFICIAL if c != COLUNA_CHAVE]
-        mascara_vazia = (
-            df[ORDEM_COLUNAS_OFICIAL]
-            .fillna("")
-            .astype(str)
-            .apply(lambda linha: all(str(v).strip() == "" for v in linha), axis=1)
-        )
-        df = df[~mascara_vazia].copy()
+    # 3. Elimina colunas obsoletas
+    cols_para_remover = [c for c in COLUNAS_OBSOLETAS if c in df.columns]
+    if cols_para_remover:
+        df = df.drop(columns=cols_para_remover)
 
-    # Ordena alfabeticamente por Local / Setor.
-    df[COLUNA_CHAVE] = df[COLUNA_CHAVE].fillna("").astype(str).str.strip()
-    df = df.sort_values(
-        by=COLUNA_CHAVE,
-        ascending=True,
-        key=lambda x: x.str.casefold(),
-        kind="stable"
-    )
+    # 4. Assegura coluna Chave
+    if COLUNA_CHAVE not in df.columns:
+        df.insert(0, COLUNA_CHAVE, "")
 
+    # 5. Garante que todas as colunas oficiais existam no DataFrame
+    for col in ORDEM_COLUNAS_OFICIAL:
+        if col not in df.columns:
+            df[col] = ""
+
+    # 6. Ordena as linhas alfabeticamente pela coluna 'Local / Setor'
+    df = df.sort_values(by=COLUNA_CHAVE, ascending=True, key=lambda x: x.str.lower())
+
+    # 7. Retorna o DataFrame mantendo estritamente a ordem de colunas oficial
     return df[ORDEM_COLUNAS_OFICIAL]
 
 def remover_coluna_setor_da_planilha(aba: gspread.Worksheet):
@@ -469,10 +367,6 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
 
     # Aplica normalização e ordenação estrita antes do salvamento
     df_salvar = expurgar_e_normalizar_setores(df).fillna("").astype(str)
-
-    # Garantia final: cabeçalho único e na ordem oficial.
-    if list(df_salvar.columns) != ORDEM_COLUNAS_OFICIAL:
-        df_salvar = df_salvar.reindex(columns=ORDEM_COLUNAS_OFICIAL, fill_value="")
 
     if planilha:
         try:
