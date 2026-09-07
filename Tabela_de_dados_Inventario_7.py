@@ -12,8 +12,8 @@ GOOGLE_SHEET_URL: str = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3E
 
 COLUNA_CHAVE: str = "Local / Setor"
 
-# Sufixo padrão exigido para colunas de patrimônio
-SUFIXO_PATRIMONIO: str = " - N de Patrimônio"
+# Sufixo padrão padronizado com caractere especial
+SUFIXO_PATRIMONIO: str = " - Nº de Patrimônio"
 
 COLUNAS_PADRAO: List[str] = [
     COLUNA_CHAVE,
@@ -58,15 +58,20 @@ LISTA_UBS_PADRAO: List[str] = [
 # ==============================================================================
 def formatar_nome_patrimonio(nome_patrimonio: str) -> str:
     """
-    Garante a regra de nomenclatura inserindo ' - N de Patrimônio' no cabeçalho.
-    Exemplo: 'CPU' -> 'CPU - N de Patrimônio'
+    Padroniza qualquer variação de nome de patrimônio inserindo o sufixo ' - Nº de Patrimônio'.
+    Normaliza nomes legados (ex: 'CPU', 'CPU - N de Patrimônio' -> 'CPU - Nº de Patrimônio').
     """
     nome_limpo = nome_patrimonio.strip()
-    if not nome_limpo or nome_limpo == COLUNA_CHAVE or nome_limpo.startswith("Fabricante "):
+    if not nome_limpo or nome_limpo == COLUNA_CHAVE:
         return nome_limpo
-    if SUFIXO_PATRIMONIO.lower() not in nome_limpo.lower():
-        return f"{nome_limpo}{SUFIXO_PATRIMONIO}"
-    return nome_limpo
+    
+    if nome_limpo.startswith("Fabricante "):
+        item_base = nome_limpo[11:].strip()
+        return f"Fabricante {formatar_nome_patrimonio(item_base)}"
+
+    # Remove qualquer variação antiga de sufixo ("- N de Patrimônio", "- Nº de Patrimônio", etc.)
+    base_nome = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', nome_limpo, flags=re.IGNORECASE).strip()
+    return f"{base_nome}{SUFIXO_PATRIMONIO}"
 
 def sanitizar_nome_aba(nome_unidade: str) -> str:
     """Higieniza o nome da URS/UBS para ser um nome de aba válido."""
@@ -101,11 +106,12 @@ def sincronizar_google_sheets(df: pd.DataFrame, nome_aba: str) -> bool:
     return False
 
 # ==============================================================================
-# REGRAS DE NEGÓCIO E ORGANIZAÇÃO DAS COLUNAS DE FABRICANTE
+# REGRAS DE NEGÓCIO, MIGRAÇÃO DE DADOS E ORGANIZAÇÃO
 # ==============================================================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Higieniza o DataFrame, aplica a regra de cabeçalho ' - N de Patrimônio'
+    Higieniza o DataFrame, migra cabeçalhos legados para ' - Nº de Patrimônio', 
+    realiza merge seguro de colunas duplicadas geradas pela migração
     e agrupa cada fabricante ao lado de seu respectivo patrimônio.
     """
     colunas_invisiveis = [
@@ -115,15 +121,27 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     if colunas_invisiveis:
         df = df.drop(columns=colunas_invisiveis, errors="ignore")
 
+    # Mapeamento para conversão e migração de nomes
     renomear_map = {}
     for col in df.columns:
-        if col != COLUNA_CHAVE and not str(col).startswith("Fabricante "):
+        if col != COLUNA_CHAVE:
             col_formatada = formatar_nome_patrimonio(str(col))
             if col_formatada != col:
                 renomear_map[col] = col_formatada
 
     if renomear_map:
-        df = df.rename(columns=renomear_map)
+        # Tratamento para evitar duplicidade ao migrar 'CPU - N de' para 'CPU - Nº de'
+        df_novo = pd.DataFrame()
+        for c in df.columns:
+            target_c = renomear_map.get(c, c)
+            if target_c not in df_novo.columns:
+                df_novo[target_c] = df[c].astype(str)
+            else:
+                # Fusão de valores se a coluna já existir no destino
+                val_existente = df_novo[target_c].replace(["nan", "None", "<NA>"], "").astype(str)
+                val_novo = df[c].replace(["nan", "None", "<NA>"], "").astype(str)
+                df_novo[target_c] = val_existente.combine(val_novo, lambda x, y: y if y.strip() != "" else x)
+        df = df_novo
 
     if COLUNA_CHAVE not in df.columns:
         df.insert(0, COLUNA_CHAVE, "")
@@ -150,7 +168,7 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     return df_processado
 
 def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
-    """Aplica formatação visual profissional à aba do arquivo Excel."""
+    """Aplica formatação visual executiva à aba do arquivo Excel local."""
     if not os.path.exists(caminho_arquivo):
         return
     try:
@@ -163,7 +181,7 @@ def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
             return
         ws = wb[nome_aba]
 
-        header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+        header_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
         header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
         row_even_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
         row_odd_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
@@ -176,7 +194,7 @@ def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
         font_data = Font(name="Segoe UI", size=10, color="0F172A")
         font_sector = Font(name="Segoe UI", size=10, bold=True, color="0F172A")
 
-        ws.row_dimensions[1].height = 28
+        ws.row_dimensions[1].height = 30
         for cell in ws[1]:
             cell.fill = header_fill
             cell.font = header_font
@@ -202,7 +220,7 @@ def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
         for col in ws.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
             col_letter = get_column_letter(col[0].column)
-            ws.column_dimensions[col_letter].width = max(max_len + 5, 18)
+            ws.column_dimensions[col_letter].width = max(max_len + 5, 22)
 
         wb.save(caminho_arquivo)
     except Exception as e:

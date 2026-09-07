@@ -5,7 +5,6 @@ import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
-# Importação corrigida apontando para a versão 7 sem acento
 from Tabela_de_dados_Inventario_7 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio,
@@ -318,31 +317,38 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
+        # Estilização CSS de alto padrão para o cabeçalho e linhas
         df_styled = df_atual.style.set_properties(**{
-            'font-family': 'Inter, system-ui, -apple-system, sans-serif', 
-            'font-size': '14px',
+            'font-family': "'Inter', 'Segoe UI', -apple-system, sans-serif", 
+            'font-size': '13px',
             'border-bottom': '1px solid #E2E8F0',
-            'padding': '12px 16px',
-            'color': '#334155'
+            'padding': '11px 15px',
+            'color': '#1E293B'
         }).set_table_styles([
             {'selector': 'thead th', 'props': [
-                ('background', 'linear-gradient(90deg, #0F2027 0%, #203A43 50%, #2C5364 100%)'), 
-                ('color', '#FFFFFF'), 
-                ('font-weight', '600'), 
+                ('background', 'linear-gradient(135deg, #0F172A 0%, #1E293B 60%, #334155 100%)'), 
+                ('color', '#F8FAFC'), 
+                ('font-weight', '700'), 
+                ('font-size', '12px'),
                 ('text-transform', 'uppercase'),
-                ('letter-spacing', '0.05em'),
+                ('letter-spacing', '0.06em'),
                 ('padding', '14px 16px'),
-                ('border-bottom', 'none'),
-                ('text-align', 'center')
+                ('border-bottom', '2px solid #3B82F6'),
+                ('text-align', 'center'),
+                ('box-shadow', '0 2px 4px rgba(0,0,0,0.1)')
             ]},
-            {'selector': 'tbody tr:hover td', 'props': [
-                ('background-color', '#F8FAFC'),
-                ('transition', 'background-color 0.2s ease')
+            {'selector': 'tbody tr:nth-child(even)', 'props': [
+                ('background-color', '#F8FAFC')
+            ]},
+            {'selector': 'tbody tr:hover', 'props': [
+                ('background-color', '#EFF6FF'),
+                ('transition', 'background-color 0.2s ease-in-out')
             ]},
             {'selector': 'td:first-child', 'props': [
                 ('font-weight', '700'), 
                 ('background-color', '#F1F5F9'),
-                ('color', '#0F172A')
+                ('color', '#0F172A'),
+                ('border-right', '2px solid #CBD5E1')
             ]}
         ])
         
