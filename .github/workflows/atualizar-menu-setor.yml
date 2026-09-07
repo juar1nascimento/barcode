@@ -25,50 +25,41 @@ jobs:
           path = Path('sistema_inventario.py')
           text = path.read_text(encoding='utf-8')
 
-          pattern = re.compile(
-              r'    opcoes_setor\s*=.*?\n'
-              r'(?:    if .*?\n        opcoes_setor\.append\(.*?\)\n)*',
-              re.DOTALL,
-          )
-          new = '''    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
+          new_menu = """    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
           # Não é montado a partir dos dados existentes na planilha.
           opcoes_setor = [
-              "Consultório",
-              "Almoxarifado",
-              "Farmacia",
-              "Sala de Preparo",
-              "Sala de Vacina",
-              "Sala de curativo",
-              "Gerencia",
-              "Administração",
-              "Odontologia",
-              "Recepção",
-              "Outro Setor",
-          ]
-          '''
-          text2, count = pattern.subn(new, text, count=1)
+              \"Consultório\",
+              \"Almoxarifado\",
+              \"Farmacia\",
+              \"Sala de Preparo\",
+              \"Sala de Vacina\",
+              \"Sala de curativo\",
+              \"Gerencia\",
+              \"Administração\",
+              \"Odontologia\",
+              \"Recepção\",
+              \"Outro Setor\",
+          ]"""
+          new_menu = new_menu.replace("\n          ", "\n")
+
+          pattern = re.compile(r'    opcoes_setor =.*?(?=\n\n    # IMPORTANTE: o menu de Tipo de patrimônio)', re.DOTALL)
+          text, count = pattern.subn(new_menu, text, count=1)
           if count != 1:
               raise SystemExit('Bloco do menu Setor não foi localizado.')
-          text = text2
 
-          branch_pattern = re.compile(
-              r'        if setor_selecionado == "Consultório":.*?'
-              r'        elif setor_selecionado:\n'
-              r'            setor_input = setor_selecionado\n',
-              re.DOTALL,
-          )
-          new_branch = '''        if setor_selecionado == "Consultório":
-              setor_input = "Consultório"
-          elif setor_selecionado == "Outro Setor":
-              setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...")
+          new_branch = """        if setor_selecionado == \"Consultório\":
+              setor_input = \"Consultório\"
+          elif setor_selecionado == \"Outro Setor\":
+              setor_input = st.text_input(\"Nome do Setor:\", placeholder=\"Digite o nome do setor...\")
           elif setor_selecionado:
-              setor_input = setor_selecionado
-          '''
-          text2, count = branch_pattern.subn(new_branch, text, count=1)
+              setor_input = setor_selecionado"""
+
+          branch_pattern = re.compile(r'        if setor_selecionado == \"Consultório\":.*?        elif setor_selecionado:\n            setor_input = setor_selecionado', re.DOTALL)
+          text, count = branch_pattern.subn(new_branch, text, count=1)
           if count != 1:
               raise SystemExit('Bloco de tratamento do Setor não foi localizado.')
 
-          path.write_text(text2, encoding='utf-8')
+          path.write_text(text, encoding='utf-8')
           PY
 
       - name: Validar sintaxe
