@@ -45,7 +45,7 @@ LISTA_UBS_PADRAO: List[str] = [
 ]
 
 # ==============================================================================
-# FUNÇÃO AUXILIAR DE SANITIZAÇÃO
+# FUNÇÃO AUXILIAR DE SANITIZAÇÃO DE NOMES DE ABAS
 # ==============================================================================
 def sanitizar_nome_aba(nome_unidade: str) -> str:
     """Higieniza o nome da URS/UBS para ser um nome de aba válido."""
@@ -67,7 +67,7 @@ def obter_conexao_gsheets() -> Optional[Any]:
         return None
 
 def sincronizar_google_sheets(df: pd.DataFrame, nome_aba: str) -> bool:
-    """Garante o envio dos dados atualizados para a planilha do Google Sheets."""
+    """Sincroniza os dados atualizados com o Google Sheets."""
     try:
         conn = obter_conexao_gsheets()
         if conn is not None:
@@ -80,10 +80,10 @@ def sincronizar_google_sheets(df: pd.DataFrame, nome_aba: str) -> bool:
     return False
 
 # ==============================================================================
-# REGRAS DE NEGÓCIO E TRATAMENTO DE DADOS
+# REGRAS DE NEGÓCIO E ORGANIZAÇÃO DAS COLUNAS DE FABRICANTE
 # ==============================================================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Higieniza o DataFrame removendo colunas obsoletas e garantindo a estrutura padrão."""
+    """Higieniza o DataFrame e agrupa cada fabricante ao lado de seu respetivo patrimônio."""
     colunas_invisiveis = [
         c for c in df.columns 
         if c in COLUNAS_OBSOLETAS or str(c).startswith("➕") or "Unnamed" in str(c)
@@ -98,15 +98,32 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
 
-    outras_colunas = [str(c).strip() for c in df.columns if c not in COLUNAS_PADRAO]
-    ordem_final = COLUNAS_PADRAO + outras_colunas
-    
-    df_processado = df.reindex(columns=ordem_final).fillna("").astype(str)
+    # Ordenação Inteligente: Coloca cada 'Fabricante <Patrimônio>' imediatamente após seu Patrimônio
+    ordem_colunas = [COLUNA_CHAVE]
+    colunas_base = [c for c in COLUNAS_PADRAO if c != COLUNA_CHAVE]
+    todas_colunas = [str(c).strip() for c in df.columns]
+
+    for col in colunas_base:
+        if col not in ordem_colunas:
+            ordem_colunas.append(col)
+        col_fab = f"Fabricante {col}"
+        if col_fab in todas_colunas and col_fab not in ordem_colunas:
+            ordem_colunas.append(col_fab)
+
+    # Adiciona colunas extras e customizadas junto com seus respectivos fabricantes
+    for col in todas_colunas:
+        if col not in ordem_colunas:
+            ordem_colunas.append(col)
+            col_fab = f"Fabricante {col}"
+            if col_fab in todas_colunas and col_fab not in ordem_colunas:
+                ordem_colunas.append(col_fab)
+
+    df_processado = df.reindex(columns=ordem_colunas).fillna("").astype(str)
     df_processado[COLUNA_CHAVE] = df_processado[COLUNA_CHAVE].str.strip()
     return df_processado
 
 def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
-    """Aplica formatação visual profissional à aba específica do arquivo Excel."""
+    """Aplica formatação visual profissional à aba do arquivo Excel."""
     if not os.path.exists(caminho_arquivo):
         return
     try:
@@ -206,7 +223,7 @@ def carregar_dados_excel(unidade_nome: str = "Geral") -> Tuple[pd.DataFrame, Lis
     return df, list(df.columns)
 
 def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> bool:
-    """Persiste os dados localmente no Excel e realiza o sync com o Google Sheets."""
+    """Persiste os dados no arquivo Excel local e aciona sincronização com o Google Sheets."""
     nome_aba = sanitizar_nome_aba(unidade_nome)
     df_limpo = padronizar_e_organizar_df(df)
     sucesso_local = False
@@ -233,35 +250,8 @@ def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> bool:
         st.error(f"❌ Erro ao salvar a aba '{nome_aba}' localmente: {err}")
         print(f"[ERRO SALVAR EXCEL]: {err}")
 
-    # Aciona a sincronização remota
     sincronizar_google_sheets(df_limpo, nome_aba)
-
     return sucesso_local
-
-def adicionar_e_salvar(codigo: str, descricao: str, setor: str, unidade_nome: str) -> None:
-    """Adiciona ou atualiza um patrimônio na aba exclusiva da URS/UBS."""
-    df, _ = carregar_dados_excel(unidade_nome)
-    coluna_alvo = descricao.strip()
-    setor_limpo = setor.strip() if setor else "Não informado"
-    codigo_limpo = str(codigo).strip()
-
-    if coluna_alvo not in df.columns:
-        df[coluna_alvo] = ""
-
-    df = padronizar_e_organizar_df(df)
-    mascara_setor = df[COLUNA_CHAVE].str.lower().eq(setor_limpo.lower())
-
-    if mascara_setor.any():
-        df.at[df[mascara_setor].index[0], coluna_alvo] = codigo_limpo
-    else:
-        nova_linha = {col: "" for col in df.columns}
-        nova_linha[COLUNA_CHAVE] = setor_limpo
-        nova_linha[coluna_alvo] = codigo_limpo
-        df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
-
-    df = padronizar_e_organizar_df(df)
-    salvar_no_excel(df, unidade_nome)
-    st.session_state.df_historico = df
 
 def excluir_setor(setor_nome: str, unidade_nome: str) -> None:
     """Remove um setor inteiro (linha) da aba da unidade correspondente."""
@@ -274,12 +264,15 @@ def excluir_setor(setor_nome: str, unidade_nome: str) -> None:
     st.session_state.df_historico = df_filtrado
 
 def excluir_patrimonio(setor_nome: str, coluna_patrimonio: str, unidade_nome: str) -> None:
-    """Limpa a célula do patrimônio específico na aba da unidade correspondente."""
+    """Limpa a célula do patrimônio e seu respetivo fabricante na aba correspondente."""
     df, _ = carregar_dados_excel(unidade_nome)
     if df.empty or COLUNA_CHAVE not in df.columns or coluna_patrimonio not in df.columns:
         return
     mascara_setor = df[COLUNA_CHAVE].str.strip().str.lower().eq(setor_nome.strip().lower())
     if mascara_setor.any():
         df.loc[mascara_setor, coluna_patrimonio] = ""
+        col_fab = f"Fabricante {coluna_patrimonio}"
+        if col_fab in df.columns:
+            df.loc[mascara_setor, col_fab] = ""
         salvar_no_excel(df, unidade_nome)
         st.session_state.df_historico = df

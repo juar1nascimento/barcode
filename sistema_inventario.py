@@ -12,17 +12,19 @@ from Tabela_de_dados_Inventário import (
 )
 
 # ==============================================================================
-# LÓGICA DE CADASTRO SEM SOBRESCREVER (MÚLTIPLOS PATRIMÔNIOS POR SETOR)
+# LÓGICA DE CADASTRO COM SUPORTE A FABRICANTE E MÚLTIPLOS PATRIMÔNIOS
 # ==============================================================================
-def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str) -> bool:
+def adicionar_e_salvar_sem_sobrescrever(
+    codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
+) -> bool:
     """
-    Garante que o cadastro do código não sobrescreva patrimônios existentes.
-    Se o setor já possui aquele patrimônio preenchido, insere em uma nova linha.
-    Salva localmente e sincroniza com o Google Sheets.
+    Garante o cadastro do código e do fabricante em colunas independentes sem sobrescrever.
+    Salva em Excel e sincroniza no Google Sheets.
     """
     setor_limpo = setor.strip()
     codigo_limpo = codigo.strip()
     patrimonio_limpo = patrimonio.strip()
+    fabricante_limpo = fabricante.strip()
 
     if not setor_limpo or not codigo_limpo or not patrimonio_limpo or not unidade:
         return False
@@ -38,9 +40,13 @@ def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str
     if df.empty or COLUNA_CHAVE not in df.columns:
         df = pd.DataFrame(columns=[COLUNA_CHAVE])
 
-    # 2. Garante que a coluna do patrimônio existe no DataFrame
+    # 2. Garante que a coluna do patrimônio e de seu Fabricante existam no DataFrame
+    coluna_fabricante = f"Fabricante {patrimonio_limpo}"
+    
     if patrimonio_limpo not in df.columns:
         df[patrimonio_limpo] = ""
+    if coluna_fabricante not in df.columns:
+        df[coluna_fabricante] = ""
 
     # Normaliza valores para string
     df = df.fillna("").astype(str)
@@ -59,10 +65,13 @@ def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str
     # 4. Preenche em linha com espaço vago ou adiciona nova linha ao setor
     if linha_destino_idx is not None:
         df.at[linha_destino_idx, patrimonio_limpo] = codigo_limpo
+        if fabricante_limpo:
+            df.at[linha_destino_idx, coluna_fabricante] = fabricante_limpo
     else:
         nova_linha = {col: "" for col in df.columns}
         nova_linha[COLUNA_CHAVE] = setor_limpo
         nova_linha[patrimonio_limpo] = codigo_limpo
+        nova_linha[coluna_fabricante] = fabricante_limpo
         df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
 
     # 5. Salva no Excel local e sincroniza no Google Sheets
@@ -187,7 +196,7 @@ def renderizar_portal_principal(
 # PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
 # ==============================================================================
 def renderizar_sistema_inventario(*args, **kwargs) -> None:
-    """Renderiza a página exclusiva de inventário com tabela e dados dedicados à URS/UBS."""
+    """Renderiza a página exclusiva de inventário com entrada para Fabricante por patrimônio."""
     unidade = st.session_state.get("unidade_selecionada", "")
     
     if not unidade:
@@ -233,10 +242,15 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     if "➕ Outro Setor" not in opcoes_setor:
         opcoes_setor.append("➕ Outro Setor")
 
-    colunas_df_atuais = [col for col in st.session_state.df_historico.columns if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS]
+    # Filtra colunas de patrimônio descartando colunas de fabricante da lista principal de seleção
+    colunas_df_atuais = [
+        col for col in st.session_state.df_historico.columns 
+        if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS and not str(col).startswith("Fabricante ")
+    ]
     opcoes_patrimonio = list(dict.fromkeys(colunas_df_atuais + [c for c in COLUNAS_PADRAO if c != COLUNA_CHAVE])) + ["➕ Outros Patrimônios"]
 
-    col_desc1, col_desc2, col_desc3 = st.columns(3)
+    # Layout responsivo em 4 colunas incluindo a entrada do Fabricante
+    col_desc1, col_desc2, col_desc3, col_desc4 = st.columns([1, 1, 1, 1])
 
     with col_desc1:
         setor_selecionado = st.selectbox(
@@ -305,6 +319,15 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
         st.session_state.saved_descricao = descricao_final
 
+    with col_desc4:
+        fabricante_input = ""
+        if descricao_final:
+            fabricante_input = st.text_input(
+                f"Fabricante ({descricao_final}):",
+                placeholder="Ex: Dell, HP, Samsung...",
+                key=f"fabricante_input_{descricao_final}"
+            )
+
     st.divider()
 
     if not descricao_final or not setor_input.strip():
@@ -313,7 +336,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         tab_unificada, tab_upload = st.tabs(["⚡ Câmera / Scanner USB", "📁 Upload de Imagem"])
         
         with tab_unificada:
-            st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Patrimônio:** `{descricao_final}`")
+            info_fab = f" | **Fabricante:** `{fabricante_input.strip()}`" if fabricante_input.strip() else ""
+            st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Patrimônio:** `{descricao_final}`{info_fab}")
             col_camera, col_usb = st.columns([1.2, 1])
 
             with col_camera:
@@ -376,7 +400,13 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 with st.form(key="form_bipagem", clear_on_submit=True):
                     codigo_input = st.text_input("Código Lido / Bipado:", autocomplete="off", placeholder="Aguardando bipagem...", key="input_codigo_bip")
                     if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
-                        salvou = adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade)
+                        salvou = adicionar_e_salvar(
+                            codigo_input.strip(), 
+                            descricao_final, 
+                            setor_input, 
+                            unidade, 
+                            fabricante_input.strip()
+                        )
                         if salvou:
                             st.session_state.mensagem_sucesso = f"✅ Código `{codigo_input.strip()}` registrado com sucesso no setor `{setor_input}` ({unidade})."
                         st.rerun()
@@ -393,7 +423,13 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if codigos_encontrados:
                         codigos_registrados = []
                         for item in codigos_encontrados:
-                            if adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade):
+                            if adicionar_e_salvar(
+                                item["codigo"], 
+                                descricao_final, 
+                                setor_input, 
+                                unidade, 
+                                fabricante_input.strip()
+                            ):
                                 codigos_registrados.append(item["codigo"])
                         
                         if codigos_registrados:
@@ -461,7 +497,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         linha_setor_df = df_atual[df_atual[COLUNA_CHAVE].str.strip().str.lower().eq(setor_patrimonio_del.strip().lower())]
                         if not linha_setor_df.empty:
                             for col in df_atual.columns:
-                                if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS:
+                                if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS and not str(col).startswith("Fabricante "):
                                     val = str(linha_setor_df.iloc[0][col]).strip()
                                     if val and val.lower() not in ["", "nan", "none", "null", "<na>"]:
                                         colunas_com_dados.append(col)
@@ -480,7 +516,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if coluna_patrimonio_del and setor_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary", key=f"btn_del_patrimonio_{setor_patrimonio_del}"):
                         excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
                         carregar_dados_excel.clear()
-                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' excluído do setor '{setor_patrimonio_del}'."
+                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' e seu fabricante excluídos do setor '{setor_patrimonio_del}'."
                         st.rerun()
 
 
