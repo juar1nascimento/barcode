@@ -6,13 +6,81 @@ import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
 # ==============================================================================
-# IMPORTAÇÃO CORRIGIDA (SEM IMPORTAÇÃO CIRCULAR)
+# DEFINIÇÕES E CONSTANTES PADRÃO (SUBSTITUINDO IMPORTAÇÃO CIRCULAR)
 # ==============================================================================
-from Tabela_de_dados_Inventario_7_2 import (
-    ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
-    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio
-)
+ARQUIVO_EXCEL = "inventario.xlsx"
+COLUNA_CHAVE = "Setor"
+COLUNAS_OBSOLETAS = []
+COLUNAS_PADRAO = [
+    "Computador - Nº de Patrimônio",
+    "Monitor - Nº de Patrimônio",
+    "Impressora - Nº de Patrimônio",
+    "Estabilizador - Nº de Patrimônio",
+    "Nobreak - Nº de Patrimônio",
+    "Switch - Nº de Patrimônio",
+    "Roteador - Nº de Patrimônio"
+]
+SETORES_PADRAO = [
+    "Recepção",
+    "Triagem",
+    "Consultório",
+    "Farmácia",
+    "Almoxarifado",
+    "Administração",
+    "Sala de Reuniões",
+    "TI / Informática"
+]
+LISTA_URS_PADRAO = ["URS Centrad", "URS Jacaraípe", "URS Serra Dourada"]
+LISTA_UBS_PADRAO = ["UBS Bairro das Laranjeiras", "UBS Feu Rosa", "UBS Novo Horizonte"]
+
+def formatar_nome_patrimonio(nome: str) -> str:
+    nome_limpo = nome.strip()
+    if not re.search(r'-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', nome_limpo, re.IGNORECASE):
+        return f"{nome_limpo} - Nº de Patrimônio"
+    return nome_limpo
+
+def formatar_nome_fabricante(nome: str) -> str:
+    nome_base = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', nome.strip(), flags=re.IGNORECASE)
+    return f"Fabricante {nome_base}"
+
+@st.cache_data
+def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
+    if os.path.exists(ARQUIVO_EXCEL):
+        try:
+            xls = pd.ExcelFile(ARQUIVO_EXCEL)
+            if unidade in xls.sheet_names:
+                df = pd.read_excel(ARQUIVO_EXCEL, sheet_name=unidade)
+                return df, ARQUIVO_EXCEL
+        except Exception:
+            pass
+    return pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO), ARQUIVO_EXCEL
+
+def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
+    try:
+        if os.path.exists(ARQUIVO_EXCEL):
+            with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+                df.to_excel(writer, sheet_name=unidade, index=False)
+        else:
+            with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name=unidade, index=False)
+        return True
+    except Exception:
+        return False
+
+def excluir_setor(setor: str, unidade: str) -> bool:
+    df, _ = carregar_dados_excel(unidade)
+    if not df.empty and COLUNA_CHAVE in df.columns:
+        df = df[df[COLUNA_CHAVE].str.strip().str.lower() != setor.strip().lower()]
+        return salvar_no_excel(df, unidade)
+    return False
+
+def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
+    df, _ = carregar_dados_excel(unidade)
+    if not df.empty and COLUNA_CHAVE in df.columns and coluna in df.columns:
+        mask = df[COLUNA_CHAVE].str.strip().str.lower() == setor.strip().lower()
+        df.loc[mask, coluna] = ""
+        return salvar_no_excel(df, unidade)
+    return False
 
 # ==============================================================================
 # LÓGICA DE CADASTRO COM SUPORTE A CABEÇALHOS ARTICULADOS DE FABRICANTE
