@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - 'scripts/evoluir_gerenciador_exclusao.py'
+      - '.github/workflows/aplicar-evolucao-gerenciador.yml'
 jobs:
   aplicar:
     runs-on: ubuntu-latest
