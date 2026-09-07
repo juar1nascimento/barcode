@@ -10,7 +10,7 @@ from google.oauth2.service_account import Credentials
 
 # ==============================================================================\n# MODELO CANÔNICO DE ARMAZENAMENTO\n# ==============================================================================\nARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Setor"
-COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status"]
+COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Fabricante", "Data Cadastro", "Origem"]
 TIPOS_PATRIMONIO = (
     "CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos",
 )
