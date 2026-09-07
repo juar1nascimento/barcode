@@ -1,205 +1,272 @@
 import os
 import re
-import pandas as pd
-import numpy as np
-import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
-from typing import Optional, Tuple, List, Dict, Any
+from datetime import datetime
+from typing import Optional, Tuple
 
-# Configurações globais e constantes
-ARQUIVO_EXCEL = "inventario_dados.xlsx"
+import gspread
+import pandas as pd
+import streamlit as st
+from google.oauth2.service_account import Credentials
+
+# ==============================================================================\n# MODELO CANÔNICO DE ARMAZENAMENTO\n# ==============================================================================\nARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status"]
-COLUNAS_PADRAO = [
-    "Computador - Nº de Patrimônio", "Fabricante Computador",
-    "Monitor - Nº de Patrimônio", "Fabricante Monitor",
-    "Impressora - Nº de Patrimônio", "Fabricante Impressora"
+TIPOS_PATRIMONIO = (
+    "CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos",
+)
+COLUNAS_INVENTARIO = [
+    "Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Código de Barras",
+    "Fabricante", "Data Cadastro", "Origem", "Status",
 ]
-SETORES_PADRAO = ["Recepção", "Triagem", "Farmácia", "Consultório", "Almoxarifado"]
-LISTA_URS_PADRAO = ["URS I", "URS II", "URS III"]
-LISTA_UBS_PADRAO = ["UBS Central", "UBS Jardim", "UBS Vila Nova"]
+COLUNAS_PADRAO = COLUNAS_INVENTARIO.copy()
+SETORES_PADRAO = [
+    "Consultório", "Almoxarifado", "Farmacia", "Sala de Preparo", "Sala de Vacina",
+    "Sala de curativo", "Gerencia", "Administração", "Odontologia", "Recepção", "Outro Setor",
+]
+LISTA_URS_PADRAO = [
+    "URS Novo Horizonte", "URS Jacaraípe", "URS Boa Vista", "URS Feu Rosa",
+    "URS Serra Sede", "URS Serra Dourada",
+]
+LISTA_UBS_PADRAO = [
+    "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona",
+    "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande",
+    "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina",
+    "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos",
+    "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II",
+    "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)",
+    "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos",
+    "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra",
+    "UBS Itinerante (atendimento na UBS)",
+]
+UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO
+
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
-    p_limpo = patrimonio.strip()
-    if not re.search(r'-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', p_limpo, flags=re.IGNORECASE):
-        return f"{p_limpo} - Nº de Patrimônio"
-    return p_limpo
+    return str(patrimonio or "").strip()
+
 
 def formatar_nome_fabricante(patrimonio: str) -> str:
-    p_limpo = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', patrimonio.strip(), flags=re.IGNORECASE)
-    return f"Fabricante {p_limpo}"
+    p = re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$", "", str(patrimonio or "").strip(), flags=re.I)
+    return f"Fabricante {p}" if p else "Fabricante"
 
-# ==============================================================================
-# CONEXÃO GOOGLE SHEETS COM SUPORTE A [connections.gsheets]
-# ==============================================================================
+
+def _normalizar_tipo(valor: str) -> str:
+    valor = re.sub(r"\s+", " ", str(valor or "").strip())
+    mapa = {
+        "computador": "CPU", "cpu": "CPU", "monitor": "Monitores", "monitores": "Monitores",
+        "teclado": "Teclado", "mouse": "Mouse", "impressora": "Imprenssoras",
+        "impressoras": "Imprenssoras",
+    }
+    return mapa.get(valor.casefold(), valor if valor in TIPOS_PATRIMONIO else "Outros Dispositivos")
+
+
+def _normalizar_unidade_aba(nome: str) -> str:
+    aliases = {"URS Jacara_pe": "URS Jacaraípe", "UBS Bairro de F_tima": "UBS Bairro de Fátima"}
+    return aliases.get(str(nome or "").strip(), str(nome or "").strip())
+
+
+def _valor_texto(v) -> str:
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if re.fullmatch(r"-?\d+\.0", s):
+        s = s[:-2]
+    return s
+
+
+def _inferir_tipo_coluna(cabecalho: str) -> Optional[str]:
+    h = _valor_texto(cabecalho).casefold()
+    if "fabricante" in h or "setor" in h or "local" in h:
+        return None
+    if "computador" in h or re.search(r"\bcpu\b", h):
+        return "CPU"
+    if "monitor" in h:
+        return "Monitores"
+    if "teclado" in h:
+        return "Teclado"
+    if "mouse" in h:
+        return "Mouse"
+    if "impress" in h:
+        return "Imprenssoras"
+    return "Outros Dispositivos"
+
+
+def _inferir_tipo_fabricante(cabecalho: str) -> Optional[str]:
+    return _inferir_tipo_coluna(_valor_texto(cabecalho).casefold().replace("fabricante", "").strip())
+
+
+def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Converte o formato antigo de colunas por patrimônio para uma linha por ativo."""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=COLUNAS_INVENTARIO)
+    df = df.fillna("").copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    if "Tipo de Patrimônio" in df.columns and "Código de Barras" in df.columns:
+        return df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
+
+    setor_col = "Setor" if "Setor" in df.columns else (df.columns[0] if len(df.columns) else "Setor")
+    registros = []
+    for _, row in df.iterrows():
+        setor = _valor_texto(row.get(setor_col, ""))
+        if not setor:
+            continue
+        for col in df.columns:
+            tipo = _inferir_tipo_coluna(col)
+            if not tipo:
+                continue
+            valor = _valor_texto(row.get(col, ""))
+            if not valor or valor.casefold() in {"none", "nan", "null"}:
+                continue
+            fabricante = ""
+            for c2 in df.columns:
+                if "fabricante" in str(c2).casefold() and _inferir_tipo_fabricante(c2) == tipo:
+                    fabricante = _valor_texto(row.get(c2, ""))
+                    break
+            registros.append({
+                "Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": valor,
+                "Código de Barras": "", "Fabricante": fabricante, "Data Cadastro": "",
+                "Origem": "Migração do formato anterior", "Status": "Ativo",
+            })
+    return pd.DataFrame(registros, columns=COLUNAS_INVENTARIO).fillna("").astype(str)
+
+
 def conectar_google_sheets():
-    """Conecta ao Google Sheets buscando os dados dentro de [connections.gsheets]."""
     try:
-        # Busca no bloco de conexões do Streamlit Secrets
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-            sec_gsheets = st.secrets["connections"]["gsheets"]
+            sec = st.secrets["connections"]["gsheets"]
         elif "gcp_service_account" in st.secrets:
-            sec_gsheets = st.secrets["gcp_service_account"]
+            sec = st.secrets["gcp_service_account"]
         else:
             return None
-
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets", 
-            "https://www.googleapis.com/auth/drive"
-        ]
-        
-        # Mapeia as credenciais do Service Account
-        creds_dict = {
-            "type": sec_gsheets.get("type", "service_account"),
-            "project_id": sec_gsheets.get("project_id"),
-            "private_key_id": sec_gsheets.get("private_key_id"),
-            "private_key": sec_gsheets.get("private_key"),
-            "client_email": sec_gsheets.get("client_email"),
-            "client_id": sec_gsheets.get("client_id"),
-            "auth_uri": sec_gsheets.get("auth_uri"),
-            "token_uri": sec_gsheets.get("token_uri"),
-            "auth_provider_x509_cert_url": sec_gsheets.get("auth_provider_x509_cert_url"),
-            "client_x509_cert_url": sec_gsheets.get("client_x509_cert_url")
-        }
-
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds_dict = {k: sec.get(k) for k in (
+            "type", "project_id", "private_key_id", "private_key", "client_email", "client_id",
+            "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url",
+        )}
+        creds_dict["type"] = creds_dict.get("type") or "service_account"
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        
-        # Pega a URL da planilha a partir do campo 'spreadsheet'
-        sheet_url = sec_gsheets.get("spreadsheet") or st.secrets.get("spreadsheet_url")
-        if sheet_url:
-            return client.open_by_url(sheet_url)
-
+        sheet_url = sec.get("spreadsheet") or st.secrets.get("spreadsheet_url")
+        return client.open_by_url(sheet_url) if sheet_url else None
     except Exception as e:
         st.warning(f"Não foi possível conectar ao Google Sheets: {e}")
-    return None
+        return None
+
+
+def _nome_aba(unidade: str) -> str:
+    return _normalizar_unidade_aba(unidade)[:90].strip()
+
 
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
-    """
-    Carrega os dados da aba da unidade no Google Sheets.
-    """
+    unidade = _normalizar_unidade_aba(unidade)
     planilha = conectar_google_sheets()
-    nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
+    nome_aba = _nome_aba(unidade)
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
-
     if planilha:
         try:
             aba = planilha.worksheet(nome_aba)
-            dados = aba.get_all_records(expected_headers=[])
-            if dados:
-                df = pd.DataFrame(dados)
-                df = df.fillna("").astype(str)
-                if COLUNA_CHAVE not in df.columns:
-                    df.insert(0, COLUNA_CHAVE, "")
-                return df, f"Google Sheets ({nome_aba})"
-            else:
-                return pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO), f"Google Sheets ({nome_aba})"
+            valores = aba.get_all_values()
+            if valores:
+                return _normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])), f"Google Sheets ({nome_aba})"
+            return pd.DataFrame(columns=COLUNAS_INVENTARIO), f"Google Sheets ({nome_aba})"
         except gspread.exceptions.WorksheetNotFound:
-            pass # A aba será criada automaticamente quando houver a primeira gravação
+            pass
         except Exception as e:
             st.error(f"Erro ao ler do Google Sheets: {e}")
-
-    # Fallback Local
     if os.path.exists(nome_arquivo_local):
         try:
-            df = pd.read_excel(nome_arquivo_local, dtype=str)
-            return df.fillna(""), nome_arquivo_local
+            return _normalizar_legacy_dataframe(pd.read_excel(nome_arquivo_local, dtype=str)), nome_arquivo_local
         except Exception:
             pass
+    return pd.DataFrame(columns=COLUNAS_INVENTARIO), nome_arquivo_local
 
-    return pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO), nome_arquivo_local
 
 def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
-    """
-    Salva/Atualiza o DataFrame no Google Sheets e cria o backup local.
-    """
-    sucesso_sheets = False
+    unidade = _normalizar_unidade_aba(unidade)
+    df_salvar = _normalizar_legacy_dataframe(df).fillna("").astype(str)
     planilha = conectar_google_sheets()
-    nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
+    nome_aba = _nome_aba(unidade)
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
-
-    df_salvar = df.copy().fillna("").astype(str)
-    if COLUNA_CHAVE in df_salvar.columns:
-        cols = [COLUNA_CHAVE] + [c for c in df_salvar.columns if c != COLUNA_CHAVE]
-        df_salvar = df_salvar[cols]
-
-    # 1. Atualizar no Google Sheets
+    sucesso_sheets = False
     if planilha:
         try:
             try:
                 aba = planilha.worksheet(nome_aba)
             except gspread.exceptions.WorksheetNotFound:
-                aba = planilha.add_worksheet(title=nome_aba, rows="100", cols="20")
-
-            valores = [df_salvar.columns.tolist()] + df_salvar.values.tolist()
-            aba.clear()
+                aba = planilha.add_worksheet(title=nome_aba, rows=max(100, len(df_salvar) + 10), cols=12)
+            # Limpa apenas valores; evita a perda de formatação/validações da aba.
+            aba.batch_clear([f"A1:Z{max(100, aba.row_count)}"])
+            aba.resize(rows=max(100, len(df_salvar) + 10), cols=12)
+            valores = [COLUNAS_INVENTARIO] + df_salvar[COLUNAS_INVENTARIO].values.tolist()
             aba.update(values=valores, range_name="A1")
             sucesso_sheets = True
         except Exception as e:
             st.error(f"⚠️ Erro ao gravar no Google Sheets: {e}")
-
-    # 2. Backup Local
     try:
         df_salvar.to_excel(nome_arquivo_local, index=False)
     except Exception as e:
         st.error(f"Erro no backup local: {e}")
-
     carregar_dados_excel.clear()
     return sucesso_sheets or os.path.exists(nome_arquivo_local)
 
+
+def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str,
+                         fabricante: str = "", numero_patrimonio: str = "") -> bool:
+    codigo = _valor_texto(codigo_barras)
+    setor = _valor_texto(setor)
+    tipo = _normalizar_tipo(tipo_patrimonio)
+    fabricante = _valor_texto(fabricante)
+    numero = _valor_texto(numero_patrimonio)
+    if tipo not in TIPOS_PATRIMONIO or not unidade or not setor or not codigo:
+        return False
+    df, _ = carregar_dados_excel(unidade)
+    df = _normalizar_legacy_dataframe(df)
+    if (df["Código de Barras"].astype(str).str.strip() == codigo).any():
+        st.warning(f"O código de barras `{codigo}` já está cadastrado nesta unidade.")
+        return False
+    nova = {
+        "Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero,
+        "Código de Barras": codigo, "Fabricante": fabricante,
+        "Data Cadastro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Origem": "Sistema de Inventários", "Status": "Ativo",
+    }
+    df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
+    return salvar_no_excel(df, unidade)
+
+
+def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str,
+                                        fabricante: str = "", numero_patrimonio: str = "") -> bool:
+    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio)
+
+
+adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
+
+
 def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> tuple[pd.DataFrame, bool]:
-    """Aplica a exclusão de setor em memória e informa se houve alteração."""
-    if df.empty or COLUNA_CHAVE not in df.columns:
+    df = _normalizar_legacy_dataframe(df)
+    if df.empty:
         return df.copy(), False
-    setor_limpo = str(setor or "").strip().casefold()
-    if not setor_limpo:
-        return df.copy(), False
-    valores_setor = df[COLUNA_CHAVE].astype(str).str.strip().str.casefold()
-    mask_excluir = valores_setor == setor_limpo
-    if not mask_excluir.any():
-        return df.copy(), False
-    return df.loc[~mask_excluir].copy(), True
+    mask = df["Setor"].astype(str).str.strip().str.casefold() == _valor_texto(setor).casefold()
+    return (df.loc[~mask].copy(), True) if mask.any() else (df.copy(), False)
 
 
 def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> tuple[pd.DataFrame, bool]:
-    """Limpa patrimônio + fabricante somente no setor escolhido."""
-    if df.empty or COLUNA_CHAVE not in df.columns or coluna not in df.columns:
+    df = _normalizar_legacy_dataframe(df)
+    if df.empty:
         return df.copy(), False
-    df_trabalho = df.fillna("").astype(str).copy()
-    setor_limpo = str(setor or "").strip().casefold()
-    coluna_limpa = str(coluna or "").strip()
-    if not setor_limpo or not coluna_limpa:
-        return df_trabalho, False
-    mask_setor = df_trabalho[COLUNA_CHAVE].str.strip().str.casefold() == setor_limpo
-    if not mask_setor.any():
-        return df_trabalho, False
-    coluna_fabricante = formatar_nome_fabricante(coluna_limpa)
-    df_trabalho.loc[mask_setor, coluna_limpa] = ""
-    if coluna_fabricante in df_trabalho.columns:
-        df_trabalho.loc[mask_setor, coluna_fabricante] = ""
-    cols_dados = [c for c in df_trabalho.columns if c != COLUNA_CHAVE]
-    if cols_dados:
-        mask_linha_vazia = df_trabalho[cols_dados].apply(
-            lambda row: all(str(v).strip().lower() in {"", "nan", "none", "null", "<na>"} for v in row),
-            axis=1,
-        )
-        df_trabalho = df_trabalho.loc[~mask_linha_vazia].copy()
-    return df_trabalho, True
+    tipo = _normalizar_tipo(re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", str(coluna), flags=re.I))
+    mask = (df["Setor"].astype(str).str.strip().str.casefold() == _valor_texto(setor).casefold()) & (df["Tipo de Patrimônio"].astype(str) == tipo)
+    return (df.loc[~mask].copy(), True) if mask.any() else (df.copy(), False)
 
 
 def excluir_setor(setor: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
-    df_filtrado, alterado = _aplicar_exclusao_setor(df, setor)
-    if not alterado:
-        return False
-    return salvar_no_excel(df_filtrado, unidade)
+    novo, alterado = _aplicar_exclusao_setor(df, setor)
+    return salvar_no_excel(novo, unidade) if alterado else False
 
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
-    df_filtrado, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
-    if not alterado:
-        return False
-    return salvar_no_excel(df_filtrado, unidade)
+    novo, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
+    return salvar_no_excel(novo, unidade) if alterado else False
