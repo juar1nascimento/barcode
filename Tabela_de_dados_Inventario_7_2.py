@@ -5,68 +5,15 @@ import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
+from Tabela_de_dados_Inventario_7_2 import (
+    ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
+    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
+    carregar_dados_excel, salvar_no_excel
+)
+
 # ==============================================================================
-# DEFINIÇÕES E CONSTANTES PADRÃO
+# CORREÇÃO E AJUSTES DAS FUNÇÕES DE EXCLUSÃO
 # ==============================================================================
-ARQUIVO_EXCEL = "inventario.xlsx"
-COLUNA_CHAVE = "Setor"
-COLUNAS_OBSOLETAS = []
-COLUNAS_PADRAO = [
-    "Computador - Nº de Patrimônio",
-    "Monitor - Nº de Patrimônio",
-    "Impressora - Nº de Patrimônio",
-    "Estabilizador - Nº de Patrimônio",
-    "Nobreak - Nº de Patrimônio",
-    "Switch - Nº de Patrimônio",
-    "Roteador - Nº de Patrimônio"
-]
-SETORES_PADRAO = [
-    "Recepção",
-    "Triagem",
-    "Consultório",
-    "Farmácia",
-    "Almoxarifado",
-    "Administração",
-    "Sala de Reuniões",
-    "TI / Informática"
-]
-LISTA_URS_PADRAO = ["URS Centrad", "URS Jacaraípe", "URS Serra Dourada"]
-LISTA_UBS_PADRAO = ["UBS Bairro das Laranjeiras", "UBS Feu Rosa", "UBS Novo Horizonte"]
-
-def formatar_nome_patrimonio(nome: str) -> str:
-    nome_limpo = nome.strip()
-    if not re.search(r'-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', nome_limpo, re.IGNORECASE):
-        return f"{nome_limpo} - Nº de Patrimônio"
-    return nome_limpo
-
-def formatar_nome_fabricante(nome: str) -> str:
-    nome_base = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', nome.strip(), flags=re.IGNORECASE)
-    return f"Fabricante {nome_base}"
-
-@st.cache_data
-def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
-    if os.path.exists(ARQUIVO_EXCEL):
-        try:
-            xls = pd.ExcelFile(ARQUIVO_EXCEL)
-            if unidade in xls.sheet_names:
-                df = pd.read_excel(ARQUIVO_EXCEL, sheet_name=unidade)
-                return df, ARQUIVO_EXCEL
-        except Exception:
-            pass
-    return pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO), ARQUIVO_EXCEL
-
-def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
-    try:
-        if os.path.exists(ARQUIVO_EXCEL):
-            with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
-                df.to_excel(writer, sheet_name=unidade, index=False)
-        else:
-            with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl") as writer:
-                df.to_excel(writer, sheet_name=unidade, index=False)
-        return True
-    except Exception:
-        return False
-
 def excluir_setor(setor: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     if not df.empty and COLUNA_CHAVE in df.columns:
@@ -74,16 +21,19 @@ def excluir_setor(setor: str, unidade: str) -> bool:
         return salvar_no_excel(df, unidade)
     return False
 
-# CORREÇÃO DO ERRO DE TIPO NO PANDAS
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     if not df.empty and COLUNA_CHAVE in df.columns and coluna in df.columns:
+        # Normaliza as colunas afetadas para aceitarem strings sem erros de tipo
         df[coluna] = df[coluna].fillna("").astype(str)
         coluna_fabricante = formatar_nome_fabricante(coluna)
         if coluna_fabricante in df.columns:
             df[coluna_fabricante] = df[coluna_fabricante].fillna("").astype(str)
 
+        # Localiza o setor específico de forma insensível a maiúsculas/minúsculas
         mask = df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor.strip().lower()
+        
+        # Limpa o valor do patrimônio e seu fabricante correspondente
         df.loc[mask, coluna] = ""
         if coluna_fabricante in df.columns:
             df.loc[mask, coluna_fabricante] = ""
@@ -432,9 +382,11 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         with col_btn2:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=f"Tabela_{unidade.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
 
-        # GERENCIADOR DE EXCLUSÃO
+        # ==============================================================================
+        # GERENCIADOR DE EXCLUSÃO CORRIGIDO
+        # ==============================================================================
         with st.expander(f"🗑️ Gerenciador de Exclusão — Aba ({unidade})", expanded=st.session_state.expander_gerenciador_open):
-            lista_setores_existentes = list(dict.fromkeys([s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]))
+            lista_setores_existentes = list(dict.fromkeys([s for s in df_atual[COLUNA_CHAVE].astype(str).tolist() if str(s).strip() and str(s).lower() not in ["nan", "none", "<na>", "null"]]))
             tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor", "❌ Excluir Patrimônio"])
 
             with tab_excluir_setor:
@@ -449,14 +401,16 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if setor_para_excluir:
                         st.session_state.expander_gerenciador_open = True
                     
-                    if setor_para_excluir and st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary"):
-                        excluir_setor(setor_para_excluir, unidade)
-                        carregar_dados_excel.clear()
-                        st.session_state.mensagem_sucesso = f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso."
-                        st.session_state.expander_gerenciador_open = False
-                        if "sb_excluir_setor_unico" in st.session_state:
-                            del st.session_state["sb_excluir_setor_unico"]
-                        st.rerun()
+                    if setor_para_excluir and st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary", key="btn_confirmar_del_setor"):
+                        if excluir_setor(setor_para_excluir, unidade):
+                            carregar_dados_excel.clear()
+                            st.session_state.mensagem_sucesso = f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso."
+                            st.session_state.expander_gerenciador_open = False
+                            if "sb_excluir_setor_unico" in st.session_state:
+                                del st.session_state["sb_excluir_setor_unico"]
+                            st.rerun()
+                        else:
+                            st.error(" Erro ao tentar excluir o setor.")
 
             with tab_excluir_patrimonio:
                 if lista_setores_existentes:
@@ -495,14 +449,16 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if coluna_patrimonio_del:
                         st.session_state.expander_gerenciador_open = True
                     
-                    if coluna_patrimonio_del and setor_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary"):
-                        excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
-                        carregar_dados_excel.clear()
-                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' excluído do setor '{setor_patrimonio_del}'!"
-                        st.session_state.expander_gerenciador_open = False
-                        if "sb_patrimonio_del" in st.session_state:
-                            del st.session_state["sb_patrimonio_del"]
-                        st.rerun()
+                    if coluna_patrimonio_del and setor_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary", key="btn_confirmar_del_patrimonio"):
+                        if excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade):
+                            carregar_dados_excel.clear()
+                            st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' excluído do setor '{setor_patrimonio_del}'!"
+                            st.session_state.expander_gerenciador_open = False
+                            if "sb_patrimonio_del" in st.session_state:
+                                del st.session_state["sb_patrimonio_del"]
+                            st.rerun()
+                        else:
+                            st.error(" Erro ao tentar excluir o patrimônio.")
 
 if __name__ == "__main__":
     st.set_page_config(page_title="Portal GTI-SESA / Inventários", layout="wide")
