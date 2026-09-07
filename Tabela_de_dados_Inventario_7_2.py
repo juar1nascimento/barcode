@@ -48,7 +48,6 @@ LISTA_UBS_PADRAO: List[str] = [
 # FUNÇÕES AUXILIARES DE FORMATAÇÃO E ARTICULAÇÃO GRAMATICAL
 # ==============================================================================
 def extrair_nome_base(nome: str) -> str:
-    """Extrai apenas a descrição base do patrimônio removendo sufixos e numerações."""
     limpo = str(nome).strip()
     limpo = re.sub(r'^\s*Fabricante\s+(da|do|dos|das|de)\s+', '', limpo, flags=re.IGNORECASE)
     limpo = re.sub(r'^\s*Fabricante\s+', '', limpo, flags=re.IGNORECASE)
@@ -56,17 +55,12 @@ def extrair_nome_base(nome: str) -> str:
     return limpo.strip()
 
 def formatar_nome_patrimonio(nome_patrimonio: str) -> str:
-    """Padroniza a coluna do código com o sufixo ' - Nº de Patrimônio'."""
     base = extrair_nome_base(nome_patrimonio)
     if not base or base == COLUNA_CHAVE:
         return nome_patrimonio.strip()
     return f"{base}{SUFIXO_PATRIMONIO}"
 
 def formatar_nome_fabricante(nome_patrimonio: str) -> str:
-    """
-    Gera dinamicamente o cabeçalho do Fabricante ajustando as preposições (da/do/dos/das)
-    conforme a descrição do equipamento. Ex: 'Fabricante da CPU', 'Fabricante do Monitor'.
-    """
     base = extrair_nome_base(nome_patrimonio)
     if not base or base == COLUNA_CHAVE:
         return ""
@@ -88,7 +82,6 @@ def formatar_nome_fabricante(nome_patrimonio: str) -> str:
     return f"Fabricante {preposicao} {base}"
 
 def sanitizar_nome_aba(nome_unidade: str) -> str:
-    """Higieniza o nome da URS/UBS para ser um nome de aba válido."""
     if not nome_unidade or not str(nome_unidade).strip():
         return "Geral"
     return re.sub(r'[\\/*?:\[\]]', '_', str(nome_unidade).strip())[:31]
@@ -119,10 +112,6 @@ def sincronizar_google_sheets(df: pd.DataFrame, nome_aba: str) -> bool:
 # REGRAS DE NEGÓCIO, MIGRAÇÃO DE DADOS E ORGANIZAÇÃO DA TABELA
 # ==============================================================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Organiza o DataFrame garantindo a migração de nomes antigos de fabricantes,
-    pareando cada patrimônio imediatamente ao lado de seu respectivo cabeçalho de fabricante.
-    """
     colunas_invisiveis = [
         c for c in df.columns 
         if c in COLUNAS_OBSOLETAS or str(c).startswith("➕") or "Unnamed" in str(c)
@@ -130,7 +119,6 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     if colunas_invisiveis:
         df = df.drop(columns=colunas_invisiveis, errors="ignore")
 
-    # Mapeamento para migração e atualização de nomes de cabeçalho
     renomear_map = {}
     for col in df.columns:
         if col != COLUNA_CHAVE:
@@ -162,7 +150,6 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
 
-    # Reordenamento pareado: [Setor] -> [Patrimônio A] -> [Fabricante do Patrimônio A] -> [Patrimônio B] ...
     ordem_colunas = [COLUNA_CHAVE]
     todas_colunas = [str(c).strip() for c in df.columns]
 
@@ -176,7 +163,6 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
         if col_fab in todas_colunas and col_fab not in ordem_colunas:
             ordem_colunas.append(col_fab)
 
-    # Inclui fabricantes remanescentes que por ventura não foram pareados
     for col in todas_colunas:
         if str(col).startswith("Fabricante ") and col not in ordem_colunas:
             ordem_colunas.append(col)
@@ -186,7 +172,6 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     return df_processado
 
 def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
-    """Aplica formatação executiva no Excel."""
     if not os.path.exists(caminho_arquivo): return
     try:
         import openpyxl
@@ -273,18 +258,21 @@ def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> bool:
     sucesso_local = False
 
     try:
-        import openpyxl
-        if not os.path.exists(ARQUIVO_EXCEL):
-            with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl") as writer:
-                df_limpo.to_excel(writer, sheet_name=nome_aba, index=False)
-        else:
-            wb = openpyxl.load_workbook(ARQUIVO_EXCEL)
-            if nome_aba in wb.sheetnames: del wb[nome_aba]
-            wb.save(ARQUIVO_EXCEL)
-            wb.close()
+        dict_abas = {}
+        if os.path.exists(ARQUIVO_EXCEL):
+            try:
+                xls = pd.ExcelFile(ARQUIVO_EXCEL)
+                for sheet in xls.sheet_names:
+                    if sheet != nome_aba:
+                        dict_abas[sheet] = pd.read_excel(xls, sheet_name=sheet, dtype=str, keep_default_na=False)
+            except Exception:
+                pass
+        
+        dict_abas[nome_aba] = df_limpo
 
-            with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl", mode="a") as writer:
-                df_limpo.to_excel(writer, sheet_name=nome_aba, index=False)
+        with pd.ExcelWriter(ARQUIVO_EXCEL, engine="openpyxl") as writer:
+            for sheet, data in dict_abas.items():
+                data.to_excel(writer, sheet_name=sheet, index=False)
 
         aplicar_estilo_excel(ARQUIVO_EXCEL, nome_aba)
         carregar_dados_excel.clear()
