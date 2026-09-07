@@ -103,7 +103,6 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = [str(c).strip() for c in df.columns]
     if "Tipo de Patrimônio" in df.columns and "Código de Barras" in df.columns:
         return df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
-
     setor_col = "Setor" if "Setor" in df.columns else (df.columns[0] if len(df.columns) else "Setor")
     registros = []
     for _, row in df.iterrows():
@@ -252,12 +251,28 @@ def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> tuple[pd.DataFrame,
 
 
 def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> tuple[pd.DataFrame, bool]:
+    """Compatibilidade com o gerenciador antigo e exclusão segura no modelo normalizado."""
     df = _normalizar_legacy_dataframe(df)
     if df.empty:
         return df.copy(), False
-    tipo = _normalizar_tipo(re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", str(coluna), flags=re.I))
-    mask = (df["Setor"].astype(str).str.strip().str.casefold() == _valor_texto(setor).casefold()) & (df["Tipo de Patrimônio"].astype(str) == tipo)
-    return (df.loc[~mask].copy(), True) if mask.any() else (df.copy(), False)
+    mask_setor = df["Setor"].astype(str).str.strip().str.casefold() == _valor_texto(setor).casefold()
+    if not mask_setor.any():
+        return df.copy(), False
+    subset = df.loc[mask_setor].copy()
+    coluna = str(coluna or "").strip()
+    if coluna == "Tipo de Patrimônio":
+        valor = _valor_texto(subset.iloc[0]["Tipo de Patrimônio"])
+        mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(valor)
+    elif coluna == "Nº de Patrimônio":
+        valor = _valor_texto(subset.iloc[0]["Nº de Patrimônio"])
+        mask_excluir = mask_setor & df["Nº de Patrimônio"].astype(str).str.strip().eq(valor)
+    elif coluna == "Código de Barras":
+        valor = _valor_texto(subset.iloc[0]["Código de Barras"])
+        mask_excluir = mask_setor & df["Código de Barras"].astype(str).str.strip().eq(valor)
+    else:
+        tipo = _normalizar_tipo(re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", coluna, flags=re.I))
+        mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(tipo)
+    return (df.loc[~mask_excluir].copy(), True) if mask_excluir.any() else (df.copy(), False)
 
 
 def excluir_setor(setor: str, unidade: str) -> bool:
