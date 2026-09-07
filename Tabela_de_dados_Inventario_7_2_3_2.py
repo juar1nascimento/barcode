@@ -12,31 +12,40 @@ ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Local / Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Setor"]
 
-# Ordem Fixa e Oficial das Colunas (Lado a Lado: Patrimônio -> Fabricante)
+# Ordem Oficial das Colunas: Organizadas em ORDEM ALFABÉTICA por Equipamento (Patrimônio + Fabricante lado a lado)
 ORDEM_COLUNAS_OFICIAL = [
     "Local / Setor",
     "CPU - Nº de Patrimônio", "Fabricante CPU",
-    "Monitores - Nº de Patrimônio", "Fabricante dos Monitores",
-    "Nobreak - Nº de Patrimônio", "Fabricante Nobreak",
-    "Teclado - Nº de Patrimônio", "Fabricante Teclado",
-    "Mouse - Nº de Patrimônio", "Fabricante Mouse",
-    "Impressora - Nº de Patrimônio", "Fabricante Impressora",
     "Estabilizador - Nº de Patrimônio", "Fabricante Estabilizador",
-    "Switch - Nº de Patrimônio", "Fabricante Switch"
+    "Impressora - Nº de Patrimônio", "Fabricante Impressora",
+    "Monitores - Nº de Patrimônio", "Fabricante dos Monitores",
+    "Mouse - Nº de Patrimônio", "Fabricante Mouse",
+    "Nobreak - Nº de Patrimônio", "Fabricante Nobreak",
+    "Switch - Nº de Patrimônio", "Fabricante Switch",
+    "Teclado - Nº de Patrimônio", "Fabricante Teclado"
 ]
 
 SETORES_PADRAO = ["Recepção", "Triagem", "Farmácia", "Consultório", "Almoxarifado"]
 LISTA_URS_PADRAO = ["URS I", "URS II", "URS III"]
 LISTA_UBS_PADRAO = ["UBS Central", "UBS Jardim", "UBS Vila Nova"]
 
-# Mapeamento para unir colunas duplicadas que vinham com nomes ligeiramente diferentes
+# Mapeamento para redirecionar nomes duplicados/alternativos para a coluna única e oficial
 MAPA_RENOMEAR_COLUNAS = {
+    # CPU
     "Computador - Nº de Patrimônio": "CPU - Nº de Patrimônio",
     "Fabricante Computador": "Fabricante CPU",
     "Fabricante do Computador": "Fabricante CPU",
+    
+    # Monitores
     "Monitor - Nº de Patrimônio": "Monitores - Nº de Patrimônio",
     "Fabricante Monitor": "Fabricante dos Monitores",
-    "Fabricante do Monitor": "Fabricante dos Monitores"
+    "Fabricante do Monitor": "Fabricante dos Monitores",
+    
+    # Teclado, Mouse, Impressora e Nobreak
+    "Fabricante do Teclado": "Fabricante Teclado",
+    "Fabricante do Mouse": "Fabricante Mouse",
+    "Fabricante da Impressora": "Fabricante Impressora",
+    "Fabricante do Nobreak": "Fabricante Nobreak"
 }
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
@@ -47,6 +56,8 @@ def formatar_nome_patrimonio(patrimonio: str) -> str:
 
 def formatar_nome_fabricante(patrimonio: str) -> str:
     p_limpo = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', patrimonio.strip(), flags=re.IGNORECASE)
+    if "monitor" in p_limpo.lower():
+        return "Fabricante dos Monitores"
     return f"Fabricante {p_limpo}"
 
 # ==============================================================================
@@ -93,14 +104,12 @@ def conectar_google_sheets():
 
 def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Padroniza e organiza colunas:
-    1. Consolida a antiga coluna 'Setor' para 'Local / Setor'.
-    2. Unifica nomes de colunas variantes para evitar duplicidade.
-    3. Alinha cada Patrimônio imediatamente ao lado do seu Fabricante.
+    Padroniza, consolida colunas duplicadas, elimina colunas desnecessárias,
+    ordena as colunas em ordem alfabética de equipamento e ordena as linhas por setor.
     """
     df = df.copy()
     
-    # 1. Elimina coluna 'Setor' migrando dados para 'Local / Setor'
+    # 1. Elimina coluna antiga 'Setor' migrando valores para 'Local / Setor'
     if "Setor" in df.columns:
         if COLUNA_CHAVE in df.columns:
             df[COLUNA_CHAVE] = df[COLUNA_CHAVE].replace("", np.nan).fillna(df["Setor"]).fillna("")
@@ -108,10 +117,14 @@ def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
             df[COLUNA_CHAVE] = df["Setor"]
         df = df.drop(columns=["Setor"])
 
-    # 2. Renomeia e unifica colunas variantes
-    cols_para_renomear = {k: v for k, v in MAPA_RENOMEAR_COLUNAS.items() if k in df.columns}
-    if cols_para_renomear:
-        df = df.rename(columns=cols_para_renomear)
+    # 2. Consolida dados de colunas duplicadas/renomeadas antes de excluí-las
+    for col_antiga, col_oficial in MAPA_RENOMEAR_COLUNAS.items():
+        if col_antiga in df.columns:
+            if col_oficial not in df.columns:
+                df[col_oficial] = df[col_antiga]
+            else:
+                df[col_oficial] = df[col_oficial].replace("", np.nan).fillna(df[col_antiga]).fillna("")
+            df = df.drop(columns=[col_antiga])
 
     # 3. Elimina colunas obsoletas
     cols_para_remover = [c for c in COLUNAS_OBSOLETAS if c in df.columns]
@@ -122,12 +135,16 @@ def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     if COLUNA_CHAVE not in df.columns:
         df.insert(0, COLUNA_CHAVE, "")
 
-    # 5. Ordenação Padrão: Mapeia as colunas oficiais primeiro (lado a lado) + adicionais ao final
-    colunas_ordenadas = [c for c in ORDEM_COLUNAS_OFICIAL if c in df.columns]
-    colunas_extras = [c for c in df.columns if c not in colunas_ordenadas]
-    
-    colunas_finais = colunas_ordenadas + colunas_extras
-    return df[colunas_finais]
+    # 5. Garante que todas as colunas oficiais existam no DataFrame
+    for col in ORDEM_COLUNAS_OFICIAL:
+        if col not in df.columns:
+            df[col] = ""
+
+    # 6. Ordena as linhas alfabeticamente pela coluna 'Local / Setor'
+    df = df.sort_values(by=COLUNA_CHAVE, ascending=True, key=lambda x: x.str.lower())
+
+    # 7. Retorna o DataFrame mantendo estritamente a ordem de colunas oficial
+    return df[ORDEM_COLUNAS_OFICIAL]
 
 def remover_coluna_setor_da_planilha(aba: gspread.Worksheet):
     """
@@ -142,12 +159,12 @@ def remover_coluna_setor_da_planilha(aba: gspread.Worksheet):
 
 def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_colunas: int):
     """
-    Aplica formatação visual, congela o cabeçalho e alinha o texto.
+    Aplica formatação visual no Google Sheets.
     """
     try:
         aba.freeze(rows=1)
 
-        # Cabeçalho Azul Escuro
+        # Cabeçalho Azul Escuro com texto Branco
         aba.format(f"A1:{gspread.utils.rowcol_to_a1(1, total_colunas)}", {
             "backgroundColor": {"red": 0.12, "green": 0.30, "blue": 0.47},
             "textFormat": {"foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}, "bold": True, "fontSize": 10},
@@ -168,7 +185,7 @@ def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     """
-    Carrega dados do Google Sheets organizando colunas e corrigindo desalinhameto.
+    Carrega dados do Google Sheets organizando colunas e eliminando duplicatas.
     """
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
@@ -210,21 +227,16 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
 
 def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_equipamentos: Dict[str, str]) -> bool:
     """
-    Insere/Atualiza dados garantindo que pertençam às colunas oficiais já existentes.
+    Insere/atualiza registros garantindo o uso exclusivo das colunas oficiais.
     """
     df, _ = carregar_dados_excel(unidade)
     setor_limpo = setor_selecionado.strip()
     
-    # Normaliza e mapeia as chaves recebidas para evitar criar novas colunas
+    # Redireciona chaves recebidas para o mapa de nomenclatura oficial
     dados_normalizados = {}
     for k, v in dados_equipamentos.items():
         col_destino = MAPA_RENOMEAR_COLUNAS.get(k, k)
         dados_normalizados[col_destino] = v
-
-    # Garante inclusão de colunas apenas se realmente novas
-    for col in dados_normalizados.keys():
-        if col not in df.columns:
-            df[col] = ""
 
     indices_setor = df[df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor_limpo.lower()].index
     linha_destino_idx = None
@@ -233,7 +245,7 @@ def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_
         for idx in indices_setor:
             colisoes = False
             for col, val in dados_normalizados.items():
-                if val:
+                if val and col in df.columns:
                     val_atual = str(df.at[idx, col]).strip()
                     if val_atual != "":
                         colisoes = True
@@ -246,28 +258,28 @@ def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_
         nova_linha = {c: "" for c in df.columns}
         nova_linha[COLUNA_CHAVE] = setor_limpo
         for col, val in dados_normalizados.items():
-            if val:
+            if val and col in nova_linha:
                 nova_linha[col] = str(val).strip()
         
         df_nova = pd.DataFrame([nova_linha])
         df = pd.concat([df, df_nova], ignore_index=True)
     else:
         for col, val in dados_normalizados.items():
-            if val:
+            if val and col in df.columns:
                 df.at[linha_destino_idx, col] = str(val).strip()
 
     return salvar_no_excel(df, unidade)
 
 def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     """
-    Reescreve a aba com cabeçalho limpo, ordenado e centralizado no Google Sheets.
+    Salva os dados no Google Sheets mantendo o leiaute limpo, organizado e reordenado.
     """
     sucesso_sheets = False
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
 
-    # Aplica normalização estrita antes de gravar
+    # Aplica normalização e ordenação estrita antes do salvamento
     df_salvar = expurgar_e_normalizar_setores(df).fillna("").astype(str)
 
     if planilha:
