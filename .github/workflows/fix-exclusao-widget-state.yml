@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - '.github/workflows/fix-exclusao-widget-state.yml'
       - 'scripts/fix_exclusao_widget_state.py'
 
 permissions:
