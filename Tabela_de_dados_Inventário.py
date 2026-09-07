@@ -12,8 +12,17 @@ GOOGLE_SHEET_URL: str = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3E
 
 COLUNA_CHAVE: str = "Local / Setor"
 
+# Sufixo padrão exigido para colunas de patrimônio
+SUFIXO_PATRIMONIO: str = " - N de Patrimônio"
+
 COLUNAS_PADRAO: List[str] = [
-    COLUNA_CHAVE, "CPU", "Monitores", "Nobreak", "Teclado", "Mouse", "Impressora"
+    COLUNA_CHAVE,
+    f"CPU{SUFIXO_PATRIMONIO}",
+    f"Monitores{SUFIXO_PATRIMONIO}",
+    f"Nobreak{SUFIXO_PATRIMONIO}",
+    f"Teclado{SUFIXO_PATRIMONIO}",
+    f"Mouse{SUFIXO_PATRIMONIO}",
+    f"Impressora{SUFIXO_PATRIMONIO}"
 ]
 
 COLUNAS_OBSOLETAS: List[str] = [
@@ -45,8 +54,20 @@ LISTA_UBS_PADRAO: List[str] = [
 ]
 
 # ==============================================================================
-# FUNÇÃO AUXILIAR DE SANITIZAÇÃO DE NOMES DE ABAS
+# FUNÇÕES AUXILIARES DE FORMATAÇÃO E SANITIZAÇÃO
 # ==============================================================================
+def formatar_nome_patrimonio(nome_patrimonio: str) -> str:
+    """
+    Garante a regra de nomenclatura inserindo ' - N de Patrimônio' no cabeçalho.
+    Exemplo: 'CPU' -> 'CPU - N de Patrimônio'
+    """
+    nome_limpo = nome_patrimonio.strip()
+    if not nome_limpo or nome_limpo == COLUNA_CHAVE or nome_limpo.startswith("Fabricante "):
+        return nome_limpo
+    if SUFIXO_PATRIMONIO.lower() not in nome_limpo.lower():
+        return f"{nome_limpo}{SUFIXO_PATRIMONIO}"
+    return nome_limpo
+
 def sanitizar_nome_aba(nome_unidade: str) -> str:
     """Higieniza o nome da URS/UBS para ser um nome de aba válido."""
     if not nome_unidade or not str(nome_unidade).strip():
@@ -83,7 +104,11 @@ def sincronizar_google_sheets(df: pd.DataFrame, nome_aba: str) -> bool:
 # REGRAS DE NEGÓCIO E ORGANIZAÇÃO DAS COLUNAS DE FABRICANTE
 # ==============================================================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Higieniza o DataFrame e agrupa cada fabricante ao lado de seu respetivo patrimônio."""
+    """
+    Higieniza o DataFrame, aplica a regra de cabeçalho ' - N de Patrimônio'
+    e agrupa cada fabricante ao lado de seu respectivo patrimônio.
+    """
+    # 1. Remove colunas obsoletas ou indesejadas
     colunas_invisiveis = [
         c for c in df.columns 
         if c in COLUNAS_OBSOLETAS or str(c).startswith("➕") or "Unnamed" in str(c)
@@ -91,32 +116,39 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     if colunas_invisiveis:
         df = df.drop(columns=colunas_invisiveis, errors="ignore")
 
+    # 2. Renomeia colunas antigas para adotar o sufixo ' - N de Patrimônio'
+    renomear_map = {}
+    for col in df.columns:
+        if col != COLUNA_CHAVE and not str(col).startswith("Fabricante "):
+            col_formatada = formatar_nome_patrimonio(str(col))
+            if col_formatada != col:
+                renomear_map[col] = col_formatada
+
+    if renomear_map:
+        df = df.rename(columns=renomear_map)
+
     if COLUNA_CHAVE not in df.columns:
         df.insert(0, COLUNA_CHAVE, "")
 
+    # 3. Garante existência das colunas padrão atualizadas
     for col in COLUNAS_PADRAO:
         if col not in df.columns:
             df[col] = ""
 
-    # Ordenação Inteligente: Coloca cada 'Fabricante <Patrimônio>' imediatamente após seu Patrimônio
+    # 4. Ordenação Inteligente: Coloca 'Fabricante <Patrimônio>' imediatamente após seu Patrimônio
     ordem_colunas = [COLUNA_CHAVE]
-    colunas_base = [c for c in COLUNAS_PADRAO if c != COLUNA_CHAVE]
     todas_colunas = [str(c).strip() for c in df.columns]
 
-    for col in colunas_base:
+    for col in todas_colunas:
+        if col == COLUNA_CHAVE or col.startswith("Fabricante "):
+            continue
         if col not in ordem_colunas:
             ordem_colunas.append(col)
+        
+        # Procura coluna do fabricante
         col_fab = f"Fabricante {col}"
         if col_fab in todas_colunas and col_fab not in ordem_colunas:
             ordem_colunas.append(col_fab)
-
-    # Adiciona colunas extras e customizadas junto com seus respectivos fabricantes
-    for col in todas_colunas:
-        if col not in ordem_colunas:
-            ordem_colunas.append(col)
-            col_fab = f"Fabricante {col}"
-            if col_fab in todas_colunas and col_fab not in ordem_colunas:
-                ordem_colunas.append(col_fab)
 
     df_processado = df.reindex(columns=ordem_colunas).fillna("").astype(str)
     df_processado[COLUNA_CHAVE] = df_processado[COLUNA_CHAVE].str.strip()
@@ -175,7 +207,7 @@ def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
         for col in ws.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
             col_letter = get_column_letter(col[0].column)
-            ws.column_dimensions[col_letter].width = max(max_len + 5, 16)
+            ws.column_dimensions[col_letter].width = max(max_len + 5, 18)
 
         wb.save(caminho_arquivo)
     except Exception as e:
@@ -264,7 +296,7 @@ def excluir_setor(setor_nome: str, unidade_nome: str) -> None:
     st.session_state.df_historico = df_filtrado
 
 def excluir_patrimonio(setor_nome: str, coluna_patrimonio: str, unidade_nome: str) -> None:
-    """Limpa a célula do patrimônio e seu respetivo fabricante na aba correspondente."""
+    """Limpa a célula do patrimônio e seu respectivo fabricante na aba correspondente."""
     df, _ = carregar_dados_excel(unidade_nome)
     if df.empty or COLUNA_CHAVE not in df.columns or coluna_patrimonio not in df.columns:
         return

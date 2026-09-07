@@ -7,26 +7,28 @@ from typing import Optional, Tuple, List, Dict, Any
 # Importação dos módulos independentes e constantes
 from Tabela_de_dados_Inventário import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
-    LISTA_URS_PADRAO, LISTA_UBS_PADRAO,
+    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio,
     carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio
 )
 
 # ==============================================================================
-# LÓGICA DE CADASTRO COM SUPORTE A FABRICANTE E MÚLTIPLOS PATRIMÔNIOS
+# LÓGICA DE CADASTRO COM SUPORTE A FABRICANTE E REGRA DE CABEÇALHO
 # ==============================================================================
 def adicionar_e_salvar_sem_sobrescrever(
     codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
 ) -> bool:
     """
-    Garante o cadastro do código e do fabricante em colunas independentes sem sobrescrever.
-    Salva em Excel e sincroniza no Google Sheets.
+    Garante o cadastro do código com cabeçalho formatado '<Patrimônio> - N de Patrimônio' 
+    e do fabricante em colunas independentes sem sobrescrever.
     """
     setor_limpo = setor.strip()
     codigo_limpo = codigo.strip()
-    patrimonio_limpo = patrimonio.strip()
     fabricante_limpo = fabricante.strip()
+    
+    # Aplica a regra de nomenclatura no nome do patrimônio para o cabeçalho
+    patrimonio_cabecalho = formatar_nome_patrimonio(patrimonio.strip())
 
-    if not setor_limpo or not codigo_limpo or not patrimonio_limpo or not unidade:
+    if not setor_limpo or not codigo_limpo or not patrimonio_cabecalho or not unidade:
         return False
 
     # 1. Carrega o DataFrame atual da unidade
@@ -40,11 +42,11 @@ def adicionar_e_salvar_sem_sobrescrever(
     if df.empty or COLUNA_CHAVE not in df.columns:
         df = pd.DataFrame(columns=[COLUNA_CHAVE])
 
-    # 2. Garante que a coluna do patrimônio e de seu Fabricante existam no DataFrame
-    coluna_fabricante = f"Fabricante {patrimonio_limpo}"
+    # 2. Garante que a coluna do patrimônio (formatada) e do Fabricante existam no DataFrame
+    coluna_fabricante = f"Fabricante {patrimonio_cabecalho}"
     
-    if patrimonio_limpo not in df.columns:
-        df[patrimonio_limpo] = ""
+    if patrimonio_cabecalho not in df.columns:
+        df[patrimonio_cabecalho] = ""
     if coluna_fabricante not in df.columns:
         df[coluna_fabricante] = ""
 
@@ -57,20 +59,20 @@ def adicionar_e_salvar_sem_sobrescrever(
 
     linha_destino_idx = None
     for idx in indices_setor:
-        val_celula = str(df.at[idx, patrimonio_limpo]).strip().lower()
+        val_celula = str(df.at[idx, patrimonio_cabecalho]).strip().lower()
         if val_celula in ["", "nan", "none", "<na>", "null"]:
             linha_destino_idx = idx
             break
 
     # 4. Preenche em linha com espaço vago ou adiciona nova linha ao setor
     if linha_destino_idx is not None:
-        df.at[linha_destino_idx, patrimonio_limpo] = codigo_limpo
+        df.at[linha_destino_idx, patrimonio_cabecalho] = codigo_limpo
         if fabricante_limpo:
             df.at[linha_destino_idx, coluna_fabricante] = fabricante_limpo
     else:
         nova_linha = {col: "" for col in df.columns}
         nova_linha[COLUNA_CHAVE] = setor_limpo
-        nova_linha[patrimonio_limpo] = codigo_limpo
+        nova_linha[patrimonio_cabecalho] = codigo_limpo
         nova_linha[coluna_fabricante] = fabricante_limpo
         df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
 
@@ -196,7 +198,7 @@ def renderizar_portal_principal(
 # PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
 # ==============================================================================
 def renderizar_sistema_inventario(*args, **kwargs) -> None:
-    """Renderiza a página exclusiva de inventário com entrada para Fabricante por patrimônio."""
+    """Renderiza a página exclusiva de inventário com cabeçalhos padronizados."""
     unidade = st.session_state.get("unidade_selecionada", "")
     
     if not unidade:
@@ -242,12 +244,21 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     if "➕ Outro Setor" not in opcoes_setor:
         opcoes_setor.append("➕ Outro Setor")
 
-    # Filtra colunas de patrimônio descartando colunas de fabricante da lista principal de seleção
+    # Obtém tipos de patrimônio limpando o sufixo ' - N de Patrimônio' para apresentação no selectbox
     colunas_df_atuais = [
         col for col in st.session_state.df_historico.columns 
         if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS and not str(col).startswith("Fabricante ")
     ]
-    opcoes_patrimonio = list(dict.fromkeys(colunas_df_atuais + [c for c in COLUNAS_PADRAO if c != COLUNA_CHAVE])) + ["➕ Outros Patrimônios"]
+    
+    # Extrai o nome amigável (sem o sufixo) para o dropdown
+    opcoes_patrimonio_limpas = []
+    for col in dict.fromkeys(colunas_df_atuais + COLUNAS_PADRAO):
+        if col != COLUNA_CHAVE:
+            nome_limpo = str(col).replace(" - N de Patrimônio", "").strip()
+            if nome_limpo not in opcoes_patrimonio_limpas:
+                opcoes_patrimonio_limpas.append(nome_limpo)
+
+    opcoes_patrimonio = opcoes_patrimonio_limpas + ["➕ Outros Patrimônios"]
 
     # Layout responsivo em 4 colunas incluindo a entrada do Fabricante
     col_desc1, col_desc2, col_desc3, col_desc4 = st.columns([1, 1, 1, 1])
@@ -335,9 +346,12 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     else:
         tab_unificada, tab_upload = st.tabs(["⚡ Câmera / Scanner USB", "📁 Upload de Imagem"])
         
+        # Nome formatado para exibição visual
+        header_patrimonio = formatar_nome_patrimonio(descricao_final)
+
         with tab_unificada:
             info_fab = f" | **Fabricante:** `{fabricante_input.strip()}`" if fabricante_input.strip() else ""
-            st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Patrimônio:** `{descricao_final}`{info_fab}")
+            st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Cabeçalho Tabela:** `{header_patrimonio}`{info_fab}")
             col_camera, col_usb = st.columns([1.2, 1])
 
             with col_camera:
@@ -408,7 +422,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                             fabricante_input.strip()
                         )
                         if salvou:
-                            st.session_state.mensagem_sucesso = f"✅ Código `{codigo_input.strip()}` registrado com sucesso no setor `{setor_input}` ({unidade})."
+                            st.session_state.mensagem_sucesso = f"✅ Código `{codigo_input.strip()}` registrado na coluna `{header_patrimonio}` no setor `{setor_input}` ({unidade})."
                         st.rerun()
 
         with tab_upload:
@@ -433,7 +447,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                                 codigos_registrados.append(item["codigo"])
                         
                         if codigos_registrados:
-                            st.session_state.mensagem_sucesso = f"✅ {len(codigos_registrados)} código(s) registrado(s) com sucesso!"
+                            st.session_state.mensagem_sucesso = f"✅ {len(codigos_registrados)} código(s) registrado(s) com sucesso na coluna `{header_patrimonio}`!"
                         st.rerun()
 
     st.divider()
@@ -505,7 +519,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
                     with c_del2:
                         coluna_patrimonio_del = st.selectbox(
-                            "Selecione o Tipo de Patrimônio:", 
+                            "Selecione a Coluna de Patrimônio:", 
                             options=colunas_com_dados, 
                             index=None,
                             placeholder="Selecione o patrimônio...",
