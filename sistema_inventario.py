@@ -1,3 +1,5 @@
+import os
+import pandas as pd
 import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
@@ -6,8 +8,83 @@ from typing import Optional, Tuple, List, Dict, Any
 from Tabela_de_dados_Inventário import (
     COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO,
-    carregar_dados_excel, adicionar_e_salvar, excluir_setor, excluir_patrimonio
+    carregar_dados_excel, excluir_setor, excluir_patrimonio
 )
+
+# ==============================================================================
+# LÓGICA DE CADASTRO SEM SOBRESCREVER (MÚLTIPLOS PATRIMÔNIOS POR SETOR)
+# ==============================================================================
+def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str) -> None:
+    """
+    Garante que o cadastro de código de barras não sobrescreva um patrimônio já cadastrado.
+    Se a coluna do patrimônio no setor já estiver preenchida, cria uma nova linha na tabela
+    para o mesmo setor.
+    """
+    setor_limpo = setor.strip()
+    codigo_limpo = codigo.strip()
+    patrimonio_limpo = patrimonio.strip()
+
+    if not setor_limpo or not codigo_limpo or not patrimonio_limpo or not unidade:
+        return
+
+    # 1. Carrega o DataFrame atual da unidade
+    try:
+        df_atual, caminho_excel = carregar_dados_excel(unidade)
+        df = df_atual.copy()
+    except Exception:
+        df = pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO)
+        caminho_excel = "Inventario_GTI.xlsx"
+
+    if df.empty or COLUNA_CHAVE not in df.columns:
+        df = pd.DataFrame(columns=[COLUNA_CHAVE])
+
+    # 2. Garante que a coluna do patrimônio existe no DataFrame
+    if patrimonio_limpo not in df.columns:
+        df[patrimonio_limpo] = ""
+
+    # Normaliza valores nulos/NaN para string vazia
+    df = df.fillna("").astype(str)
+
+    # 3. Localiza as linhas existentes associadas a este setor
+    mask_setor = df[COLUNA_CHAVE].str.strip().str.lower() == setor_limpo.lower()
+    indices_setor = df[mask_setor].index
+
+    linha_destino_idx = None
+
+    # 4. Procura uma linha do setor onde a célula do patrimônio esteja livre/vazia
+    for idx in indices_setor:
+        val_celula = str(df.at[idx, patrimonio_limpo]).strip().lower()
+        if val_celula in ["", "nan", "none", "<na>", "null"]:
+            linha_destino_idx = idx
+            break
+
+    # 5. Se encontrou uma linha com espaço vago, preenche nela. Caso contrário, adiciona nova linha!
+    if linha_destino_idx is not None:
+        df.at[linha_destino_idx, patrimonio_limpo] = codigo_limpo
+    else:
+        nova_linha = {col: "" for col in df.columns}
+        nova_linha[COLUNA_CHAVE] = setor_limpo
+        nova_linha[patrimonio_limpo] = codigo_limpo
+        df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+
+    # 6. Salva as alterações na planilha Excel mantendo as demais abas intactas
+    try:
+        if os.path.exists(caminho_excel):
+            with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+                df.to_excel(writer, sheet_name=unidade, index=False)
+        else:
+            with pd.ExcelWriter(caminho_excel, engine="openpyxl", mode="w") as writer:
+                df.to_excel(writer, sheet_name=unidade, index=False)
+    except Exception as err:
+        print(f"[ERRO AO SALVAR PLANILHA]: {err}")
+
+    # 7. Limpa o cache do Streamlit para recarregar a tabela atualizada
+    carregar_dados_excel.clear()
+
+
+# Substitui a função global para uso unificado no sistema
+adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
+
 
 # ==============================================================================
 # VISÃO COMPUTACIONAL / LEITURA DE IMAGEM
@@ -60,6 +137,7 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
         print(f"[ERRO PROCESSAR IMAGEM]: {err}")
         return None, []
 
+
 # ==============================================================================
 # CARD DE INVENTÁRIO E PORTAL DE NAVEGAÇÃO
 # ==============================================================================
@@ -102,6 +180,7 @@ def renderizar_card_inventario(
                 st.session_state.pagina_atual = "inventario"
                 st.rerun()
 
+
 def renderizar_portal_principal(
     lista_urs: Optional[List[str]] = None, 
     lista_ubs: Optional[List[str]] = None,
@@ -110,6 +189,7 @@ def renderizar_portal_principal(
 ) -> None:
     """Suporte para execução standalone ou redirecionamento para o card de inventário."""
     renderizar_card_inventario(lista_urs=lista_urs, lista_ubs=lista_ubs, *args, **kwargs)
+
 
 # ==============================================================================
 # PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
@@ -148,7 +228,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     st.divider()
 
-    # Opções de setor sem elementos genéricos
+    # Opções de setor limpas
     opcoes_setor = [s for s in (SETORES_PADRAO if isinstance(SETORES_PADRAO, (list, tuple)) else []) if not str(s).startswith("Selecione")]
     if "Consultório" not in opcoes_setor:
         opcoes_setor.append("Consultório")
@@ -170,7 +250,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         )
 
         setor_input = ""
-        # Caso o usuário selecione 'Consultório'
+        # Regra para 'Consultório' (Contador + Especialidade)
         if setor_selecionado == "Consultório":
             col_num, col_esp = st.columns([1, 1.5])
             with col_num:
@@ -194,7 +274,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             else:
                 setor_input = f"Consultório {num_consultorio}"
 
-        # Caso o usuário selecione '➕ Outro Setor'
+        # Regra para '➕ Outro Setor'
         elif setor_selecionado == "➕ Outro Setor":
             setor_input = st.text_input(
                 "Nome do Setor:",
@@ -301,8 +381,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     codigo_input = st.text_input("Código Lido / Bipado:", autocomplete="off", placeholder="Aguardando bipagem...", key="input_codigo_bip")
                     if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
                         adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade)
-                        carregar_dados_excel.clear()
-                        st.success(f"✅ Código `{codigo_input.strip()}` salvo na aba `{unidade}`.")
+                        st.success(f"✅ Código `{codigo_input.strip()}` registrado na aba `{unidade}`.")
                         st.rerun()
 
         with tab_upload:
@@ -319,7 +398,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         for item in codigos_encontrados:
                             adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade)
                             st.write(f"**Código:** `{item['codigo']}` ➡️ Aba: **{unidade}** | Setor: **{setor_input}**")
-                        carregar_dados_excel.clear()
                         st.rerun()
 
     st.divider()
@@ -348,7 +426,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=nome_arquivo_csv, mime="text/csv", use_container_width=True)
 
         with st.expander(f"🗑️ Gerenciador de Exclusão — Aba ({unidade})", expanded=False):
-            lista_setores_existentes = [s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]
+            lista_setores_existentes = list(dict.fromkeys([s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]))
             tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor", "❌ Excluir Patrimônio"])
 
             with tab_excluir_setor:
@@ -402,6 +480,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
                         carregar_dados_excel.clear()
                         st.rerun()
+
 
 # ==============================================================================
 # PONTO DE ENTRADA DO APLICATIVO E ROTEAMENTO
