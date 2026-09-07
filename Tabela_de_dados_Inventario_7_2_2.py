@@ -5,7 +5,10 @@ import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
-from Tabela_de_dados_Inventario_7_2_2 import (
+# ==============================================================================
+# IMPORTAÇÃO CORRIGIDA (SEM IMPORTAÇÃO CIRCULAR)
+# ==============================================================================
+from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
     carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio
@@ -352,7 +355,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         with col_btn2:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=f"Tabela_{unidade.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
 
-        # GERENCIADOR DE EXCLUSÃO CORRIGIDO
         with st.expander(f"🗑️ Gerenciador de Exclusão — Aba ({unidade})", expanded=st.session_state.expander_gerenciador_open):
             lista_setores_existentes = list(dict.fromkeys([s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]))
             tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor", "❌ Excluir Patrimônio"])
