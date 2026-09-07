@@ -140,16 +140,62 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     st.divider()
 
-    opcoes_setor = SETORES_PADRAO + ["➕ Outro Setor"]
+    # Garantir opções de Setor incluindo 'Consultório' e '➕ Outro Setor'
+    opcoes_setor = list(SETORES_PADRAO) if isinstance(SETORES_PADRAO, (list, tuple)) else []
+    if "Consultório" not in opcoes_setor:
+        opcoes_setor.append("Consultório")
+    if "➕ Outro Setor" not in opcoes_setor:
+        opcoes_setor.append("➕ Outro Setor")
+
     colunas_df_atuais = [col for col in st.session_state.df_historico.columns if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS]
     opcoes_patrimonio = list(dict.fromkeys(colunas_df_atuais + [c for c in COLUNAS_PADRAO if c != COLUNA_CHAVE])) + ["➕ Outros Patrimônios"]
 
     col_desc1, col_desc2, col_desc3 = st.columns(3)
 
     with col_desc1:
-        idx_setor = opcoes_setor.index(st.session_state.saved_setor) if st.session_state.saved_setor in opcoes_setor else opcoes_setor.index("➕ Outro Setor") if st.session_state.saved_setor else 0
+        saved = st.session_state.saved_setor
+        
+        # Determina o índice padrão do selectbox
+        if saved.startswith("Consultório") and "Consultório" in opcoes_setor:
+            idx_setor = opcoes_setor.index("Consultório")
+        elif saved in opcoes_setor:
+            idx_setor = opcoes_setor.index(saved)
+        elif saved:
+            idx_setor = opcoes_setor.index("➕ Outro Setor")
+        else:
+            idx_setor = 0
+
         setor_selecionado = st.selectbox("Setor:", opcoes_setor, index=idx_setor, key="setor_selecionado_key")
-        setor_input = st.text_input("Nome do Setor:", value=st.session_state.saved_setor if st.session_state.saved_setor not in opcoes_setor else "", placeholder="Ex: Raio-X...", key="setor_custom_key") if setor_selecionado == "➕ Outro Setor" else setor_selecionado
+
+        # Regra condicional para 'Consultório'
+        if setor_selecionado == "Consultório":
+            val_num = 1
+            if saved.startswith("Consultório"):
+                partes = saved.split()
+                if len(partes) > 1 and partes[-1].isdigit():
+                    val_num = int(partes[-1])
+
+            num_consultorio = st.number_input(
+                "Número do Consultório:",
+                min_value=1,
+                max_value=999,
+                value=val_num,
+                step=1,
+                key="num_consultorio_key"
+            )
+            setor_input = f"Consultório {num_consultorio}"
+
+        # Regra condicional para 'Outro Setor'
+        elif setor_selecionado == "➕ Outro Setor":
+            setor_input = st.text_input(
+                "Nome do Setor:",
+                value=saved if saved not in opcoes_setor and not saved.startswith("Consultório") else "",
+                placeholder="Ex: Raio-X...",
+                key="setor_custom_key"
+            )
+        else:
+            setor_input = setor_selecionado
+
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
