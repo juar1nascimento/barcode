@@ -11,14 +11,33 @@ from typing import Optional, Tuple, List, Dict, Any
 ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Local / Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Setor"]
-COLUNAS_PADRAO = [
-    "Computador - Nº de Patrimônio", "Fabricante Computador",
-    "Monitor - Nº de Patrimônio", "Fabricante Monitor",
-    "Impressora - Nº de Patrimônio", "Fabricante Impressora"
+
+# Ordem Fixa e Oficial das Colunas (Lado a Lado: Patrimônio -> Fabricante)
+ORDEM_COLUNAS_OFICIAL = [
+    "Local / Setor",
+    "CPU - Nº de Patrimônio", "Fabricante CPU",
+    "Monitores - Nº de Patrimônio", "Fabricante dos Monitores",
+    "Nobreak - Nº de Patrimônio", "Fabricante Nobreak",
+    "Teclado - Nº de Patrimônio", "Fabricante Teclado",
+    "Mouse - Nº de Patrimônio", "Fabricante Mouse",
+    "Impressora - Nº de Patrimônio", "Fabricante Impressora",
+    "Estabilizador - Nº de Patrimônio", "Fabricante Estabilizador",
+    "Switch - Nº de Patrimônio", "Fabricante Switch"
 ]
+
 SETORES_PADRAO = ["Recepção", "Triagem", "Farmácia", "Consultório", "Almoxarifado"]
 LISTA_URS_PADRAO = ["URS I", "URS II", "URS III"]
 LISTA_UBS_PADRAO = ["UBS Central", "UBS Jardim", "UBS Vila Nova"]
+
+# Mapeamento para unir colunas duplicadas que vinham com nomes ligeiramente diferentes
+MAPA_RENOMEAR_COLUNAS = {
+    "Computador - Nº de Patrimônio": "CPU - Nº de Patrimônio",
+    "Fabricante Computador": "Fabricante CPU",
+    "Fabricante do Computador": "Fabricante CPU",
+    "Monitor - Nº de Patrimônio": "Monitores - Nº de Patrimônio",
+    "Fabricante Monitor": "Fabricante dos Monitores",
+    "Fabricante do Monitor": "Fabricante dos Monitores"
+}
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
     p_limpo = patrimonio.strip()
@@ -74,12 +93,14 @@ def conectar_google_sheets():
 
 def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Regra estrita: consolida a seleção do menu suspenso do site exclusivamente
-    na coluna 'Local / Setor' e deleta qualquer ocorrência da antiga coluna 'Setor'.
+    Padroniza e organiza colunas:
+    1. Consolida a antiga coluna 'Setor' para 'Local / Setor'.
+    2. Unifica nomes de colunas variantes para evitar duplicidade.
+    3. Alinha cada Patrimônio imediatamente ao lado do seu Fabricante.
     """
     df = df.copy()
     
-    # 1. Se existir a coluna antiga 'Setor', transfere seus dados para 'Local / Setor'
+    # 1. Elimina coluna 'Setor' migrando dados para 'Local / Setor'
     if "Setor" in df.columns:
         if COLUNA_CHAVE in df.columns:
             df[COLUNA_CHAVE] = df[COLUNA_CHAVE].replace("", np.nan).fillna(df["Setor"]).fillna("")
@@ -87,38 +108,46 @@ def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
             df[COLUNA_CHAVE] = df["Setor"]
         df = df.drop(columns=["Setor"])
 
-    # 2. Assegura que 'Local / Setor' exista na posição inicial
-    if COLUNA_CHAVE not in df.columns:
-        df.insert(0, COLUNA_CHAVE, "")
+    # 2. Renomeia e unifica colunas variantes
+    cols_para_renomear = {k: v for k, v in MAPA_RENOMEAR_COLUNAS.items() if k in df.columns}
+    if cols_para_renomear:
+        df = df.rename(columns=cols_para_renomear)
 
-    # 3. Elimina qualquer coluna obsoleta da tabela
+    # 3. Elimina colunas obsoletas
     cols_para_remover = [c for c in COLUNAS_OBSOLETAS if c in df.columns]
     if cols_para_remover:
         df = df.drop(columns=cols_para_remover)
 
-    # 4. Ordena para colocar 'Local / Setor' na primeira coluna (Coluna A)
-    colunas_finais = [COLUNA_CHAVE] + [c for c in df.columns if c != COLUNA_CHAVE]
+    # 4. Assegura coluna Chave
+    if COLUNA_CHAVE not in df.columns:
+        df.insert(0, COLUNA_CHAVE, "")
+
+    # 5. Ordenação Padrão: Mapeia as colunas oficiais primeiro (lado a lado) + adicionais ao final
+    colunas_ordenadas = [c for c in ORDEM_COLUNAS_OFICIAL if c in df.columns]
+    colunas_extras = [c for c in df.columns if c not in colunas_ordenadas]
+    
+    colunas_finais = colunas_ordenadas + colunas_extras
     return df[colunas_finais]
 
 def remover_coluna_setor_da_planilha(aba: gspread.Worksheet):
     """
-    Verifica no Google Sheets se a coluna A é 'Setor' e exclui fisicamente a coluna da aba.
+    Verifica se a Coluna A é 'Setor' e faz a exclusão física na aba do Google Sheets.
     """
     try:
         primeira_linha = aba.row_values(1)
         if primeira_linha and primeira_linha[0].strip().lower() == "setor":
-            aba.delete_columns(1)  # Apaga fisicamente a coluna A no Google Sheets
+            aba.delete_columns(1)
     except Exception:
         pass
 
 def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_colunas: int):
     """
-    Aplica a formatação visual e alinhamento na aba do Google Sheets.
+    Aplica formatação visual, congela o cabeçalho e alinha o texto.
     """
     try:
         aba.freeze(rows=1)
 
-        # Estilo do Cabeçalho (Azul Escuro com texto Branco)
+        # Cabeçalho Azul Escuro
         aba.format(f"A1:{gspread.utils.rowcol_to_a1(1, total_colunas)}", {
             "backgroundColor": {"red": 0.12, "green": 0.30, "blue": 0.47},
             "textFormat": {"foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}, "bold": True, "fontSize": 10},
@@ -139,7 +168,7 @@ def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     """
-    Carrega dados do Google Sheets aplicando a regra de leitura em 'Local / Setor'.
+    Carrega dados do Google Sheets organizando colunas e corrigindo desalinhameto.
     """
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
@@ -148,8 +177,6 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     if planilha:
         try:
             aba = planilha.worksheet(nome_aba)
-            
-            # Remove fisicamente a coluna 'Setor' do Sheets se ela ainda existir lá
             remover_coluna_setor_da_planilha(aba)
 
             valores = aba.get_all_values()
@@ -163,13 +190,13 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
                 df = expurgar_e_normalizar_setores(df)
                 return df, f"Google Sheets ({nome_aba})"
             else:
-                return pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO), f"Google Sheets ({nome_aba})"
+                return pd.DataFrame(columns=ORDEM_COLUNAS_OFICIAL), f"Google Sheets ({nome_aba})"
         except gspread.exceptions.WorksheetNotFound:
             pass
         except Exception as e:
             st.error(f"Erro ao ler do Google Sheets: {e}")
 
-    # Fallback arquivo local
+    # Backup Local
     if os.path.exists(nome_arquivo_local):
         try:
             df = pd.read_excel(nome_arquivo_local, dtype=str)
@@ -179,56 +206,53 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
         except Exception:
             pass
 
-    return pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO), nome_arquivo_local
+    return pd.DataFrame(columns=ORDEM_COLUNAS_OFICIAL), nome_arquivo_local
 
 def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_equipamentos: Dict[str, str]) -> bool:
     """
-    Regra de Negócio Inteligente:
-    1. Armazena o setor na coluna 'Local / Setor'.
-    2. Se já existirem dados de patrimônio salvos na célula correspondente desse setor,
-       cria uma NOVA linha para o mesmo setor.
-    3. Se houver uma linha existente no setor com o campo vazio, reaproveita a linha.
+    Insere/Atualiza dados garantindo que pertençam às colunas oficiais já existentes.
     """
     df, _ = carregar_dados_excel(unidade)
     setor_limpo = setor_selecionado.strip()
     
-    # Garante que todas as colunas enviadas existam no DataFrame
-    for col in dados_equipamentos.keys():
+    # Normaliza e mapeia as chaves recebidas para evitar criar novas colunas
+    dados_normalizados = {}
+    for k, v in dados_equipamentos.items():
+        col_destino = MAPA_RENOMEAR_COLUNAS.get(k, k)
+        dados_normalizados[col_destino] = v
+
+    # Garante inclusão de colunas apenas se realmente novas
+    for col in dados_normalizados.keys():
         if col not in df.columns:
             df[col] = ""
 
-    # Filtra as linhas existentes para esse setor especificamente
     indices_setor = df[df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor_limpo.lower()].index
-
     linha_destino_idx = None
 
     if len(indices_setor) > 0:
-        # Percorre as linhas do setor para encontrar uma que tenha TODAS as colunas solicitadas VAZIAS
         for idx in indices_setor:
             colisoes = False
-            for col, val in dados_equipamentos.items():
-                if val:  # Se estamos tentando inserir algo nessa coluna
+            for col, val in dados_normalizados.items():
+                if val:
                     val_atual = str(df.at[idx, col]).strip()
-                    if val_atual != "":  # Célula já possui patrimônio salvo!
+                    if val_atual != "":
                         colisoes = True
                         break
             if not colisoes:
                 linha_destino_idx = idx
                 break
 
-    # Se houve colisão em todas as linhas ou não existe linha para o setor, CRIA UMA NOVA LINHA
     if linha_destino_idx is None:
         nova_linha = {c: "" for c in df.columns}
         nova_linha[COLUNA_CHAVE] = setor_limpo
-        for col, val in dados_equipamentos.items():
+        for col, val in dados_normalizados.items():
             if val:
                 nova_linha[col] = str(val).strip()
         
         df_nova = pd.DataFrame([nova_linha])
         df = pd.concat([df, df_nova], ignore_index=True)
     else:
-        # Escreve na linha existente disponível
-        for col, val in dados_equipamentos.items():
+        for col, val in dados_normalizados.items():
             if val:
                 df.at[linha_destino_idx, col] = str(val).strip()
 
@@ -236,14 +260,14 @@ def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_
 
 def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     """
-    Grava os dados exclusivamente com a coluna 'Local / Setor' na Coluna A.
+    Reescreve a aba com cabeçalho limpo, ordenado e centralizado no Google Sheets.
     """
     sucesso_sheets = False
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
 
-    # Aplica filtro que expurga totalmente a coluna 'Setor'
+    # Aplica normalização estrita antes de gravar
     df_salvar = expurgar_e_normalizar_setores(df).fillna("").astype(str)
 
     if planilha:
