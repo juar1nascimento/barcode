@@ -25,37 +25,17 @@ jobs:
           path = Path('sistema_inventario.py')
           text = path.read_text(encoding='utf-8')
 
-          new_menu = """    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
-          # Não é montado a partir dos dados existentes na planilha.
-          opcoes_setor = [
-              \"Consultório\",
-              \"Almoxarifado\",
-              \"Farmacia\",
-              \"Sala de Preparo\",
-              \"Sala de Vacina\",
-              \"Sala de curativo\",
-              \"Gerencia\",
-              \"Administração\",
-              \"Odontologia\",
-              \"Recepção\",
-              \"Outro Setor\",
-          ]"""
-          new_menu = new_menu.replace("\n          ", "\n")
+          new_menu = '    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.\n    # Não é montado a partir dos dados existentes na planilha.\n    opcoes_setor = [\n        "Consultório",\n        "Almoxarifado",\n        "Farmacia",\n        "Sala de Preparo",\n        "Sala de Vacina",\n        "Sala de curativo",\n        "Gerencia",\n        "Administração",\n        "Odontologia",\n        "Recepção",\n        "Outro Setor",\n    ]'
 
           pattern = re.compile(r'    opcoes_setor =.*?(?=\n\n    # IMPORTANTE: o menu de Tipo de patrimônio)', re.DOTALL)
-          text, count = pattern.subn(new_menu, text, count=1)
+          text, count = pattern.subn(lambda _: new_menu, text, count=1)
           if count != 1:
               raise SystemExit('Bloco do menu Setor não foi localizado.')
 
-          new_branch = """        if setor_selecionado == \"Consultório\":
-              setor_input = \"Consultório\"
-          elif setor_selecionado == \"Outro Setor\":
-              setor_input = st.text_input(\"Nome do Setor:\", placeholder=\"Digite o nome do setor...\")
-          elif setor_selecionado:
-              setor_input = setor_selecionado"""
+          new_branch = '        if setor_selecionado == "Consultório":\n            setor_input = "Consultório"\n        elif setor_selecionado == "Outro Setor":\n            setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...")\n        elif setor_selecionado:\n            setor_input = setor_selecionado'
 
-          branch_pattern = re.compile(r'        if setor_selecionado == \"Consultório\":.*?        elif setor_selecionado:\n            setor_input = setor_selecionado', re.DOTALL)
-          text, count = branch_pattern.subn(new_branch, text, count=1)
+          branch_pattern = re.compile(r'        if setor_selecionado == "Consultório":.*?        elif setor_selecionado:\n            setor_input = setor_selecionado', re.DOTALL)
+          text, count = branch_pattern.subn(lambda _: new_branch, text, count=1)
           if count != 1:
               raise SystemExit('Bloco de tratamento do Setor não foi localizado.')
 
