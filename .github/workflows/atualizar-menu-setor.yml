@@ -20,17 +20,16 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('sistema_inventario.py')
           text = path.read_text(encoding='utf-8')
 
-          old = '''    opcoes_setor = [s for s in (SETORES_PADRAO if isinstance(SETORES_PADRAO, (list, tuple)) else []) if not str(s).startswith("Selecione")]
-          if "Consultório" not in opcoes_setor:
-              opcoes_setor.append("Consultório")
-          if "➕ Outro Setor" not in opcoes_setor:
-              opcoes_setor.append("➕ Outro Setor")
-          '''
-
+          pattern = re.compile(
+              r'    opcoes_setor\s*=.*?\n'
+              r'(?:    if .*?\n        opcoes_setor\.append\(.*?\)\n)*',
+              re.DOTALL,
+          )
           new = '''    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
           # Não é montado a partir dos dados existentes na planilha.
           opcoes_setor = [
@@ -47,25 +46,17 @@ jobs:
               "Outro Setor",
           ]
           '''
+          text2, count = pattern.subn(new, text, count=1)
+          if count != 1:
+              raise SystemExit('Bloco do menu Setor não foi localizado.')
+          text = text2
 
-          if old not in text:
-              raise SystemExit('Bloco esperado do menu Setor não foi encontrado; nenhuma alteração feita.')
-
-          text = text.replace(old, new, 1)
-
-          old_branch = '''        if setor_selecionado == "Consultório":
-              col_num, col_esp = st.columns([1, 1.5])
-              with col_num:
-                  num_consultorio = st.number_input("Nº Consultório:", min_value=1, max_value=999, value=1, step=1)
-              with col_esp:
-                  especialidade = st.text_input("Especialidade:", placeholder="Ex: Odontologia...")
-              setor_input = f"Consultório {num_consultorio} - {especialidade.strip()}" if especialidade.strip() else f"Consultório {num_consultorio}"
-          elif setor_selecionado == "➕ Outro Setor":
-              setor_input = st.text_input("Nome do Setor:", placeholder="Ex: Raio-X...")
-          elif setor_selecionado:
-              setor_input = setor_selecionado
-          '''
-
+          branch_pattern = re.compile(
+              r'        if setor_selecionado == "Consultório":.*?'
+              r'        elif setor_selecionado:\n'
+              r'            setor_input = setor_selecionado\n',
+              re.DOTALL,
+          )
           new_branch = '''        if setor_selecionado == "Consultório":
               setor_input = "Consultório"
           elif setor_selecionado == "Outro Setor":
@@ -73,12 +64,11 @@ jobs:
           elif setor_selecionado:
               setor_input = setor_selecionado
           '''
+          text2, count = branch_pattern.subn(new_branch, text, count=1)
+          if count != 1:
+              raise SystemExit('Bloco de tratamento do Setor não foi localizado.')
 
-          if old_branch not in text:
-              raise SystemExit('Bloco de tratamento do Setor não foi encontrado; nenhuma alteração feita.')
-
-          text = text.replace(old_branch, new_branch, 1)
-          path.write_text(text, encoding='utf-8')
+          path.write_text(text2, encoding='utf-8')
           PY
 
       - name: Validar sintaxe
