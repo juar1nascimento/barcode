@@ -1,0 +1,94 @@
+name: Atualizar menu Setor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/atualizar-menu-setor.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Atualizar lista fechada de setores
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('sistema_inventario.py')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''    opcoes_setor = [s for s in (SETORES_PADRAO if isinstance(SETORES_PADRAO, (list, tuple)) else []) if not str(s).startswith("Selecione")]
+          if "Consultório" not in opcoes_setor:
+              opcoes_setor.append("Consultório")
+          if "➕ Outro Setor" not in opcoes_setor:
+              opcoes_setor.append("➕ Outro Setor")
+          '''
+
+          new = '''    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
+          # Não é montado a partir dos dados existentes na planilha.
+          opcoes_setor = [
+              "Consultório",
+              "Almoxarifado",
+              "Farmacia",
+              "Sala de Preparo",
+              "Sala de Vacina",
+              "Sala de curativo",
+              "Gerencia",
+              "Administração",
+              "Odontologia",
+              "Recepção",
+              "Outro Setor",
+          ]
+          '''
+
+          if old not in text:
+              raise SystemExit('Bloco esperado do menu Setor não foi encontrado; nenhuma alteração feita.')
+
+          text = text.replace(old, new, 1)
+
+          old_branch = '''        if setor_selecionado == "Consultório":
+              col_num, col_esp = st.columns([1, 1.5])
+              with col_num:
+                  num_consultorio = st.number_input("Nº Consultório:", min_value=1, max_value=999, value=1, step=1)
+              with col_esp:
+                  especialidade = st.text_input("Especialidade:", placeholder="Ex: Odontologia...")
+              setor_input = f"Consultório {num_consultorio} - {especialidade.strip()}" if especialidade.strip() else f"Consultório {num_consultorio}"
+          elif setor_selecionado == "➕ Outro Setor":
+              setor_input = st.text_input("Nome do Setor:", placeholder="Ex: Raio-X...")
+          elif setor_selecionado:
+              setor_input = setor_selecionado
+          '''
+
+          new_branch = '''        if setor_selecionado == "Consultório":
+              setor_input = "Consultório"
+          elif setor_selecionado == "Outro Setor":
+              setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...")
+          elif setor_selecionado:
+              setor_input = setor_selecionado
+          '''
+
+          if old_branch not in text:
+              raise SystemExit('Bloco de tratamento do Setor não foi encontrado; nenhuma alteração feita.')
+
+          text = text.replace(old_branch, new_branch, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validar sintaxe
+        run: python -m py_compile sistema_inventario.py
+
+      - name: Gravar alteração e remover workflow temporário
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sistema_inventario.py
+          git rm .github/workflows/atualizar-menu-setor.yml
+          git commit -m "Fixar lista oficial do menu Setor"
+          git push
