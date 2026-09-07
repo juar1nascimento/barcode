@@ -14,27 +14,76 @@ ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Local / Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Setor"]
 
-# Lista Padronizada de Unidades (URS e UBS)
-LISTA_UNIDADES_PADRAO = [
+# ==============================================================================
+# LISTAS PADRONIZADAS DOS MENUS
+# Regra: nenhuma opção duplicada, nenhum rótulo de coluna e tudo em ordem alfabética.
+# "Local / Setor" é nome interno da coluna e NUNCA é opção de menu.
+# "Fabricante ..." também é nome interno de coluna e NUNCA é opção de menu.
+# ==============================================================================
+
+def _limpar_opcoes_menu(opcoes, bloqueios=None):
+    """Remove vazios/duplicados e retorna as opções em ordem alfabética."""
+    bloqueios = [str(x).casefold() for x in (bloqueios or [])]
+    unicas = {}
+    for valor in opcoes:
+        valor = re.sub(r"\s+", " ", str(valor or "").strip())
+        if not valor:
+            continue
+        chave = valor.casefold()
+        if any(b in chave for b in bloqueios):
+            continue
+        if chave not in unicas:
+            unicas[chave] = valor
+    return sorted(unicas.values(), key=lambda x: x.casefold())
+
+
+LISTA_UNIDADES_PADRAO = _limpar_opcoes_menu([
     "URS I", "URS II", "URS III",
     "UBS Central", "UBS Jardim", "UBS Vila Nova", "UBS Centro"
-]
-
-# Lista Padronizada de Setores do GTI-SESA
-SETORES_PADRAO = sorted([
-    "Almoxarifado", "Consultório 01", "Consultório 02", "Diretoria",
-    "Farmácia", "Faturamento", "Laboratório", "Recepção",
-    "Sala de Vacina", "TI / Suporte", "Triagem"
 ])
 
-# Lista de Fabricantes Padronizada
-FABRICANTES_PADRAO = [
-    "Outro", "Acer", "AOC", "Apple", "Asus", "Brother", "Cisco", "Daten",
-    "Dell", "Epson", "HP", "Intelbras", "Lenovo", "LG", "Logitech",
-    "Multilaser", "POSITIVO", "Samsung", "TP-Link", "Zebra"
-]
+SETORES_PADRAO = _limpar_opcoes_menu([
+    "Almoxarifado", "Consultório 01", "Consultório 02", "Diretoria",
+    "Farmácia", "Faturamento", "Laboratório", "Recepção",
+    "Sala de Vacina", "TI / Suporte", "Triagem",
+    # qualquer ocorrência acidental de rótulos de coluna será descartada
+], bloqueios=["local/setor", "local / setor", "fabricante"])
 
-# Ordem Oficial das Colunas: Organizadas em ORDEM ALFABÉTICA por Equipamento
+FABRICANTES_PADRAO = _limpar_opcoes_menu([
+    "Acer", "AOC", "Apple", "Asus", "Brother", "Cisco", "Daten",
+    "Dell", "Epson", "HP", "Intelbras", "Lenovo", "LG", "Logitech",
+    "Multilaser", "Outro", "POSITIVO", "Samsung", "TP-Link", "Zebra",
+    # Estes rótulos não podem entrar no menu de fabricantes:
+    "Fabricante Monitor", "Fabricante do Monitor",
+    "Fabricante Computador", "Fabricante do Computador",
+    "Fabricante CPU", "Fabricante Nobreak", "Fabricante Teclado",
+    "Fabricante Mouse", "Fabricante Impressora", "Fabricante Switch",
+    "Fabricante Estabilizador", "Fabricante dos Monitores",
+    "Local / Setor"
+], bloqueios=[
+    "fabricante", "local/setor", "local / setor",
+    "nº de patrimônio", "n° de patrimônio", "patrimônio", "setor"
+])
+
+# Equipamentos: o menu mostra SOMENTE o nome do equipamento.
+# Não mostra "Nº de Patrimônio", "Fabricante ..." ou "Local / Setor".
+EQUIPAMENTOS_OPCOES = {
+    "CPU": ("CPU - Nº de Patrimônio", "Fabricante CPU"),
+    "Estabilizador": ("Estabilizador - Nº de Patrimônio", "Fabricante Estabilizador"),
+    "Impressora": ("Impressora - Nº de Patrimônio", "Fabricante Impressora"),
+    "Monitor": ("Monitores - Nº de Patrimônio", "Fabricante dos Monitores"),
+    "Mouse": ("Mouse - Nº de Patrimônio", "Fabricante Mouse"),
+    "Nobreak": ("Nobreak - Nº de Patrimônio", "Fabricante Nobreak"),
+    "Switch": ("Switch - Nº de Patrimônio", "Fabricante Switch"),
+    "Teclado": ("Teclado - Nº de Patrimônio", "Fabricante Teclado")
+}
+EQUIPAMENTOS_OPCOES = {
+    chave: EQUIPAMENTOS_OPCOES[chave]
+    for chave in _limpar_opcoes_menu(EQUIPAMENTOS_OPCOES.keys())
+}
+
+# Ordem oficial da tabela: equipamento em ordem alfabética,
+# com patrimônio imediatamente ao lado do respectivo fabricante.
 ORDEM_COLUNAS_OFICIAL = [
     "Local / Setor",
     "CPU - Nº de Patrimônio", "Fabricante CPU",
@@ -47,30 +96,25 @@ ORDEM_COLUNAS_OFICIAL = [
     "Teclado - Nº de Patrimônio", "Fabricante Teclado"
 ]
 
-# Mapeamento para redirecionar nomes duplicados/alternativos
+# Mapeamento para redirecionar nomes duplicados/alternativos.
 MAPA_RENOMEAR_COLUNAS = {
     "Computador - Nº de Patrimônio": "CPU - Nº de Patrimônio",
+    "Computador - N° de Patrimônio": "CPU - Nº de Patrimônio",
+    "CPU - N° de Patrimônio": "CPU - Nº de Patrimônio",
     "Fabricante Computador": "Fabricante CPU",
     "Fabricante do Computador": "Fabricante CPU",
     "Monitor - Nº de Patrimônio": "Monitores - Nº de Patrimônio",
+    "Monitor - N° de Patrimônio": "Monitores - Nº de Patrimônio",
+    "Monitores - N° de Patrimônio": "Monitores - Nº de Patrimônio",
     "Fabricante Monitor": "Fabricante dos Monitores",
     "Fabricante do Monitor": "Fabricante dos Monitores",
+    "Fabricante Monitores": "Fabricante dos Monitores",
     "Fabricante do Teclado": "Fabricante Teclado",
     "Fabricante do Mouse": "Fabricante Mouse",
     "Fabricante da Impressora": "Fabricante Impressora",
-    "Fabricante do Nobreak": "Fabricante Nobreak"
-}
-
-# Periféricos/Equipamentos mapeados para os menus suspensos
-EQUIPAMENTOS_OPCOES = {
-    "CPU": ("CPU - Nº de Patrimônio", "Fabricante CPU"),
-    "Estabilizador": ("Estabilizador - Nº de Patrimônio", "Fabricante Estabilizador"),
-    "Impressora": ("Impressora - Nº de Patrimônio", "Fabricante Impressora"),
-    "Monitor": ("Monitores - Nº de Patrimônio", "Fabricante dos Monitores"),
-    "Mouse": ("Mouse - Nº de Patrimônio", "Fabricante Mouse"),
-    "Nobreak": ("Nobreak - Nº de Patrimônio", "Fabricante Nobreak"),
-    "Switch": ("Switch - Nº de Patrimônio", "Fabricante Switch"),
-    "Teclado": ("Teclado - Nº de Patrimônio", "Fabricante Teclado")
+    "Fabricante do Nobreak": "Fabricante Nobreak",
+    "Fabricante do Switch": "Fabricante Switch",
+    "Fabricante do Estabilizador": "Fabricante Estabilizador"
 }
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
@@ -136,47 +180,82 @@ def conectar_google_sheets():
 
 def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Padroniza, consolida colunas duplicadas, elimina colunas obsoletas,
-    ordena as colunas em ordem alfabética de equipamento e ordena as linhas por setor.
+    Auditoria estrutural antes de ler/salvar:
+    - remove Local / Setor e Setor como opções/colunas alternativas;
+    - consolida nomes equivalentes de patrimônio/fabricante;
+    - elimina colunas duplicadas;
+    - mantém somente a estrutura oficial;
+    - ordena registros alfabeticamente por setor;
+    - nunca cria uma coluna a partir de um texto de menu.
     """
-    df = df.copy()
-    
-    # 1. Elimina coluna antiga 'Setor' migrando valores para 'Local / Setor'
+    df = df.copy().fillna("").astype(str)
+
+    # 1. Migra a antiga coluna "Setor" para a coluna oficial.
     if "Setor" in df.columns:
         if COLUNA_CHAVE in df.columns:
-            df[COLUNA_CHAVE] = df[COLUNA_CHAVE].replace("", np.nan).fillna(df["Setor"]).fillna("")
+            atual = df[COLUNA_CHAVE].replace("", np.nan)
+            df[COLUNA_CHAVE] = atual.fillna(df["Setor"]).fillna("")
         else:
             df[COLUNA_CHAVE] = df["Setor"]
         df = df.drop(columns=["Setor"])
 
-    # 2. Consolida dados de colunas duplicadas/renomeadas antes de excluí-las
+    # 2. Consolida nomes antigos/duplicados.
     for col_antiga, col_oficial in MAPA_RENOMEAR_COLUNAS.items():
         if col_antiga in df.columns:
             if col_oficial not in df.columns:
                 df[col_oficial] = df[col_antiga]
             else:
-                df[col_oficial] = df[col_oficial].replace("", np.nan).fillna(df[col_antiga]).fillna("")
+                atual = df[col_oficial].replace("", np.nan)
+                df[col_oficial] = atual.fillna(df[col_antiga]).fillna("")
             df = df.drop(columns=[col_antiga])
 
-    # 3. Elimina colunas obsoletas
+    # 3. Elimina colunas obsoletas.
     cols_para_remover = [c for c in COLUNAS_OBSOLETAS if c in df.columns]
     if cols_para_remover:
         df = df.drop(columns=cols_para_remover)
 
-    # 4. Assegura coluna Chave
+    # 4. Assegura a coluna oficial de setor.
     if COLUNA_CHAVE not in df.columns:
         df.insert(0, COLUNA_CHAVE, "")
 
-    # 5. Garante estritamente apenas as colunas oficiais no DataFrame
+    # 5. Consolida qualquer coluna repetida pelo mesmo nome.
+    #    Se houver duplicata, preserva o primeiro valor preenchido.
+    if df.columns.duplicated().any():
+        novo = pd.DataFrame(index=df.index)
+        for nome in dict.fromkeys(df.columns):
+            partes = df.loc[:, df.columns == nome]
+            serie = partes.iloc[:, 0].astype(str)
+            for i in range(1, partes.shape[1]):
+                outra = partes.iloc[:, i].astype(str)
+                serie = serie.mask(serie.str.strip().eq(""), outra)
+            novo[nome] = serie
+        df = novo
+
+    # 6. Garante somente as colunas oficiais.
     for col in ORDEM_COLUNAS_OFICIAL:
         if col not in df.columns:
             df[col] = ""
 
-    # 6. Ordena as linhas alfabeticamente pela coluna 'Local / Setor'
-    df = df.sort_values(by=COLUNA_CHAVE, ascending=True, key=lambda x: x.str.lower())
+    df = df[ORDEM_COLUNAS_OFICIAL].fillna("").astype(str)
 
-    # 7. Retorna o DataFrame mantendo estritamente a ordem de colunas oficial
-    return df[ORDEM_COLUNAS_OFICIAL]
+    # 7. Remove linhas totalmente vazias.
+    cols_dados = ORDEM_COLUNAS_OFICIAL
+    vazias = df[cols_dados].apply(
+        lambda row: all(str(v).strip() == "" for v in row), axis=1
+    )
+    df = df[~vazias].copy()
+
+    # 8. Ordenação alfabética dos setores armazenados.
+    df[COLUNA_CHAVE] = df[COLUNA_CHAVE].astype(str).str.strip()
+    df = df.sort_values(
+        by=COLUNA_CHAVE,
+        ascending=True,
+        key=lambda x: x.str.casefold(),
+        kind="stable"
+    )
+
+    return df.reset_index(drop=True)[ORDEM_COLUNAS_OFICIAL]
+
 
 def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_colunas: int):
     """Aplica formatação visual no Google Sheets."""
@@ -250,6 +329,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
 
     df_salvar = expurgar_e_normalizar_setores(df).fillna("").astype(str)
+    df_salvar = df_salvar.reindex(columns=ORDEM_COLUNAS_OFICIAL, fill_value="")
 
     if planilha:
         try:
@@ -476,7 +556,7 @@ elif pagina == "3. Consulta e Gerenciamento do Inventário":
         tab1, tab2 = st.tabs(["Excluir Patrimônio Específico", "Excluir Setor Completo"])
         
         with tab1:
-            setores_existentes = sorted(df_inventario[COLUNA_CHAVE].unique().tolist())
+            setores_existentes = ordenar_valores_unicos_alfabeticamente(df_inventario[COLUNA_CHAVE].unique().tolist())
             if setores_existentes:
                 setor_exc = st.selectbox("Selecione o Setor:", setores_existentes, key="exc_pat_setor")
                 coluna_exc = st.selectbox(
@@ -494,7 +574,7 @@ elif pagina == "3. Consulta e Gerenciamento do Inventário":
                         st.error("Erro ao remover o patrimônio.")
         
         with tab2:
-            setores_existentes_del = sorted(df_inventario[COLUNA_CHAVE].unique().tolist())
+            setores_existentes_del = ordenar_valores_unicos_alfabeticamente(df_inventario[COLUNA_CHAVE].unique().tolist())
             if setores_existentes_del:
                 setor_del = st.selectbox("Selecione o Setor Completo a Excluir:", setores_existentes_del, key="exc_setor_full")
                 if st.button("🔥 Excluir Todo o Setor", type="primary"):
