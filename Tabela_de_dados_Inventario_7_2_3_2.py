@@ -183,26 +183,55 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
 
 def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_equipamentos: Dict[str, str]) -> bool:
     """
-    Regra de Negócio: Garante que a escolha do menu suspenso 'Setor' do site
-    seja gravada ESTRITAMENTE na coluna 'Local / Setor'.
+    Regra de Negócio Inteligente:
+    1. Armazena o setor na coluna 'Local / Setor'.
+    2. Se já existirem dados de patrimônio salvos na célula correspondente desse setor,
+       cria uma NOVA linha para o mesmo setor.
+    3. Se houver uma linha existente no setor com o campo vazio, reaproveita a linha.
     """
     df, _ = carregar_dados_excel(unidade)
+    setor_limpo = setor_selecionado.strip()
     
-    # Prepara o dicionário de dados da linha
-    nova_linha = {COLUNA_CHAVE: setor_selecionado.strip()}
-    nova_linha.update(dados_equipamentos)
-    
-    # Atualiza se a linha do setor já existir, caso contrário adiciona nova linha
-    mask = df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor_selecionado.strip().lower()
-    
-    if mask.any():
-        for k, v in dados_equipamentos.items():
-            if v: # Atualiza apenas se houver valor fornecido
-                df.loc[mask, k] = str(v).strip()
-    else:
+    # Garante que todas as colunas enviadas existam no DataFrame
+    for col in dados_equipamentos.keys():
+        if col not in df.columns:
+            df[col] = ""
+
+    # Filtra as linhas existentes para esse setor especificamente
+    indices_setor = df[df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor_limpo.lower()].index
+
+    linha_destino_idx = None
+
+    if len(indices_setor) > 0:
+        # Percorre as linhas do setor para encontrar uma que tenha TODAS as colunas solicitadas VAZIAS
+        for idx in indices_setor:
+            colisoes = False
+            for col, val in dados_equipamentos.items():
+                if val:  # Se estamos tentando inserir algo nessa coluna
+                    val_atual = str(df.at[idx, col]).strip()
+                    if val_atual != "":  # Célula já possui patrimônio salvo!
+                        colisoes = True
+                        break
+            if not colisoes:
+                linha_destino_idx = idx
+                break
+
+    # Se houve colisão em todas as linhas ou não existe linha para o setor, CRIA UMA NOVA LINHA
+    if linha_destino_idx is None:
+        nova_linha = {c: "" for c in df.columns}
+        nova_linha[COLUNA_CHAVE] = setor_limpo
+        for col, val in dados_equipamentos.items():
+            if val:
+                nova_linha[col] = str(val).strip()
+        
         df_nova = pd.DataFrame([nova_linha])
         df = pd.concat([df, df_nova], ignore_index=True)
-        
+    else:
+        # Escreve na linha existente disponível
+        for col, val in dados_equipamentos.items():
+            if val:
+                df.at[linha_destino_idx, col] = str(val).strip()
+
     return salvar_no_excel(df, unidade)
 
 def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
