@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - '.github/workflows/auditar-gerenciamento-exclusao.yml'
       - 'scripts/apply_gerenciamento_exclusao_fix.py'
 
 permissions:
@@ -33,11 +34,9 @@ jobs:
               {'Setor': 'recepção', 'CPU': 'CPU-002', 'Fabricante CPU': 'HP', 'Monitor': '', 'Fabricante Monitor': ''},
               {'Setor': 'Odontologia', 'CPU': 'CPU-003', 'Fabricante CPU': 'Lenovo', 'Monitor': '', 'Fabricante Monitor': ''},
           ]
-
           setor = 'recepção'.casefold()
           apos_setor = [r for r in rows if r['Setor'].strip().casefold() != setor]
           assert len(apos_setor) == 1 and apos_setor[0]['Setor'] == 'Odontologia'
-
           rows2 = [dict(r) for r in rows]
           for r in rows2:
               if r['Setor'].strip().casefold() == setor:
@@ -45,7 +44,6 @@ jobs:
                   r['Fabricante Monitor'] = ''
           assert rows2[0]['CPU'] == 'CPU-001' and rows2[0]['Fabricante CPU'] == 'Dell'
           assert rows2[0]['Monitor'] == '' and rows2[0]['Fabricante Monitor'] == ''
-
           rows3 = [dict(r) for r in rows]
           for r in rows3:
               if r['Setor'].strip().casefold() == 'odontologia':
