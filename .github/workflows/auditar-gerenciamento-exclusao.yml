@@ -25,38 +25,34 @@ jobs:
           python -m py_compile sistema_inventario.py
           python -m py_compile Tabela_de_dados_Inventario_7_2.py
 
-      - name: Simular exclusoes
+      - name: Simular exclusoes em memoria
         run: |
           python - <<'PY'
-          import pandas as pd
+          rows = [
+              {'Setor': 'Recepção', 'CPU': 'CPU-001', 'Fabricante CPU': 'Dell', 'Monitor': 'MON-001', 'Fabricante Monitor': 'Samsung'},
+              {'Setor': 'recepção', 'CPU': 'CPU-002', 'Fabricante CPU': 'HP', 'Monitor': '', 'Fabricante Monitor': ''},
+              {'Setor': 'Odontologia', 'CPU': 'CPU-003', 'Fabricante CPU': 'Lenovo', 'Monitor': '', 'Fabricante Monitor': ''},
+          ]
 
-          df = pd.DataFrame([
-              {'Setor': 'Recepção', 'CPU - Nº de Patrimônio': 'CPU-001', 'Fabricante CPU': 'Dell', 'Monitores - Nº de Patrimônio': 'MON-001', 'Fabricante Monitores': 'Samsung'},
-              {'Setor': 'recepção', 'CPU - Nº de Patrimônio': 'CPU-002', 'Fabricante CPU': 'HP', 'Monitores - Nº de Patrimônio': '', 'Fabricante Monitores': ''},
-              {'Setor': 'Odontologia', 'CPU - Nº de Patrimônio': 'CPU-003', 'Fabricante CPU': 'Lenovo', 'Monitores - Nº de Patrimônio': '', 'Fabricante Monitores': ''},
-          ])
+          setor = 'recepção'.casefold()
+          apos_setor = [r for r in rows if r['Setor'].strip().casefold() != setor]
+          assert len(apos_setor) == 1 and apos_setor[0]['Setor'] == 'Odontologia'
 
-          mask = df['Setor'].astype(str).str.strip().str.casefold() == 'recepção'
-          assert mask.sum() == 2
-          assert len(df.loc[~mask]) == 1
+          rows2 = [dict(r) for r in rows]
+          for r in rows2:
+              if r['Setor'].strip().casefold() == setor:
+                  r['Monitor'] = ''
+                  r['Fabricante Monitor'] = ''
+          assert rows2[0]['CPU'] == 'CPU-001' and rows2[0]['Fabricante CPU'] == 'Dell'
+          assert rows2[0]['Monitor'] == '' and rows2[0]['Fabricante Monitor'] == ''
 
-          df2 = df.copy().astype(str)
-          mask2 = df2['Setor'].str.strip().str.casefold() == 'recepção'
-          df2.loc[mask2, 'Monitores - Nº de Patrimônio'] = ''
-          df2.loc[mask2, 'Fabricante Monitores'] = ''
-          assert df2.loc[0, 'CPU - Nº de Patrimônio'] == 'CPU-001'
-          assert df2.loc[0, 'Fabricante CPU'] == 'Dell'
-          assert df2.loc[0, 'Monitores - Nº de Patrimônio'] == ''
-          assert df2.loc[0, 'Fabricante Monitores'] == ''
-
-          df3 = df.copy().astype(str)
-          mask3 = df3['Setor'].str.strip().str.casefold() == 'odontologia'
-          df3.loc[mask3, 'CPU - Nº de Patrimônio'] = ''
-          df3.loc[mask3, 'Fabricante CPU'] = ''
-          cols = [c for c in df3.columns if c != 'Setor']
-          vazia = df3[cols].apply(lambda row: all(str(v).strip() == '' for v in row), axis=1)
-          df3 = df3.loc[~vazia]
-          assert 'Odontologia' not in df3['Setor'].tolist()
+          rows3 = [dict(r) for r in rows]
+          for r in rows3:
+              if r['Setor'].strip().casefold() == 'odontologia':
+                  r['CPU'] = ''
+                  r['Fabricante CPU'] = ''
+          rows3 = [r for r in rows3 if any(str(v).strip() for k, v in r.items() if k != 'Setor')]
+          assert all(r['Setor'] != 'Odontologia' for r in rows3)
           print('SIMULACAO_OK')
           PY
 
