@@ -9,9 +9,8 @@ from typing import Optional, Tuple, List, Dict, Any
 
 # Configurações globais e constantes
 ARQUIVO_EXCEL = "inventario_dados.xlsx"
-# Atualizado para utilizar 'Local / Setor' conforme a planilha
 COLUNA_CHAVE = "Local / Setor"
-COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Setor"] # Incluída a antiga coluna 'Setor'
+COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Setor"]
 COLUNAS_PADRAO = [
     "Computador - Nº de Patrimônio", "Fabricante Computador",
     "Monitor - Nº de Patrimônio", "Fabricante Monitor",
@@ -73,34 +72,41 @@ def conectar_google_sheets():
         st.warning(f"Não foi possível conectar ao Google Sheets: {e}")
     return None
 
-def normalizar_df_setor(df: pd.DataFrame) -> pd.DataFrame:
+def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Garante que a coluna 'Local / Setor' herde os dados do menu/seleção do site,
-    migra dados da antiga coluna 'Setor' se existirem e exclui a coluna 'Setor'.
+    Remove estritamente a coluna 'Setor', garantindo que apenas 'Local / Setor'
+    exista e receba a escolha do menu suspenso/site.
     """
     df = df.copy()
     
-    # Se a antiga coluna 'Setor' existir no DataFrame
+    # 1. Se a coluna 'Setor' existir, migra dados preenchidos para 'Local / Setor' e elimina 'Setor'
     if "Setor" in df.columns:
-        if COLUNA_CHAVE not in df.columns:
-            df[COLUNA_CHAVE] = df["Setor"]
-        else:
-            # Copia dados da coluna 'Setor' caso 'Local / Setor' esteja vazia
+        if COLUNA_CHAVE in df.columns:
+            # Preenche 'Local / Setor' com o valor de 'Setor' caso 'Local / Setor' esteja vazio
             df[COLUNA_CHAVE] = df[COLUNA_CHAVE].replace("", np.nan).fillna(df["Setor"]).fillna("")
+        else:
+            df[COLUNA_CHAVE] = df["Setor"]
         
-        # Remove a antiga coluna 'Setor'
+        # Elimina a coluna antiga 'Setor'
         df = df.drop(columns=["Setor"])
 
-    # Se a coluna 'Local / Setor' ainda não existir, cria como primeira coluna
+    # 2. Garante a criação de 'Local / Setor' se ela não existir de forma alguma
     if COLUNA_CHAVE not in df.columns:
         df.insert(0, COLUNA_CHAVE, "")
-        
-    return df
+
+    # 3. Elimina qualquer coluna remanescente que esteja na lista obsoleta
+    cols_para_remover = [c for c in COLUNAS_OBSOLETAS if c in df.columns]
+    if cols_para_remover:
+        df = df.drop(columns=cols_para_remover)
+
+    # 4. Reordena colunas para 'Local / Setor' ser sempre a primeira (Coluna A)
+    colunas_ordenadas = [COLUNA_CHAVE] + [c for c in df.columns if c != COLUNA_CHAVE]
+    return df[colunas_ordenadas]
 
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     """
-    Carrega os dados da aba da unidade no Google Sheets, aplicando a normalização do 'Local / Setor'.
+    Carrega os dados da planilha forçando a exclusão de 'Setor' e fixação de 'Local / Setor'.
     """
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
@@ -109,11 +115,19 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     if planilha:
         try:
             aba = planilha.worksheet(nome_aba)
-            dados = aba.get_all_records(expected_headers=[])
-            if dados:
-                df = pd.DataFrame(dados)
+            valores = aba.get_all_values()
+            
+            if valores and len(valores) > 1:
+                cabeçalho = valores[0]
+                linhas = valores[1:]
+                df = pd.DataFrame(linhas, columns=cabeçalho)
                 df = df.fillna("").astype(str)
-                df = normalizar_df_setor(df)
+                df = expurgar_e_normalizar_setores(df)
+                return df, f"Google Sheets ({nome_aba})"
+            elif valores and len(valores) == 1:
+                # Caso a planilha só tenha o cabeçalho
+                df = pd.DataFrame(columns=valores[0])
+                df = expurgar_e_normalizar_setores(df)
                 return df, f"Google Sheets ({nome_aba})"
             else:
                 return pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO), f"Google Sheets ({nome_aba})"
@@ -127,7 +141,7 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
         try:
             df = pd.read_excel(nome_arquivo_local, dtype=str)
             df = df.fillna("")
-            df = normalizar_df_setor(df)
+            df = expurgar_e_normalizar_setores(df)
             return df, nome_arquivo_local
         except Exception:
             pass
@@ -136,19 +150,16 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
 
 def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     """
-    Salva/Atualiza o DataFrame no Google Sheets garantindo que 'Local / Setor' seja a coluna principal.
+    Salva o DataFrame limpando totalmente o conteúdo no Google Sheets e garantindo
+    que a Coluna A seja unicamente 'Local / Setor'.
     """
     sucesso_sheets = False
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
 
-    # Aplica a regra de remoção da coluna 'Setor' e fixação da 'Local / Setor'
-    df_salvar = normalizar_df_setor(df).fillna("").astype(str)
-    
-    # Ordena as colunas garantindo 'Local / Setor' em primeiro lugar
-    cols = [COLUNA_CHAVE] + [c for c in df_salvar.columns if c != COLUNA_CHAVE]
-    df_salvar = df_salvar[cols]
+    # Força a estruturação limpando a coluna antiga 'Setor'
+    df_salvar = expurgar_e_normalizar_setores(df).fillna("").astype(str)
 
     # 1. Atualizar no Google Sheets
     if planilha:
@@ -158,8 +169,9 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
             except gspread.exceptions.WorksheetNotFound:
                 aba = planilha.add_worksheet(title=nome_aba, rows="100", cols="20")
 
-            valores = [df_salvar.columns.tolist()] + df_salvar.values.tolist()
+            # Limpa toda a estrutura e reescreve com a nova ordem das colunas
             aba.clear()
+            valores = [df_salvar.columns.tolist()] + df_salvar.values.tolist()
             aba.update(values=valores, range_name="A1")
             sucesso_sheets = True
         except Exception as e:
