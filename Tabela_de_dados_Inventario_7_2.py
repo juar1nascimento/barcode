@@ -6,7 +6,7 @@ import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
 # ==============================================================================
-# DEFINIÇÕES E CONSTANTES PADRÃO (SUBSTITUINDO IMPORTAÇÃO CIRCULAR)
+# DEFINIÇÕES E CONSTANTES PADRÃO
 # ==============================================================================
 ARQUIVO_EXCEL = "inventario.xlsx"
 COLUNA_CHAVE = "Setor"
@@ -70,15 +70,24 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
 def excluir_setor(setor: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     if not df.empty and COLUNA_CHAVE in df.columns:
-        df = df[df[COLUNA_CHAVE].str.strip().str.lower() != setor.strip().lower()]
+        df = df[df[COLUNA_CHAVE].astype(str).str.strip().str.lower() != setor.strip().lower()]
         return salvar_no_excel(df, unidade)
     return False
 
+# CORREÇÃO DO ERRO DE TIPO NO PANDAS
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     if not df.empty and COLUNA_CHAVE in df.columns and coluna in df.columns:
-        mask = df[COLUNA_CHAVE].str.strip().str.lower() == setor.strip().lower()
+        df[coluna] = df[coluna].fillna("").astype(str)
+        coluna_fabricante = formatar_nome_fabricante(coluna)
+        if coluna_fabricante in df.columns:
+            df[coluna_fabricante] = df[coluna_fabricante].fillna("").astype(str)
+
+        mask = df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor.strip().lower()
         df.loc[mask, coluna] = ""
+        if coluna_fabricante in df.columns:
+            df.loc[mask, coluna_fabricante] = ""
+
         return salvar_no_excel(df, unidade)
     return False
 
@@ -423,6 +432,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         with col_btn2:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=f"Tabela_{unidade.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
 
+        # GERENCIADOR DE EXCLUSÃO
         with st.expander(f"🗑️ Gerenciador de Exclusão — Aba ({unidade})", expanded=st.session_state.expander_gerenciador_open):
             lista_setores_existentes = list(dict.fromkeys([s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]))
             tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor", "❌ Excluir Patrimônio"])
@@ -464,7 +474,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
                     colunas_com_dados, valores_map = [], {}
                     if setor_patrimonio_del:
-                        linha_setor_df = df_atual[df_atual[COLUNA_CHAVE].str.strip().str.lower().eq(setor_patrimonio_del.strip().lower())]
+                        linha_setor_df = df_atual[df_atual[COLUNA_CHAVE].astype(str).str.strip().str.lower().eq(setor_patrimonio_del.strip().lower())]
                         if not linha_setor_df.empty:
                             for col in df_atual.columns:
                                 if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS and not str(col).startswith("Fabricante "):
