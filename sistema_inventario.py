@@ -70,21 +70,29 @@ def renderizar_card_inventario(
     **kwargs
 ) -> None:
     """Renderiza exclusivamente o Card do Sistema de Inventários com chaves isoladas."""
-    urs_opcoes = lista_urs if lista_urs is not None else LISTA_URS_PADRAO
-    ubs_opcoes = lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO
+    urs_opcoes = [u for u in (lista_urs if lista_urs is not None else LISTA_URS_PADRAO) if not str(u).startswith("Selecione")]
+    ubs_opcoes = [u for u in (lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO) if not str(u).startswith("Selecione")]
 
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra por URS/UBS.</p>", unsafe_allow_html=True)
         
-        urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", urs_opcoes, key="sel_urs_card_inventario")
-        ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", ubs_opcoes, key="sel_ubs_card_inventario")
+        urs_selecionada = st.selectbox(
+            "URS - Unidade Regional de Saúde", 
+            urs_opcoes, 
+            index=None,
+            placeholder="Selecione uma URS...",
+            key="sel_urs_card_inventario"
+        )
+        ubs_selecionada = st.selectbox(
+            "UBS - Unidade Básica de Saúde", 
+            ubs_opcoes, 
+            index=None,
+            placeholder="Selecione uma UBS...",
+            key="sel_ubs_card_inventario"
+        )
 
-        unidade_escolhida = ""
-        if urs_selecionada and not urs_selecionada.startswith("Selecione"):
-            unidade_escolhida = urs_selecionada
-        elif ubs_selecionada and not ubs_selecionada.startswith("Selecione"):
-            unidade_escolhida = ubs_selecionada
+        unidade_escolhida = urs_selecionada if urs_selecionada else (ubs_selecionada if ubs_selecionada else "")
 
         if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
             if not unidade_escolhida:
@@ -140,8 +148,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     st.divider()
 
-    # Garantir opções de Setor incluindo 'Consultório' e '➕ Outro Setor'
-    opcoes_setor = list(SETORES_PADRAO) if isinstance(SETORES_PADRAO, (list, tuple)) else []
+    # Opções de setor sem elementos genéricos
+    opcoes_setor = [s for s in (SETORES_PADRAO if isinstance(SETORES_PADRAO, (list, tuple)) else []) if not str(s).startswith("Selecione")]
     if "Consultório" not in opcoes_setor:
         opcoes_setor.append("Consultório")
     if "➕ Outro Setor" not in opcoes_setor:
@@ -153,56 +161,72 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     col_desc1, col_desc2, col_desc3 = st.columns(3)
 
     with col_desc1:
-        saved = st.session_state.saved_setor
-        
-        # Determina o índice padrão do selectbox
-        if saved.startswith("Consultório") and "Consultório" in opcoes_setor:
-            idx_setor = opcoes_setor.index("Consultório")
-        elif saved in opcoes_setor:
-            idx_setor = opcoes_setor.index(saved)
-        elif saved:
-            idx_setor = opcoes_setor.index("➕ Outro Setor")
-        else:
-            idx_setor = 0
+        setor_selecionado = st.selectbox(
+            "Setor:", 
+            opcoes_setor, 
+            index=None, 
+            placeholder="Selecione um setor...", 
+            key="setor_selecionado_key"
+        )
 
-        setor_selecionado = st.selectbox("Setor:", opcoes_setor, index=idx_setor, key="setor_selecionado_key")
-
-        # Regra condicional para 'Consultório'
+        setor_input = ""
+        # Caso o usuário selecione 'Consultório'
         if setor_selecionado == "Consultório":
-            val_num = 1
-            if saved.startswith("Consultório"):
-                partes = saved.split()
-                if len(partes) > 1 and partes[-1].isdigit():
-                    val_num = int(partes[-1])
+            col_num, col_esp = st.columns([1, 1.5])
+            with col_num:
+                num_consultorio = st.number_input(
+                    "Nº Consultório:",
+                    min_value=1,
+                    max_value=999,
+                    value=1,
+                    step=1,
+                    key="num_consultorio_key"
+                )
+            with col_esp:
+                especialidade = st.text_input(
+                    "Especialidade:",
+                    placeholder="Ex: Odontologia...",
+                    key="especialidade_consultorio_key"
+                )
+            
+            if especialidade.strip():
+                setor_input = f"Consultório {num_consultorio} - {especialidade.strip()}"
+            else:
+                setor_input = f"Consultório {num_consultorio}"
 
-            num_consultorio = st.number_input(
-                "Número do Consultório:",
-                min_value=1,
-                max_value=999,
-                value=val_num,
-                step=1,
-                key="num_consultorio_key"
-            )
-            setor_input = f"Consultório {num_consultorio}"
-
-        # Regra condicional para 'Outro Setor'
+        # Caso o usuário selecione '➕ Outro Setor'
         elif setor_selecionado == "➕ Outro Setor":
             setor_input = st.text_input(
                 "Nome do Setor:",
-                value=saved if saved not in opcoes_setor and not saved.startswith("Consultório") else "",
                 placeholder="Ex: Raio-X...",
                 key="setor_custom_key"
             )
-        else:
+        elif setor_selecionado:
             setor_input = setor_selecionado
 
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
-        opcao_selecionada = st.selectbox("Tipo de patrimônio:", opcoes_patrimonio, key="opcao_selecionada_key")
+        opcao_selecionada = st.selectbox(
+            "Tipo de patrimônio:", 
+            opcoes_patrimonio, 
+            index=None, 
+            placeholder="Selecione o patrimônio...", 
+            key="opcao_selecionada_key"
+        )
 
     with col_desc3:
-        descricao_final = st.text_input("Nome do Novo Patrimonio:", placeholder="Ex: Servidor", key="descricao_nova_key") if opcao_selecionada == "➕ Outros Patrimônios" else opcao_selecionada
+        if opcao_selecionada == "➕ Outros Patrimônios":
+            descricao_final = st.text_input(
+                "Nome do Novo Patrimônio:", 
+                placeholder="Ex: Servidor", 
+                key="descricao_nova_key"
+            )
+        elif opcao_selecionada:
+            descricao_final = opcao_selecionada
+        else:
+            descricao_final = ""
+
         st.session_state.saved_descricao = descricao_final
 
     st.divider()
@@ -329,8 +353,14 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
             with tab_excluir_setor:
                 if lista_setores_existentes:
-                    setor_para_excluir = st.selectbox("Selecione o Setor para apagar inteiramente:", lista_setores_existentes, key="sb_excluir_setor")
-                    if st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary", key="btn_del_setor"):
+                    setor_para_excluir = st.selectbox(
+                        "Selecione o Setor para apagar inteiramente:", 
+                        lista_setores_existentes, 
+                        index=None,
+                        placeholder="Selecione um setor para apagar...",
+                        key="sb_excluir_setor"
+                    )
+                    if setor_para_excluir and st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary", key="btn_del_setor"):
                         excluir_setor(setor_para_excluir, unidade)
                         carregar_dados_excel.clear()
                         st.rerun()
@@ -339,23 +369,36 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 if lista_setores_existentes:
                     c_del1, c_del2 = st.columns(2)
                     with c_del1:
-                        setor_patrimonio_del = st.selectbox("Selecione o Setor:", lista_setores_existentes, key="sb_setor_del_patrimonio")
+                        setor_patrimonio_del = st.selectbox(
+                            "Selecione o Setor:", 
+                            lista_setores_existentes, 
+                            index=None,
+                            placeholder="Selecione um setor...",
+                            key="sb_setor_del_patrimonio"
+                        )
                     
-                    linha_setor_df = df_atual[df_atual[COLUNA_CHAVE].str.strip().str.lower().eq(setor_patrimonio_del.strip().lower())]
                     colunas_com_dados, valores_map = [], {}
-                    
-                    if not linha_setor_df.empty:
-                        for col in df_atual.columns:
-                            if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS:
-                                val = str(linha_setor_df.iloc[0][col]).strip()
-                                if val and val.lower() not in ["", "nan", "none", "null", "<na>"]:
-                                    colunas_com_dados.append(col)
-                                    valores_map[col] = val
+                    if setor_patrimonio_del:
+                        linha_setor_df = df_atual[df_atual[COLUNA_CHAVE].str.strip().str.lower().eq(setor_patrimonio_del.strip().lower())]
+                        if not linha_setor_df.empty:
+                            for col in df_atual.columns:
+                                if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS:
+                                    val = str(linha_setor_df.iloc[0][col]).strip()
+                                    if val and val.lower() not in ["", "nan", "none", "null", "<na>"]:
+                                        colunas_com_dados.append(col)
+                                        valores_map[col] = val
 
                     with c_del2:
-                        coluna_patrimonio_del = st.selectbox("Selecione o Tipo de Patrimônio:", options=colunas_com_dados, format_func=lambda c: f"{c} (Código: {valores_map.get(c, '')})", key=f"sb_coluna_del_{setor_patrimonio_del}") if colunas_com_dados else None
+                        coluna_patrimonio_del = st.selectbox(
+                            "Selecione o Tipo de Patrimônio:", 
+                            options=colunas_com_dados, 
+                            index=None,
+                            placeholder="Selecione o patrimônio...",
+                            format_func=lambda c: f"{c} (Código: {valores_map.get(c, '')})", 
+                            key=f"sb_coluna_del_{setor_patrimonio_del}"
+                        ) if colunas_com_dados else None
                     
-                    if coluna_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary", key=f"btn_del_patrimonio_{setor_patrimonio_del}"):
+                    if coluna_patrimonio_del and setor_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary", key=f"btn_del_patrimonio_{setor_patrimonio_del}"):
                         excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
                         carregar_dados_excel.clear()
                         st.rerun()
