@@ -159,28 +159,114 @@ def remover_coluna_setor_da_planilha(aba: gspread.Worksheet):
 
 def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_colunas: int):
     """
-    Aplica formatação visual no Google Sheets.
+    Aplica um leiaute moderno e corporativo ao Google Sheets:
+    - cabeçalho destacado e congelado
+    - filtros
+    - larguras adequadas por tipo de coluna
+    - alinhamento e quebra de texto
+    - bordas discretas
+    - linhas alternadas para facilitar leitura
+    - coluna Local / Setor em destaque
     """
     try:
+        ultima_coluna = gspread.utils.rowcol_to_a1(1, total_colunas).replace("1", "")
+        ultima_linha = max(total_linhas, 2)
+
+        # Congela o cabeçalho.
         aba.freeze(rows=1)
 
-        # Cabeçalho Azul Escuro com texto Branco
+        # Cabeçalho: visual corporativo.
         aba.format(f"A1:{gspread.utils.rowcol_to_a1(1, total_colunas)}", {
-            "backgroundColor": {"red": 0.12, "green": 0.30, "blue": 0.47},
-            "textFormat": {"foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}, "bold": True, "fontSize": 10},
+            "backgroundColor": {"red": 0.10, "green": 0.24, "blue": 0.38},
+            "textFormat": {
+                "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+                "bold": True,
+                "fontSize": 10
+            },
             "horizontalAlignment": "CENTER",
-            "verticalAlignment": "MIDDLE"
+            "verticalAlignment": "MIDDLE",
+            "wrapStrategy": "WRAP"
         })
 
+        # Dados.
         if total_linhas > 1:
-            intervalo_dados = f"A2:{gspread.utils.rowcol_to_a1(total_linhas, total_colunas)}"
-            aba.format(intervalo_dados, {
+            intervalo = f"A2:{gspread.utils.rowcol_to_a1(total_linhas, total_colunas)}"
+            aba.format(intervalo, {
                 "textFormat": {"fontSize": 9},
                 "horizontalAlignment": "CENTER",
-                "verticalAlignment": "MIDDLE"
+                "verticalAlignment": "MIDDLE",
+                "wrapStrategy": "WRAP",
+                "borders": {
+                    "top": {"style": "SOLID", "width": 1, "color": {"red": 0.86, "green": 0.88, "blue": 0.90}},
+                    "bottom": {"style": "SOLID", "width": 1, "color": {"red": 0.86, "green": 0.88, "blue": 0.90}},
+                    "left": {"style": "SOLID", "width": 1, "color": {"red": 0.86, "green": 0.88, "blue": 0.90}},
+                    "right": {"style": "SOLID", "width": 1, "color": {"red": 0.86, "green": 0.88, "blue": 0.90}}
+                }
             })
-    except Exception:
-        pass
+
+        # Altura do cabeçalho.
+        aba.set_row_height(1, 34)
+
+        # Larguras: setor maior; patrimônio e fabricante equilibrados.
+        for idx, nome_coluna in enumerate(aba.row_values(1), start=1):
+            if nome_coluna == "Local / Setor":
+                largura = 155
+            elif "Nº de Patrimônio" in nome_coluna:
+                largura = 125
+            elif "Fabricante" in nome_coluna:
+                largura = 125
+            else:
+                largura = 120
+            aba.set_column_width(idx, largura)
+
+        # Filtro automático em toda a tabela.
+        try:
+            aba.clear_basic_filter()
+        except Exception:
+            pass
+        if total_linhas >= 1:
+            aba.set_basic_filter(
+                f"A1:{gspread.utils.rowcol_to_a1(total_linhas, total_colunas)}"
+            )
+
+        # Destaca visualmente a coluna principal "Local / Setor".
+        try:
+            aba.format(f"A2:A{ultima_linha}", {
+                "textFormat": {"bold": True, "fontSize": 9},
+                "horizontalAlignment": "LEFT",
+                "verticalAlignment": "MIDDLE",
+                "wrapStrategy": "WRAP"
+            })
+        except Exception:
+            pass
+
+        # Formatação condicional para linhas alternadas (zebra).
+        try:
+            aba.add_conditional_format(
+                f"A2:{gspread.utils.rowcol_to_a1(total_linhas, total_colunas)}",
+                {
+                    "addConditionalFormatRule": {
+                        "booleanRule": {
+                            "condition": {
+                                "type": "CUSTOM_FORMULA",
+                                "values": [{"userEnteredValue": "=ISEVEN(ROW())"}]
+                            },
+                            "format": {
+                                "backgroundColor": {
+                                    "red": 0.96, "green": 0.97, "blue": 0.98
+                                }
+                            }
+                        },
+                        "index": 0
+                    }
+                }
+            )
+        except Exception:
+            # Compatibilidade com versões do gspread sem suporte a essa API.
+            pass
+
+    except Exception as e:
+        st.warning(f"Não foi possível aplicar toda a estilização: {e}")
 
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
