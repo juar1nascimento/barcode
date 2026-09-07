@@ -150,6 +150,16 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
 
+    # REGRA: Remover linhas de setores que não contenham NENHUM patrimônio cadastrado
+    colunas_patrimonio = [c for c in df.columns if c != COLUNA_CHAVE and not str(c).startswith("Fabricante ")]
+    if colunas_patrimonio:
+        # Verifica se há pelo menos um valor preenchido (diferente de vazio, nan, none, null)
+        mascara_com_dados = df[colunas_patrimonio].apply(
+            lambda row: row.astype(str).str.strip().replace(["nan", "None", "null", "<NA>"], "").str.cat().strip() != "",
+            axis=1
+        )
+        df = df[mascara_com_dados].copy()
+
     ordem_colunas = [COLUNA_CHAVE]
     todas_colunas = [str(c).strip() for c in df.columns]
 
@@ -232,24 +242,6 @@ def carregar_dados_excel(unidade_nome: str = "Geral") -> Tuple[pd.DataFrame, Lis
     else: df = pd.DataFrame(columns=COLUNAS_PADRAO)
 
     df = padronizar_e_organizar_df(df)
-    
-    houve_alteracao = False
-    for col in COLUNAS_PADRAO:
-        if col not in df.columns:
-            df[col] = ""
-            houve_alteracao = True
-
-    for setor in SETORES_PADRAO:
-        if not df[COLUNA_CHAVE].str.lower().eq(setor.lower()).any():
-            nova_linha = {col: "" for col in df.columns}
-            nova_linha[COLUNA_CHAVE] = setor
-            df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
-            houve_alteracao = True
-
-    df = padronizar_e_organizar_df(df)
-    if houve_alteracao or not os.path.exists(ARQUIVO_EXCEL):
-        salvar_no_excel(df, unidade_nome=nome_aba)
-
     return df, list(df.columns)
 
 def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> bool:
@@ -293,11 +285,32 @@ def excluir_setor(setor_nome: str, unidade_nome: str) -> None:
 def excluir_patrimonio(setor_nome: str, coluna_patrimonio: str, unidade_nome: str) -> None:
     df, _ = carregar_dados_excel(unidade_nome)
     if df.empty or COLUNA_CHAVE not in df.columns or coluna_patrimonio not in df.columns: return
+    
     mascara_setor = df[COLUNA_CHAVE].str.strip().str.lower().eq(setor_nome.strip().lower())
+    
     if mascara_setor.any():
+        # Limpa a célula do patrimônio
         df.loc[mascara_setor, coluna_patrimonio] = ""
+        
+        # Limpa o fabricante correspondente (se existir)
         col_fab = formatar_nome_fabricante(coluna_patrimonio)
         if col_fab in df.columns:
             df.loc[mascara_setor, col_fab] = ""
+
+        # REGRA: Verificar se a linha do setor ficou inteiramente vazia de patrimônios
+        colunas_patrimonio = [c for c in df.columns if c != COLUNA_CHAVE and not str(c).startswith("Fabricante ")]
+        
+        # Filtra as linhas que pertencem ao setor e verifica se sobrou algum dado
+        linhas_setor = df[mascara_setor][colunas_patrimonio]
+        tem_patrimonio = linhas_setor.apply(
+            lambda row: row.astype(str).str.strip().replace(["nan", "None", "null", "<NA>"], "").str.cat().strip() != "",
+            axis=1
+        ).any()
+
+        # Se não restar nenhum patrimônio no setor, exclui a linha do setor
+        if not tem_patrimonio:
+            df = df[~mascara_setor].copy()
+            st.toast(f"ℹ️ O setor '{setor_nome}' não possui mais patrimônios e foi removido automaticamente.")
+
         salvar_no_excel(df, unidade_nome)
         st.session_state.df_historico = df
