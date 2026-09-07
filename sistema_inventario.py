@@ -5,14 +5,14 @@ import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
-from Tabela_de_dados_Inventario_7 import (
+from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
-    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio,
+    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
     carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio
 )
 
 # ==============================================================================
-# LÓGICA DE CADASTRO COM SUPORTE A FABRICANTE E REGRA DE CABEÇALHO
+# LÓGICA DE CADASTRO COM SUPORTE A CABEÇALHOS ARTICULADOS DE FABRICANTE
 # ==============================================================================
 def adicionar_e_salvar_sem_sobrescrever(
     codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
@@ -22,6 +22,7 @@ def adicionar_e_salvar_sem_sobrescrever(
     fabricante_limpo = fabricante.strip()
     
     patrimonio_cabecalho = formatar_nome_patrimonio(patrimonio.strip())
+    coluna_fabricante = formatar_nome_fabricante(patrimonio.strip())
 
     if not setor_limpo or not codigo_limpo or not patrimonio_cabecalho or not unidade:
         return False
@@ -35,8 +36,6 @@ def adicionar_e_salvar_sem_sobrescrever(
     if df.empty or COLUNA_CHAVE not in df.columns:
         df = pd.DataFrame(columns=[COLUNA_CHAVE])
 
-    coluna_fabricante = f"Fabricante {patrimonio_cabecalho}"
-    
     if patrimonio_cabecalho not in df.columns: df[patrimonio_cabecalho] = ""
     if coluna_fabricante not in df.columns: df[coluna_fabricante] = ""
 
@@ -63,7 +62,6 @@ def adicionar_e_salvar_sem_sobrescrever(
 
     sucesso = salvar_no_excel(df, unidade)
     carregar_dados_excel.clear()
-    
     return sucesso
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
@@ -215,7 +213,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     with col_desc4:
         fabricante_input = ""
         if descricao_final:
-            fabricante_input = st.text_input(f"Fabricante ({descricao_final}):", placeholder="Ex: Dell, HP, Samsung...")
+            rotulo_fabricante = formatar_nome_fabricante(descricao_final)
+            fabricante_input = st.text_input(f"{rotulo_fabricante}:", placeholder="Ex: Dell, HP, Samsung...")
 
     st.divider()
 
@@ -224,10 +223,11 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     else:
         tab_unificada, tab_upload = st.tabs(["⚡ Câmera / Scanner USB", "📁 Upload de Imagem"])
         header_patrimonio = formatar_nome_patrimonio(descricao_final)
+        header_fabricante = formatar_nome_fabricante(descricao_final)
 
         with tab_unificada:
-            info_fab = f" | **Fabricante:** `{fabricante_input.strip()}`" if fabricante_input.strip() else ""
-            st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Cabeçalho Tabela:** `{header_patrimonio}`{info_fab}")
+            info_fab = f" | **{header_fabricante}:** `{fabricante_input.strip()}`" if fabricante_input.strip() else ""
+            st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Cabeçalho:** `{header_patrimonio}`{info_fab}")
             col_camera, col_usb = st.columns([1.2, 1])
 
             with col_camera:
@@ -317,7 +317,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
-        # Estilização CSS de alto padrão para o cabeçalho e linhas
         df_styled = df_atual.style.set_properties(**{
             'font-family': "'Inter', 'Segoe UI', -apple-system, sans-serif", 
             'font-size': '13px',
@@ -337,19 +336,9 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 ('text-align', 'center'),
                 ('box-shadow', '0 2px 4px rgba(0,0,0,0.1)')
             ]},
-            {'selector': 'tbody tr:nth-child(even)', 'props': [
-                ('background-color', '#F8FAFC')
-            ]},
-            {'selector': 'tbody tr:hover', 'props': [
-                ('background-color', '#EFF6FF'),
-                ('transition', 'background-color 0.2s ease-in-out')
-            ]},
-            {'selector': 'td:first-child', 'props': [
-                ('font-weight', '700'), 
-                ('background-color', '#F1F5F9'),
-                ('color', '#0F172A'),
-                ('border-right', '2px solid #CBD5E1')
-            ]}
+            {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#F8FAFC')]},
+            {'selector': 'tbody tr:hover', 'props': [('background-color', '#EFF6FF'), ('transition', 'background-color 0.2s ease-in-out')]},
+            {'selector': 'td:first-child', 'props': [('font-weight', '700'), ('background-color', '#F1F5F9'), ('color', '#0F172A'), ('border-right', '2px solid #CBD5E1')]}
         ])
         
         st.dataframe(df_styled, use_container_width=True)
@@ -400,7 +389,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if coluna_patrimonio_del and setor_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary"):
                         excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
                         carregar_dados_excel.clear()
-                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' excluído do setor '{setor_patrimonio_del}'."
+                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' e seu fabricante foram excluídos do setor '{setor_patrimonio_del}'."
                         st.rerun()
 
 if __name__ == "__main__":

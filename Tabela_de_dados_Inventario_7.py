@@ -11,8 +11,6 @@ ARQUIVO_EXCEL: str = "Tabela_Patrimonios_UBS_Feu_Rosa.xlsx"
 GOOGLE_SHEET_URL: str = "https://docs.google.com/spreadsheets/d/12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw/edit?usp=sharing"
 
 COLUNA_CHAVE: str = "Local / Setor"
-
-# Sufixo padrão padronizado com caractere especial
 SUFIXO_PATRIMONIO: str = " - Nº de Patrimônio"
 
 COLUNAS_PADRAO: List[str] = [
@@ -37,54 +35,68 @@ SETORES_PADRAO: List[str] = [
 ]
 
 LISTA_URS_PADRAO: List[str] = [
-    "Selecione uma URS...",
-    "URS Feu Rosa",
-    "URS Jacaraípe",
-    "URS Novo Horizonte",
-    "URS Serra Dourada"
+    "Selecione uma URS...", "URS Feu Rosa", "URS Jacaraípe", 
+    "URS Novo Horizonte", "URS Serra Dourada"
 ]
 
 LISTA_UBS_PADRAO: List[str] = [
-    "Selecione uma UBS...",
-    "UBS Planalto Serrano",
-    "UBS Bairro das Laranjeiras",
-    "UBS Nova Carapina",
-    "UBS Vila Nova de Colares",
-    "UBS Porto Canoa"
+    "Selecione uma UBS...", "UBS Planalto Serrano", "UBS Bairro das Laranjeiras", 
+    "UBS Nova Carapina", "UBS Vila Nova de Colares", "UBS Porto Canoa"
 ]
 
 # ==============================================================================
-# FUNÇÕES AUXILIARES DE FORMATAÇÃO E SANITIZAÇÃO
+# FUNÇÕES AUXILIARES DE FORMATAÇÃO E ARTICULAÇÃO GRAMATICAL
 # ==============================================================================
-def formatar_nome_patrimonio(nome_patrimonio: str) -> str:
-    """
-    Padroniza qualquer variação de nome de patrimônio inserindo o sufixo ' - Nº de Patrimônio'.
-    Normaliza nomes legados (ex: 'CPU', 'CPU - N de Patrimônio' -> 'CPU - Nº de Patrimônio').
-    """
-    nome_limpo = nome_patrimonio.strip()
-    if not nome_limpo or nome_limpo == COLUNA_CHAVE:
-        return nome_limpo
-    
-    if nome_limpo.startswith("Fabricante "):
-        item_base = nome_limpo[11:].strip()
-        return f"Fabricante {formatar_nome_patrimonio(item_base)}"
+def extrair_nome_base(nome: str) -> str:
+    """Extrai apenas a descrição base do patrimônio removendo sufixos e numerações."""
+    limpo = str(nome).strip()
+    limpo = re.sub(r'^\s*Fabricante\s+(da|do|dos|das|de)\s+', '', limpo, flags=re.IGNORECASE)
+    limpo = re.sub(r'^\s*Fabricante\s+', '', limpo, flags=re.IGNORECASE)
+    limpo = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', limpo, flags=re.IGNORECASE)
+    return limpo.strip()
 
-    # Remove qualquer variação antiga de sufixo ("- N de Patrimônio", "- Nº de Patrimônio", etc.)
-    base_nome = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', nome_limpo, flags=re.IGNORECASE).strip()
-    return f"{base_nome}{SUFIXO_PATRIMONIO}"
+def formatar_nome_patrimonio(nome_patrimonio: str) -> str:
+    """Padroniza a coluna do código com o sufixo ' - Nº de Patrimônio'."""
+    base = extrair_nome_base(nome_patrimonio)
+    if not base or base == COLUNA_CHAVE:
+        return nome_patrimonio.strip()
+    return f"{base}{SUFIXO_PATRIMONIO}"
+
+def formatar_nome_fabricante(nome_patrimonio: str) -> str:
+    """
+    Gera dinamicamente o cabeçalho do Fabricante ajustando as preposições (da/do/dos/das)
+    conforme a descrição do equipamento. Ex: 'Fabricante da CPU', 'Fabricante do Monitor'.
+    """
+    base = extrair_nome_base(nome_patrimonio)
+    if not base or base == COLUNA_CHAVE:
+        return ""
+
+    base_lower = base.lower()
+    fem_singular = ["cpu", "impressora", "webcam", "tela", "câmera", "camera", "placa", "mesa", "televisão", "tv"]
+    fem_plural = ["impressoras", "telas", "cameras", "câmeras", "placas"]
+    masc_plural = ["monitores", "teclados", "mouses", "nobreaks", "servidores", "racks", "estabilizadores"]
+
+    if any(base_lower.startswith(w) for w in fem_singular):
+        preposicao = "da"
+    elif any(base_lower.startswith(w) for w in fem_plural):
+        preposicao = "das"
+    elif any(base_lower.startswith(w) for w in masc_plural):
+        preposicao = "dos"
+    else:
+        preposicao = "do"
+
+    return f"Fabricante {preposicao} {base}"
 
 def sanitizar_nome_aba(nome_unidade: str) -> str:
     """Higieniza o nome da URS/UBS para ser um nome de aba válido."""
     if not nome_unidade or not str(nome_unidade).strip():
         return "Geral"
-    nome_limpo = re.sub(r'[\\/*?:\[\]]', '_', str(nome_unidade).strip())
-    return nome_limpo[:31]
+    return re.sub(r'[\\/*?:\[\]]', '_', str(nome_unidade).strip())[:31]
 
 # ==============================================================================
 # CAMADA DE CONEXÃO REMOTA (GOOGLE SHEETS)
 # ==============================================================================
 def obter_conexao_gsheets() -> Optional[Any]:
-    """Estabelece conexão com o Google Sheets usando a lib streamlit-gsheets."""
     try:
         from streamlit_gsheets import GSheetsConnection
         return st.connection("gsheets", type=GSheetsConnection)
@@ -93,7 +105,6 @@ def obter_conexao_gsheets() -> Optional[Any]:
         return None
 
 def sincronizar_google_sheets(df: pd.DataFrame, nome_aba: str) -> bool:
-    """Sincroniza os dados atualizados com o Google Sheets."""
     try:
         conn = obter_conexao_gsheets()
         if conn is not None:
@@ -101,18 +112,16 @@ def sincronizar_google_sheets(df: pd.DataFrame, nome_aba: str) -> bool:
             st.toast(f"☁️ Aba '{nome_aba}' sincronizada no Google Sheets!")
             return True
     except Exception as err:
-        print(f"[ERRO AO SINCRONIZAR GSHEETS]: {err}")
-        st.toast(f"⚠️ Salvo localmente. Erro ao sincronizar Google Sheets: {err}")
+        print(f"[ERRO GSHEETS]: {err}")
     return False
 
 # ==============================================================================
-# REGRAS DE NEGÓCIO, MIGRAÇÃO DE DADOS E ORGANIZAÇÃO
+# REGRAS DE NEGÓCIO, MIGRAÇÃO DE DADOS E ORGANIZAÇÃO DA TABELA
 # ==============================================================================
 def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Higieniza o DataFrame, migra cabeçalhos legados para ' - Nº de Patrimônio', 
-    realiza merge seguro de colunas duplicadas geradas pela migração
-    e agrupa cada fabricante ao lado de seu respectivo patrimônio.
+    Organiza o DataFrame garantindo a migração de nomes antigos de fabricantes,
+    pareando cada patrimônio imediatamente ao lado de seu respectivo cabeçalho de fabricante.
     """
     colunas_invisiveis = [
         c for c in df.columns 
@@ -121,23 +130,26 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
     if colunas_invisiveis:
         df = df.drop(columns=colunas_invisiveis, errors="ignore")
 
-    # Mapeamento para conversão e migração de nomes
+    # Mapeamento para migração e atualização de nomes de cabeçalho
     renomear_map = {}
     for col in df.columns:
         if col != COLUNA_CHAVE:
-            col_formatada = formatar_nome_patrimonio(str(col))
-            if col_formatada != col:
-                renomear_map[col] = col_formatada
+            if str(col).startswith("Fabricante "):
+                novo_fab = formatar_nome_fabricante(col)
+                if novo_fab and novo_fab != col:
+                    renomear_map[col] = novo_fab
+            else:
+                novo_pat = formatar_nome_patrimonio(col)
+                if novo_pat != col:
+                    renomear_map[col] = novo_pat
 
     if renomear_map:
-        # Tratamento para evitar duplicidade ao migrar 'CPU - N de' para 'CPU - Nº de'
         df_novo = pd.DataFrame()
         for c in df.columns:
             target_c = renomear_map.get(c, c)
             if target_c not in df_novo.columns:
                 df_novo[target_c] = df[c].astype(str)
             else:
-                # Fusão de valores se a coluna já existir no destino
                 val_existente = df_novo[target_c].replace(["nan", "None", "<NA>"], "").astype(str)
                 val_novo = df[c].replace(["nan", "None", "<NA>"], "").astype(str)
                 df_novo[target_c] = val_existente.combine(val_novo, lambda x, y: y if y.strip() != "" else x)
@@ -150,35 +162,39 @@ def padronizar_e_organizar_df(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
 
+    # Reordenamento pareado: [Setor] -> [Patrimônio A] -> [Fabricante do Patrimônio A] -> [Patrimônio B] ...
     ordem_colunas = [COLUNA_CHAVE]
     todas_colunas = [str(c).strip() for c in df.columns]
 
     for col in todas_colunas:
-        if col == COLUNA_CHAVE or col.startswith("Fabricante "):
+        if col == COLUNA_CHAVE or str(col).startswith("Fabricante "):
             continue
         if col not in ordem_colunas:
             ordem_colunas.append(col)
         
-        col_fab = f"Fabricante {col}"
+        col_fab = formatar_nome_fabricante(col)
         if col_fab in todas_colunas and col_fab not in ordem_colunas:
             ordem_colunas.append(col_fab)
+
+    # Inclui fabricantes remanescentes que por ventura não foram pareados
+    for col in todas_colunas:
+        if str(col).startswith("Fabricante ") and col not in ordem_colunas:
+            ordem_colunas.append(col)
 
     df_processado = df.reindex(columns=ordem_colunas).fillna("").astype(str)
     df_processado[COLUNA_CHAVE] = df_processado[COLUNA_CHAVE].str.strip()
     return df_processado
 
 def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
-    """Aplica formatação visual executiva à aba do arquivo Excel local."""
-    if not os.path.exists(caminho_arquivo):
-        return
+    """Aplica formatação executiva no Excel."""
+    if not os.path.exists(caminho_arquivo): return
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
 
         wb = openpyxl.load_workbook(caminho_arquivo)
-        if nome_aba not in wb.sheetnames:
-            return
+        if nome_aba not in wb.sheetnames: return
         ws = wb[nome_aba]
 
         header_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
@@ -187,64 +203,48 @@ def aplicar_estilo_excel(caminho_arquivo: str, nome_aba: str) -> None:
         row_odd_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
         col_chave_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
 
-        thin_border_side = Side(border_style="thin", color="CBD5E1")
-        border_box = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
-        align_center = Alignment(horizontal="center", vertical="center")
-        align_left = Alignment(horizontal="left", vertical="center")
-        font_data = Font(name="Segoe UI", size=10, color="0F172A")
-        font_sector = Font(name="Segoe UI", size=10, bold=True, color="0F172A")
+        thin_border = Side(border_style="thin", color="CBD5E1")
+        border_box = Border(left=thin_border, right=thin_border, top=thin_border, bottom=thin_border)
+        align_center, align_left = Alignment(horizontal="center", vertical="center"), Alignment(horizontal="left", vertical="center")
+        font_data, font_sector = Font(name="Segoe UI", size=10, color="0F172A"), Font(name="Segoe UI", size=10, bold=True, color="0F172A")
 
         ws.row_dimensions[1].height = 30
         for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = align_center
-            cell.border = border_box
+            cell.fill, cell.font, cell.alignment, cell.border = header_fill, header_font, align_center, border_box
 
         for r in range(2, ws.max_row + 1):
             ws.row_dimensions[r].height = 22
-            current_fill = row_odd_fill if r % 2 == 1 else row_even_fill
+            fill = row_odd_fill if r % 2 == 1 else row_even_fill
             for c in range(1, ws.max_column + 1):
                 cell = ws.cell(row=r, column=c)
-                cell.border = border_box
-                cell.number_format = "@"
+                cell.border, cell.number_format = border_box, "@"
                 if c == 1:
-                    cell.fill = col_chave_fill
-                    cell.font = font_sector
-                    cell.alignment = align_left
+                    cell.fill, cell.font, cell.alignment = col_chave_fill, font_sector, align_left
                 else:
-                    cell.fill = current_fill
-                    cell.font = font_data
-                    cell.alignment = align_center
+                    cell.fill, cell.font, cell.alignment = fill, font_data, align_center
 
         for col in ws.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
             col_letter = get_column_letter(col[0].column)
-            ws.column_dimensions[col_letter].width = max(max_len + 5, 22)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 20)
 
         wb.save(caminho_arquivo)
     except Exception as e:
-        print(f"[AVISO FORMATAÇÃO EXCEL]: {e}")
+        print(f"[AVISO EXCEL]: {e}")
 
 # ==============================================================================
-# CAMADA DE PERSISTÊNCIA E CRUD MULTI-ABAS
+# CAMADA DE PERSISTÊNCIA E CRUD
 # ==============================================================================
 @st.cache_data(ttl=60)
 def carregar_dados_excel(unidade_nome: str = "Geral") -> Tuple[pd.DataFrame, List[str]]:
-    """Carrega os dados exclusivamente da aba da URS ou UBS selecionada."""
     nome_aba = sanitizar_nome_aba(unidade_nome)
     
     if os.path.exists(ARQUIVO_EXCEL):
         try:
             xls = pd.ExcelFile(ARQUIVO_EXCEL)
-            if nome_aba in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=nome_aba, dtype=str, keep_default_na=False)
-            else:
-                df = pd.DataFrame(columns=COLUNAS_PADRAO)
-        except Exception:
-            df = pd.DataFrame(columns=COLUNAS_PADRAO)
-    else:
-        df = pd.DataFrame(columns=COLUNAS_PADRAO)
+            df = pd.read_excel(xls, sheet_name=nome_aba, dtype=str, keep_default_na=False) if nome_aba in xls.sheet_names else pd.DataFrame(columns=COLUNAS_PADRAO)
+        except Exception: df = pd.DataFrame(columns=COLUNAS_PADRAO)
+    else: df = pd.DataFrame(columns=COLUNAS_PADRAO)
 
     df = padronizar_e_organizar_df(df)
     
@@ -268,7 +268,6 @@ def carregar_dados_excel(unidade_nome: str = "Geral") -> Tuple[pd.DataFrame, Lis
     return df, list(df.columns)
 
 def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> bool:
-    """Persiste os dados no arquivo Excel local e aciona sincronização com o Google Sheets."""
     nome_aba = sanitizar_nome_aba(unidade_nome)
     df_limpo = padronizar_e_organizar_df(df)
     sucesso_local = False
@@ -280,8 +279,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> bool:
                 df_limpo.to_excel(writer, sheet_name=nome_aba, index=False)
         else:
             wb = openpyxl.load_workbook(ARQUIVO_EXCEL)
-            if nome_aba in wb.sheetnames:
-                del wb[nome_aba]
+            if nome_aba in wb.sheetnames: del wb[nome_aba]
             wb.save(ARQUIVO_EXCEL)
             wb.close()
 
@@ -292,31 +290,25 @@ def salvar_no_excel(df: pd.DataFrame, unidade_nome: str = "Geral") -> bool:
         carregar_dados_excel.clear()
         sucesso_local = True
     except Exception as err:
-        st.error(f"❌ Erro ao salvar a aba '{nome_aba}' localmente: {err}")
-        print(f"[ERRO SALVAR EXCEL]: {err}")
+        st.error(f"❌ Erro ao salvar localmente: {err}")
 
     sincronizar_google_sheets(df_limpo, nome_aba)
     return sucesso_local
 
 def excluir_setor(setor_nome: str, unidade_nome: str) -> None:
-    """Remove um setor inteiro (linha) da aba da unidade correspondente."""
     df, _ = carregar_dados_excel(unidade_nome)
-    if df.empty or COLUNA_CHAVE not in df.columns:
-        return
-    mascara_manter = ~df[COLUNA_CHAVE].str.strip().str.lower().eq(setor_nome.strip().lower())
-    df_filtrado = df[mascara_manter].copy()
+    if df.empty or COLUNA_CHAVE not in df.columns: return
+    df_filtrado = df[~df[COLUNA_CHAVE].str.strip().str.lower().eq(setor_nome.strip().lower())].copy()
     salvar_no_excel(df_filtrado, unidade_nome)
     st.session_state.df_historico = df_filtrado
 
 def excluir_patrimonio(setor_nome: str, coluna_patrimonio: str, unidade_nome: str) -> None:
-    """Limpa a célula do patrimônio e seu respectivo fabricante na aba correspondente."""
     df, _ = carregar_dados_excel(unidade_nome)
-    if df.empty or COLUNA_CHAVE not in df.columns or coluna_patrimonio not in df.columns:
-        return
+    if df.empty or COLUNA_CHAVE not in df.columns or coluna_patrimonio not in df.columns: return
     mascara_setor = df[COLUNA_CHAVE].str.strip().str.lower().eq(setor_nome.strip().lower())
     if mascara_setor.any():
         df.loc[mascara_setor, coluna_patrimonio] = ""
-        col_fab = f"Fabricante {coluna_patrimonio}"
+        col_fab = formatar_nome_fabricante(coluna_patrimonio)
         if col_fab in df.columns:
             df.loc[mascara_setor, col_fab] = ""
         salvar_no_excel(df, unidade_nome)
