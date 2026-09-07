@@ -18,10 +18,11 @@ jobs:
         run: python scripts/evoluir_gerenciador_exclusao.py
       - name: Validar sintaxe
         run: python -m py_compile sistema_inventario.py
-      - name: Commitar alteracao
+      - name: Commitar alteracao e limpar temporarios
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add sistema_inventario.py
-          git commit -m 'Evoluir persistencia do gerenciador de exclusao' || exit 0
+          git rm -f scripts/evoluir_gerenciador_exclusao.py .github/workflows/aplicar-evolucao-gerenciador.yml
+          git commit -m 'Evoluir persistencia do gerenciador de exclusao'
           git push
