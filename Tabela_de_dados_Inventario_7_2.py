@@ -149,30 +149,57 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     carregar_dados_excel.clear()
     return sucesso_sheets or os.path.exists(nome_arquivo_local)
 
+def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> tuple[pd.DataFrame, bool]:
+    """Aplica a exclusão de setor em memória e informa se houve alteração."""
+    if df.empty or COLUNA_CHAVE not in df.columns:
+        return df.copy(), False
+    setor_limpo = str(setor or "").strip().casefold()
+    if not setor_limpo:
+        return df.copy(), False
+    valores_setor = df[COLUNA_CHAVE].astype(str).str.strip().str.casefold()
+    mask_excluir = valores_setor == setor_limpo
+    if not mask_excluir.any():
+        return df.copy(), False
+    return df.loc[~mask_excluir].copy(), True
+
+
+def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> tuple[pd.DataFrame, bool]:
+    """Limpa patrimônio + fabricante somente no setor escolhido."""
+    if df.empty or COLUNA_CHAVE not in df.columns or coluna not in df.columns:
+        return df.copy(), False
+    df_trabalho = df.fillna("").astype(str).copy()
+    setor_limpo = str(setor or "").strip().casefold()
+    coluna_limpa = str(coluna or "").strip()
+    if not setor_limpo or not coluna_limpa:
+        return df_trabalho, False
+    mask_setor = df_trabalho[COLUNA_CHAVE].str.strip().str.casefold() == setor_limpo
+    if not mask_setor.any():
+        return df_trabalho, False
+    coluna_fabricante = formatar_nome_fabricante(coluna_limpa)
+    df_trabalho.loc[mask_setor, coluna_limpa] = ""
+    if coluna_fabricante in df_trabalho.columns:
+        df_trabalho.loc[mask_setor, coluna_fabricante] = ""
+    cols_dados = [c for c in df_trabalho.columns if c != COLUNA_CHAVE]
+    if cols_dados:
+        mask_linha_vazia = df_trabalho[cols_dados].apply(
+            lambda row: all(str(v).strip().lower() in {"", "nan", "none", "null", "<na>"} for v in row),
+            axis=1,
+        )
+        df_trabalho = df_trabalho.loc[~mask_linha_vazia].copy()
+    return df_trabalho, True
+
+
 def excluir_setor(setor: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
-    if not df.empty and COLUNA_CHAVE in df.columns:
-        setor_limpo = setor.strip().lower()
-        mask_manter = df[COLUNA_CHAVE].astype(str).str.strip().str.lower() != setor_limpo
-        df_filtrado = df[mask_manter]
-        return salvar_no_excel(df_filtrado, unidade)
-    return False
+    df_filtrado, alterado = _aplicar_exclusao_setor(df, setor)
+    if not alterado:
+        return False
+    return salvar_no_excel(df_filtrado, unidade)
+
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
-    if not df.empty and COLUNA_CHAVE in df.columns and coluna in df.columns:
-        df = df.fillna("").astype(str)
-        coluna_fabricante = formatar_nome_fabricante(coluna)
-        
-        mask = df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor.strip().lower()
-        if mask.any():
-            df.loc[mask, coluna] = ""
-            if coluna_fabricante in df.columns:
-                df.loc[mask, coluna_fabricante] = ""
-            
-            cols_dados = [c for c in df.columns if c != COLUNA_CHAVE]
-            mask_vazia = df[cols_dados].apply(lambda row: "".join(row.values).strip() == "", axis=1)
-            df = df[~mask_vazia]
-
-            return salvar_no_excel(df, unidade)
-    return False
+    df_filtrado, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
+    if not alterado:
+        return False
+    return salvar_no_excel(df_filtrado, unidade)

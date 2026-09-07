@@ -401,47 +401,124 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         with col_btn2:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=f"Tabela_{unidade.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
 
-        with st.expander(f"🗑️ Gerenciador de Exclusão — Aba ({unidade})", expanded=False):
-            lista_setores_existentes = list(dict.fromkeys([s for s in df_atual[COLUNA_CHAVE].tolist() if str(s).strip()]))
-            tab_excluir_setor, tab_excluir_patrimonio = st.tabs(["🗑️ Excluir Setor", "❌ Excluir Patrimônio"])
+        st.session_state.setdefault("gerenciador_exclusao_aberto", False)
+        st.session_state.setdefault("tipo_operacao_exclusao", "Excluir Patrimônio")
+        st.session_state.setdefault("del_setor", None)
+        st.session_state.setdefault("del_setor_patrimonio", None)
+        st.session_state.setdefault("del_coluna_patrimonio", None)
 
-            with tab_excluir_setor:
-                if lista_setores_existentes:
-                    setor_para_excluir = st.selectbox("Selecione o Setor para apagar inteiramente:", lista_setores_existentes, index=None)
-                    if setor_para_excluir and st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary"):
-                        excluir_setor(setor_para_excluir, unidade)
-                        carregar_dados_excel.clear()
+        with st.expander(
+            f"🗑️ Gerenciador de Exclusão — Aba ({unidade})",
+            expanded=st.session_state.get("gerenciador_exclusao_aberto", False),
+        ):
+            lista_setores_existentes = sorted(
+                dict.fromkeys(
+                    str(s).strip()
+                    for s in df_atual[COLUNA_CHAVE].tolist()
+                    if str(s).strip()
+                ),
+                key=str.casefold,
+            )
+
+            st.caption("Selecione a operação. Após uma exclusão, o gerenciador permanece aberto e preserva o setor selecionado quando ele ainda existir.")
+            tipo_operacao = st.radio(
+                "Operação de exclusão:",
+                ["Excluir Setor", "Excluir Patrimônio"],
+                horizontal=True,
+                key="tipo_operacao_exclusao",
+            )
+
+            if not lista_setores_existentes:
+                st.info("ℹ️ Não existem setores cadastrados para exclusão nesta unidade.")
+            elif tipo_operacao == "Excluir Setor":
+                setor_para_excluir = st.selectbox(
+                    "Selecione o Setor para apagar inteiramente:",
+                    lista_setores_existentes,
+                    index=None,
+                    key="del_setor",
+                    placeholder="Selecione um setor...",
+                )
+                if setor_para_excluir:
+                    st.warning(f"⚠️ A exclusão removerá todas as informações do setor **{setor_para_excluir}** nesta unidade.")
+
+                if setor_para_excluir and st.button(
+                    f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'",
+                    type="primary",
+                    use_container_width=True,
+                    key="btn_excluir_setor",
+                ):
+                    sucesso = excluir_setor(setor_para_excluir, unidade)
+                    carregar_dados_excel.clear()
+                    if sucesso:
                         st.session_state.mensagem_sucesso = f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso."
-                        st.rerun()
+                        st.session_state.gerenciador_exclusao_aberto = True
+                        st.session_state.del_setor = None
+                        st.session_state.del_setor_patrimonio = None
+                        st.session_state.del_coluna_patrimonio = None
+                    else:
+                        st.session_state.mensagem_sucesso = f"⚠️ Nenhum registro foi excluído para o setor '{setor_para_excluir}'."
+                        st.session_state.gerenciador_exclusao_aberto = True
+                    st.rerun()
 
-            with tab_excluir_patrimonio:
-                if lista_setores_existentes:
-                    c_del1, c_del2 = st.columns(2)
-                    with c_del1:
-                        setor_patrimonio_del = st.selectbox("Selecione o Setor:", lista_setores_existentes, index=None, key="sb_setor_del")
+            else:
+                setor_patrimonio_del = st.selectbox(
+                    "Selecione o Setor:",
+                    lista_setores_existentes,
+                    index=None,
+                    key="del_setor_patrimonio",
+                    placeholder="Selecione um setor...",
+                )
 
-                    colunas_com_dados, valores_map = [], {}
-                    if setor_patrimonio_del:
-                        linha_setor_df = df_atual[df_atual[COLUNA_CHAVE].str.strip().str.lower().eq(setor_patrimonio_del.strip().lower())]
-                        if not linha_setor_df.empty:
-                            for col in df_atual.columns:
-                                if col != COLUNA_CHAVE and col not in COLUNAS_OBSOLETAS and not str(col).startswith("Fabricante "):
-                                    val = str(linha_setor_df.iloc[0][col]).strip()
-                                    if val and val.lower() not in ["", "nan", "none", "null", "<na>"]:
-                                        colunas_com_dados.append(col)
-                                        valores_map[col] = val
+                colunas_com_dados, valores_map = [], {}
+                if setor_patrimonio_del:
+                    linha_setor_df = df_atual[
+                        df_atual[COLUNA_CHAVE].astype(str).str.strip().str.casefold()
+                        == str(setor_patrimonio_del).strip().casefold()
+                    ]
+                    if not linha_setor_df.empty:
+                        for col in df_atual.columns:
+                            if col == COLUNA_CHAVE or col in COLUNAS_OBSOLETAS or str(col).startswith("Fabricante "):
+                                continue
+                            val = str(linha_setor_df.iloc[0][col]).strip()
+                            if val and val.lower() not in {"nan", "none", "null", "<na>"}:
+                                colunas_com_dados.append(col)
+                                valores_map[col] = val
 
-                    with c_del2:
-                        coluna_patrimonio_del = st.selectbox(
-                            "Selecione a Coluna de Patrimônio:", options=colunas_com_dados, index=None,
-                            format_func=lambda c: f"{c} (Código: {valores_map.get(c, '')})"
-                        ) if colunas_com_dados else None
+                colunas_com_dados = sorted(colunas_com_dados, key=str.casefold)
+                coluna_patrimonio_del = st.selectbox(
+                    "Selecione o Patrimônio:",
+                    options=colunas_com_dados,
+                    index=None,
+                    key="del_coluna_patrimonio",
+                    placeholder="Selecione o patrimônio...",
+                    format_func=lambda c: f"{c} (Código: {valores_map.get(c, '')})",
+                ) if colunas_com_dados else None
 
-                    if coluna_patrimonio_del and setor_patrimonio_del and st.button(f"🗑️ Apagar '{coluna_patrimonio_del}'", type="secondary"):
-                        excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
-                        carregar_dados_excel.clear()
+                if setor_patrimonio_del and not colunas_com_dados:
+                    st.info("ℹ️ O setor selecionado não possui patrimônio preenchido para exclusão.")
+                elif coluna_patrimonio_del:
+                    st.warning(
+                        f"⚠️ Será removido o patrimônio **{coluna_patrimonio_del}** do setor **{setor_patrimonio_del}** e, quando existir, o fabricante correspondente."
+                    )
+
+                if coluna_patrimonio_del and setor_patrimonio_del and st.button(
+                    f"🗑️ Confirmar Exclusão de '{coluna_patrimonio_del}'",
+                    type="secondary",
+                    use_container_width=True,
+                    key="btn_excluir_patrimonio",
+                ):
+                    sucesso = excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
+                    carregar_dados_excel.clear()
+                    if sucesso:
                         st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' e seu fabricante foram excluídos do setor '{setor_patrimonio_del}'."
-                        st.rerun()
+                        st.session_state.gerenciador_exclusao_aberto = True
+                        st.session_state.del_coluna_patrimonio = None
+                        st.session_state.del_setor_patrimonio = setor_patrimonio_del
+                    else:
+                        st.session_state.mensagem_sucesso = f"⚠️ Nenhum patrimônio foi excluído para o setor '{setor_patrimonio_del}'."
+                        st.session_state.gerenciador_exclusao_aberto = True
+                    st.rerun()
+
 
 
 if __name__ == "__main__":
