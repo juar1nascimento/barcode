@@ -12,7 +12,7 @@ ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Local / Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Setor"]
 
-# Ordem Oficial das Colunas: Organizadas em ORDEM ALFABÉTICA por Equipamento (Patrimônio + Fabricante lado a lado)
+# Estrutura Oficial em Ordem Alfabética por Equipamento
 ORDEM_COLUNAS_OFICIAL = [
     "Local / Setor",
     "CPU - Nº de Patrimônio", "Fabricante CPU",
@@ -31,17 +31,12 @@ LISTA_UBS_PADRAO = ["UBS Central", "UBS Jardim", "UBS Vila Nova"]
 
 # Mapeamento para redirecionar nomes duplicados/alternativos para a coluna única e oficial
 MAPA_RENOMEAR_COLUNAS = {
-    # CPU
     "Computador - Nº de Patrimônio": "CPU - Nº de Patrimônio",
     "Fabricante Computador": "Fabricante CPU",
     "Fabricante do Computador": "Fabricante CPU",
-    
-    # Monitores
     "Monitor - Nº de Patrimônio": "Monitores - Nº de Patrimônio",
     "Fabricante Monitor": "Fabricante dos Monitores",
     "Fabricante do Monitor": "Fabricante dos Monitores",
-    
-    # Teclado, Mouse, Impressora e Nobreak
     "Fabricante do Teclado": "Fabricante Teclado",
     "Fabricante do Mouse": "Fabricante Mouse",
     "Fabricante da Impressora": "Fabricante Impressora",
@@ -51,14 +46,15 @@ MAPA_RENOMEAR_COLUNAS = {
 def formatar_nome_patrimonio(patrimonio: str) -> str:
     p_limpo = patrimonio.strip()
     if not re.search(r'-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', p_limpo, flags=re.IGNORECASE):
-        return f"{p_limpo} - Nº de Patrimônio"
-    return p_limpo
+        p_limpo = f"{p_limpo} - Nº de Patrimônio"
+    return MAPA_RENOMEAR_COLUNAS.get(p_limpo, p_limpo)
 
 def formatar_nome_fabricante(patrimonio: str) -> str:
     p_limpo = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', patrimonio.strip(), flags=re.IGNORECASE)
     if "monitor" in p_limpo.lower():
         return "Fabricante dos Monitores"
-    return f"Fabricante {p_limpo}"
+    nome_fab = f"Fabricante {p_limpo}"
+    return MAPA_RENOMEAR_COLUNAS.get(nome_fab, nome_fab)
 
 # ==============================================================================
 # CONEXÃO GOOGLE SHEETS COM SUPORTE A [connections.gsheets]
@@ -135,7 +131,7 @@ def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     if COLUNA_CHAVE not in df.columns:
         df.insert(0, COLUNA_CHAVE, "")
 
-    # 5. Garante que todas as colunas oficiais existam no DataFrame
+    # 5. Garante estritamente apenas as colunas oficiais no DataFrame
     for col in ORDEM_COLUNAS_OFICIAL:
         if col not in df.columns:
             df[col] = ""
@@ -147,9 +143,7 @@ def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     return df[ORDEM_COLUNAS_OFICIAL]
 
 def remover_coluna_setor_da_planilha(aba: gspread.Worksheet):
-    """
-    Verifica se a Coluna A é 'Setor' e faz a exclusão física na aba do Google Sheets.
-    """
+    """Verifica se a Coluna A é 'Setor' e faz a exclusão física na aba do Google Sheets."""
     try:
         primeira_linha = aba.row_values(1)
         if primeira_linha and primeira_linha[0].strip().lower() == "setor":
@@ -158,13 +152,9 @@ def remover_coluna_setor_da_planilha(aba: gspread.Worksheet):
         pass
 
 def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_colunas: int):
-    """
-    Aplica formatação visual no Google Sheets.
-    """
+    """Aplica formatação visual no Google Sheets."""
     try:
         aba.freeze(rows=1)
-
-        # Cabeçalho Azul Escuro com texto Branco
         aba.format(f"A1:{gspread.utils.rowcol_to_a1(1, total_colunas)}", {
             "backgroundColor": {"red": 0.12, "green": 0.30, "blue": 0.47},
             "textFormat": {"foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}, "bold": True, "fontSize": 10},
@@ -184,9 +174,7 @@ def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_
 
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
-    """
-    Carrega dados do Google Sheets organizando colunas e eliminando duplicatas.
-    """
+    """Carrega dados do Google Sheets organizando colunas e eliminando duplicatas."""
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
@@ -213,7 +201,6 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
         except Exception as e:
             st.error(f"Erro ao ler do Google Sheets: {e}")
 
-    # Backup Local
     if os.path.exists(nome_arquivo_local):
         try:
             df = pd.read_excel(nome_arquivo_local, dtype=str)
@@ -225,10 +212,29 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
 
     return pd.DataFrame(columns=ORDEM_COLUNAS_OFICIAL), nome_arquivo_local
 
+def adicionar_e_salvar_sem_sobrescrever(
+    codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
+) -> bool:
+    """Cadastra um patrimônio individual redirecionando estritamente para a coluna oficial."""
+    setor_limpo = setor.strip()
+    codigo_limpo = codigo.strip()
+    fabricante_limpo = fabricante.strip()
+    
+    patrimonio_col = formatar_nome_patrimonio(patrimonio)
+    coluna_fabricante = formatar_nome_fabricante(patrimonio)
+
+    if not setor_limpo or not codigo_limpo or not patrimonio_col or not unidade:
+        return False
+
+    dados_envio = {
+        patrimonio_col: codigo_limpo,
+        coluna_fabricante: fabricante_limpo
+    }
+    
+    return adicionar_ou_atualizar_registro(unidade, setor_limpo, dados_envio)
+
 def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_equipamentos: Dict[str, str]) -> bool:
-    """
-    Insere/atualiza registros garantindo o uso exclusivo das colunas oficiais.
-    """
+    """Insere/atualiza registros garantindo o uso exclusivo das colunas oficiais."""
     df, _ = carregar_dados_excel(unidade)
     setor_limpo = setor_selecionado.strip()
     
@@ -236,7 +242,8 @@ def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_
     dados_normalizados = {}
     for k, v in dados_equipamentos.items():
         col_destino = MAPA_RENOMEAR_COLUNAS.get(k, k)
-        dados_normalizados[col_destino] = v
+        if col_destino in ORDEM_COLUNAS_OFICIAL:
+            dados_normalizados[col_destino] = v
 
     indices_setor = df[df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor_limpo.lower()].index
     linha_destino_idx = None
@@ -255,7 +262,7 @@ def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_
                 break
 
     if linha_destino_idx is None:
-        nova_linha = {c: "" for c in df.columns}
+        nova_linha = {c: "" for c in ORDEM_COLUNAS_OFICIAL}
         nova_linha[COLUNA_CHAVE] = setor_limpo
         for col, val in dados_normalizados.items():
             if val and col in nova_linha:
@@ -271,15 +278,12 @@ def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_
     return salvar_no_excel(df, unidade)
 
 def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
-    """
-    Salva os dados no Google Sheets mantendo o leiaute limpo, organizado e reordenado.
-    """
+    """Salva os dados no Google Sheets mantendo a estrutura limpa e organizada."""
     sucesso_sheets = False
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
 
-    # Aplica normalização e ordenação estrita antes do salvamento
     df_salvar = expurgar_e_normalizar_setores(df).fillna("").astype(str)
 
     if planilha:
@@ -303,10 +307,11 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     except Exception as e:
         st.error(f"Erro no backup local: {e}")
 
-    carregar_dados_excel.clear()
+    st.cache_data.clear()
     return sucesso_sheets or os.path.exists(nome_arquivo_local)
 
 def excluir_setor(setor: str, unidade: str) -> bool:
+    """Exclui todas as entradas de um setor específico."""
     df, _ = carregar_dados_excel(unidade)
     if not df.empty and COLUNA_CHAVE in df.columns:
         setor_limpo = setor.strip().lower()
@@ -316,14 +321,17 @@ def excluir_setor(setor: str, unidade: str) -> bool:
     return False
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
+    """Exclui o código do patrimônio e o fabricante associado."""
     df, _ = carregar_dados_excel(unidade)
-    if not df.empty and COLUNA_CHAVE in df.columns and coluna in df.columns:
+    coluna_oficial = MAPA_RENOMEAR_COLUNAS.get(coluna, coluna)
+
+    if not df.empty and COLUNA_CHAVE in df.columns and coluna_oficial in df.columns:
         df = df.fillna("").astype(str)
-        coluna_fabricante = formatar_nome_fabricante(coluna)
+        coluna_fabricante = formatar_nome_fabricante(coluna_oficial)
         
         mask = df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor.strip().lower()
         if mask.any():
-            df.loc[mask, coluna] = ""
+            df.loc[mask, coluna_oficial] = ""
             if coluna_fabricante in df.columns:
                 df.loc[mask, coluna_fabricante] = ""
             
