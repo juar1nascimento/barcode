@@ -65,46 +65,22 @@ FABRICANTES_PADRAO = _limpar_opcoes_menu([
     "nº de patrimônio", "n° de patrimônio", "patrimônio", "setor"
 ])
 
-# ==============================================================================
-# REGRA GLOBAL DE AUDITORIA — TIPO DE PATRIMÔNIO
-# Esta é a lista única e fechada usada em TODAS as UBS/URS e em todas as páginas.
-# Qualquer opção antiga ou inesperada é bloqueada.
-# ==============================================================================
-TIPOS_PATRIMONIO_PERMITIDOS = (
-    "CPU",
-    "Monitor",
-    "Teclado",
-    "Mouse",
-    "Impressora",
-    "Outros Patrimônios",
-)
-
-# Mapeamento único do menu para as colunas da tabela.
+# Equipamentos: o menu mostra SOMENTE o nome do equipamento.
+# Não mostra "Nº de Patrimônio", "Fabricante ..." ou "Local / Setor".
 EQUIPAMENTOS_OPCOES = {
     "CPU": ("CPU - Nº de Patrimônio", "Fabricante CPU"),
-    "Monitor": ("Monitores - Nº de Patrimônio", "Fabricante dos Monitores"),
-    "Teclado": ("Teclado - Nº de Patrimônio", "Fabricante Teclado"),
-    "Mouse": ("Mouse - Nº de Patrimônio", "Fabricante Mouse"),
+    "Estabilizador": ("Estabilizador - Nº de Patrimônio", "Fabricante Estabilizador"),
     "Impressora": ("Impressora - Nº de Patrimônio", "Fabricante Impressora"),
-    "Outros Patrimônios": ("Outros Patrimônios - Nº de Patrimônio", "Fabricante Outros Patrimônios"),
+    "Monitor": ("Monitores - Nº de Patrimônio", "Fabricante dos Monitores"),
+    "Mouse": ("Mouse - Nº de Patrimônio", "Fabricante Mouse"),
+    "Nobreak": ("Nobreak - Nº de Patrimônio", "Fabricante Nobreak"),
+    "Switch": ("Switch - Nº de Patrimônio", "Fabricante Switch"),
+    "Teclado": ("Teclado - Nº de Patrimônio", "Fabricante Teclado")
 }
-
-def opcoes_tipo_patrimonio():
-    """Retorna exclusivamente as opções autorizadas, sem duplicação."""
-    return [
-        opcao for opcao in TIPOS_PATRIMONIO_PERMITIDOS
-        if opcao in EQUIPAMENTOS_OPCOES
-    ]
-
-def validar_tipo_patrimonio(tipo: str) -> str:
-    """Impede gravação de tipos que não pertençam à lista global autorizada."""
-    tipo_limpo = re.sub(r"\s+", " ", str(tipo or "").strip())
-    if tipo_limpo not in TIPOS_PATRIMONIO_PERMITIDOS:
-        raise ValueError(
-            "Tipo de patrimônio não autorizado. "
-            "Use somente: " + ", ".join(TIPOS_PATRIMONIO_PERMITIDOS)
-        )
-    return tipo_limpo
+EQUIPAMENTOS_OPCOES = {
+    chave: EQUIPAMENTOS_OPCOES[chave]
+    for chave in _limpar_opcoes_menu(EQUIPAMENTOS_OPCOES.keys())
+}
 
 # Ordem oficial da tabela: equipamento em ordem alfabética,
 # com patrimônio imediatamente ao lado do respectivo fabricante.
@@ -114,7 +90,6 @@ ORDEM_COLUNAS_OFICIAL = [
     "Estabilizador - Nº de Patrimônio", "Fabricante Estabilizador",
     "Impressora - Nº de Patrimônio", "Fabricante Impressora",
     "Monitores - Nº de Patrimônio", "Fabricante dos Monitores",
-    "Outros Patrimônios - Nº de Patrimônio", "Fabricante Outros Patrimônios",
     "Mouse - Nº de Patrimônio", "Fabricante Mouse",
     "Nobreak - Nº de Patrimônio", "Fabricante Nobreak",
     "Switch - Nº de Patrimônio", "Fabricante Switch",
@@ -143,7 +118,7 @@ MAPA_RENOMEAR_COLUNAS = {
 }
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
-    p_limpo = validar_tipo_patrimonio(patrimonio)
+    p_limpo = patrimonio.strip()
     if p_limpo in EQUIPAMENTOS_OPCOES:
         return EQUIPAMENTOS_OPCOES[p_limpo][0]
     if not re.search(r'-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', p_limpo, flags=re.IGNORECASE):
@@ -151,7 +126,7 @@ def formatar_nome_patrimonio(patrimonio: str) -> str:
     return MAPA_RENOMEAR_COLUNAS.get(p_limpo, p_limpo)
 
 def formatar_nome_fabricante(patrimonio: str) -> str:
-    p_limpo = validar_tipo_patrimonio(patrimonio)
+    p_limpo = patrimonio.strip()
     if p_limpo in EQUIPAMENTOS_OPCOES:
         return EQUIPAMENTOS_OPCOES[p_limpo][1]
     
@@ -505,7 +480,7 @@ if pagina == "1. Cadastro / Leitor de Código de Barras":
     col1, col2 = st.columns(2)
     with col1:
         setor_input = st.selectbox("Selecione o Setor:", SETORES_PADRAO)
-        tipo_equipamento = st.selectbox("Selecione o Tipo de Equipamento:", opcoes_tipo_patrimonio())
+        tipo_equipamento = st.selectbox("Selecione o Tipo de Equipamento:", list(EQUIPAMENTOS_OPCOES.keys()))
     
     with col2:
         fabricante_input = st.selectbox("Selecione o Fabricante:", FABRICANTES_PADRAO)
@@ -586,7 +561,7 @@ elif pagina == "3. Consulta e Gerenciamento do Inventário":
                 setor_exc = st.selectbox("Selecione o Setor:", setores_existentes, key="exc_pat_setor")
                 coluna_exc = st.selectbox(
                     "Selecione o Equipamento a ser Removido:",
-                    opcoes_tipo_patrimonio(),
+                    list(EQUIPAMENTOS_OPCOES.keys()),
                     key="exc_pat_col"
                 )
                 
