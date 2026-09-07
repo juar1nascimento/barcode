@@ -79,7 +79,7 @@ def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     
-    # 1. Se existir a coluna antiga 'Setor', transfere seus dados para 'Local / Setor' se estiver vazio
+    # 1. Se existir a coluna antiga 'Setor', transfere seus dados para 'Local / Setor'
     if "Setor" in df.columns:
         if COLUNA_CHAVE in df.columns:
             df[COLUNA_CHAVE] = df[COLUNA_CHAVE].replace("", np.nan).fillna(df["Setor"]).fillna("")
@@ -180,6 +180,30 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
             pass
 
     return pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO), nome_arquivo_local
+
+def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_equipamentos: Dict[str, str]) -> bool:
+    """
+    Regra de Negócio: Garante que a escolha do menu suspenso 'Setor' do site
+    seja gravada ESTRITAMENTE na coluna 'Local / Setor'.
+    """
+    df, _ = carregar_dados_excel(unidade)
+    
+    # Prepara o dicionário de dados da linha
+    nova_linha = {COLUNA_CHAVE: setor_selecionado.strip()}
+    nova_linha.update(dados_equipamentos)
+    
+    # Atualiza se a linha do setor já existir, caso contrário adiciona nova linha
+    mask = df[COLUNA_CHAVE].astype(str).str.strip().str.lower() == setor_selecionado.strip().lower()
+    
+    if mask.any():
+        for k, v in dados_equipamentos.items():
+            if v: # Atualiza apenas se houver valor fornecido
+                df.loc[mask, k] = str(v).strip()
+    else:
+        df_nova = pd.DataFrame([nova_linha])
+        df = pd.concat([df, df_nova], ignore_index=True)
+        
+    return salvar_no_excel(df, unidade)
 
 def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     """
