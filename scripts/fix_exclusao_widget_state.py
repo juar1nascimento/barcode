@@ -1,3 +1,4 @@
+# Correcao final: nao alterar chaves de widgets depois de instanciadas
 from pathlib import Path
 
 path = Path('sistema_inventario.py')
