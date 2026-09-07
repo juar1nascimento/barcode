@@ -7,12 +7,34 @@ import gspread
 from google.oauth2.service_account import Credentials
 from typing import Optional, Tuple, List, Dict, Any
 
-# Configurações globais e constantes
+# ==============================================================================
+# CONFIGURAÇÕES GLOBAIS E ESTRUTURA OFICIAL (GTI-SESA)
+# ==============================================================================
 ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Local / Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Setor"]
 
-# Estrutura Oficial em Ordem Alfabética por Equipamento
+# Lista Padronizada de Unidades (URS e UBS)
+LISTA_UNIDADES_PADRAO = [
+    "URS I", "URS II", "URS III",
+    "UBS Central", "UBS Jardim", "UBS Vila Nova", "UBS Centro"
+]
+
+# Lista Padronizada de Setores do GTI-SESA
+SETORES_PADRAO = sorted([
+    "Almoxarifado", "Consultório 01", "Consultório 02", "Diretoria",
+    "Farmácia", "Faturamento", "Laboratório", "Recepção",
+    "Sala de Vacina", "TI / Suporte", "Triagem"
+])
+
+# Lista de Fabricantes Padronizada
+FABRICANTES_PADRAO = [
+    "Outro", "Acer", "AOC", "Apple", "Asus", "Brother", "Cisco", "Daten",
+    "Dell", "Epson", "HP", "Intelbras", "Lenovo", "LG", "Logitech",
+    "Multilaser", "POSITIVO", "Samsung", "TP-Link", "Zebra"
+]
+
+# Ordem Oficial das Colunas: Organizadas em ORDEM ALFABÉTICA por Equipamento
 ORDEM_COLUNAS_OFICIAL = [
     "Local / Setor",
     "CPU - Nº de Patrimônio", "Fabricante CPU",
@@ -25,11 +47,7 @@ ORDEM_COLUNAS_OFICIAL = [
     "Teclado - Nº de Patrimônio", "Fabricante Teclado"
 ]
 
-SETORES_PADRAO = ["Recepção", "Triagem", "Farmácia", "Consultório", "Almoxarifado"]
-LISTA_URS_PADRAO = ["URS I", "URS II", "URS III"]
-LISTA_UBS_PADRAO = ["UBS Central", "UBS Jardim", "UBS Vila Nova"]
-
-# Mapeamento para redirecionar nomes duplicados/alternativos para a coluna única e oficial
+# Mapeamento para redirecionar nomes duplicados/alternativos
 MAPA_RENOMEAR_COLUNAS = {
     "Computador - Nº de Patrimônio": "CPU - Nº de Patrimônio",
     "Fabricante Computador": "Fabricante CPU",
@@ -43,24 +61,42 @@ MAPA_RENOMEAR_COLUNAS = {
     "Fabricante do Nobreak": "Fabricante Nobreak"
 }
 
+# Periféricos/Equipamentos mapeados para os menus suspensos
+EQUIPAMENTOS_OPCOES = {
+    "CPU": ("CPU - Nº de Patrimônio", "Fabricante CPU"),
+    "Estabilizador": ("Estabilizador - Nº de Patrimônio", "Fabricante Estabilizador"),
+    "Impressora": ("Impressora - Nº de Patrimônio", "Fabricante Impressora"),
+    "Monitor": ("Monitores - Nº de Patrimônio", "Fabricante dos Monitores"),
+    "Mouse": ("Mouse - Nº de Patrimônio", "Fabricante Mouse"),
+    "Nobreak": ("Nobreak - Nº de Patrimônio", "Fabricante Nobreak"),
+    "Switch": ("Switch - Nº de Patrimônio", "Fabricante Switch"),
+    "Teclado": ("Teclado - Nº de Patrimônio", "Fabricante Teclado")
+}
+
 def formatar_nome_patrimonio(patrimonio: str) -> str:
     p_limpo = patrimonio.strip()
+    if p_limpo in EQUIPAMENTOS_OPCOES:
+        return EQUIPAMENTOS_OPCOES[p_limpo][0]
     if not re.search(r'-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', p_limpo, flags=re.IGNORECASE):
         p_limpo = f"{p_limpo} - Nº de Patrimônio"
     return MAPA_RENOMEAR_COLUNAS.get(p_limpo, p_limpo)
 
 def formatar_nome_fabricante(patrimonio: str) -> str:
-    p_limpo = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', patrimonio.strip(), flags=re.IGNORECASE)
-    if "monitor" in p_limpo.lower():
+    p_limpo = patrimonio.strip()
+    if p_limpo in EQUIPAMENTOS_OPCOES:
+        return EQUIPAMENTOS_OPCOES[p_limpo][1]
+    
+    base_nome = re.sub(r'\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio$', '', p_limpo, flags=re.IGNORECASE)
+    if "monitor" in base_nome.lower():
         return "Fabricante dos Monitores"
-    nome_fab = f"Fabricante {p_limpo}"
+    nome_fab = f"Fabricante {base_nome}"
     return MAPA_RENOMEAR_COLUNAS.get(nome_fab, nome_fab)
 
 # ==============================================================================
-# CONEXÃO GOOGLE SHEETS COM SUPORTE A [connections.gsheets]
+# CONEXÃO GOOGLE SHEETS
 # ==============================================================================
 def conectar_google_sheets():
-    """Conecta ao Google Sheets buscando os dados dentro de [connections.gsheets]."""
+    """Conecta ao Google Sheets buscando as credenciais em [connections.gsheets]."""
     try:
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
             sec_gsheets = st.secrets["connections"]["gsheets"]
@@ -100,7 +136,7 @@ def conectar_google_sheets():
 
 def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Padroniza, consolida colunas duplicadas, elimina colunas desnecessárias,
+    Padroniza, consolida colunas duplicadas, elimina colunas obsoletas,
     ordena as colunas em ordem alfabética de equipamento e ordena as linhas por setor.
     """
     df = df.copy()
@@ -142,15 +178,6 @@ def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     # 7. Retorna o DataFrame mantendo estritamente a ordem de colunas oficial
     return df[ORDEM_COLUNAS_OFICIAL]
 
-def remover_coluna_setor_da_planilha(aba: gspread.Worksheet):
-    """Verifica se a Coluna A é 'Setor' e faz a exclusão física na aba do Google Sheets."""
-    try:
-        primeira_linha = aba.row_values(1)
-        if primeira_linha and primeira_linha[0].strip().lower() == "setor":
-            aba.delete_columns(1)
-    except Exception:
-        pass
-
 def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_colunas: int):
     """Aplica formatação visual no Google Sheets."""
     try:
@@ -181,8 +208,10 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
 
     if planilha:
         try:
-            aba = planilha.worksheet(nome_aba)
-            remover_coluna_setor_da_planilha(aba)
+            try:
+                aba = planilha.worksheet(nome_aba)
+            except gspread.exceptions.WorksheetNotFound:
+                aba = planilha.add_worksheet(title=nome_aba, rows="100", cols="20")
 
             valores = aba.get_all_values()
             if valores and len(valores) > 1:
@@ -196,8 +225,6 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
                 return df, f"Google Sheets ({nome_aba})"
             else:
                 return pd.DataFrame(columns=ORDEM_COLUNAS_OFICIAL), f"Google Sheets ({nome_aba})"
-        except gspread.exceptions.WorksheetNotFound:
-            pass
         except Exception as e:
             st.error(f"Erro ao ler do Google Sheets: {e}")
 
@@ -212,33 +239,47 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
 
     return pd.DataFrame(columns=ORDEM_COLUNAS_OFICIAL), nome_arquivo_local
 
-def adicionar_e_salvar_sem_sobrescrever(
-    codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
-) -> bool:
-    """Cadastra um patrimônio individual redirecionando estritamente para a coluna oficial."""
-    setor_limpo = setor.strip()
-    codigo_limpo = codigo.strip()
-    fabricante_limpo = fabricante.strip()
-    
-    patrimonio_col = formatar_nome_patrimonio(patrimonio)
-    coluna_fabricante = formatar_nome_fabricante(patrimonio)
+# ==============================================================================
+# FUNÇÕES DE PERSISTÊNCIA E OPERAÇÃO
+# ==============================================================================
+def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
+    """Salva os dados no Google Sheets mantendo a estrutura limpa e organizada."""
+    sucesso_sheets = False
+    planilha = conectar_google_sheets()
+    nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
+    nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
 
-    if not setor_limpo or not codigo_limpo or not patrimonio_col or not unidade:
-        return False
+    df_salvar = expurgar_e_normalizar_setores(df).fillna("").astype(str)
 
-    dados_envio = {
-        patrimonio_col: codigo_limpo,
-        coluna_fabricante: fabricante_limpo
-    }
-    
-    return adicionar_ou_atualizar_registro(unidade, setor_limpo, dados_envio)
+    if planilha:
+        try:
+            try:
+                aba = planilha.worksheet(nome_aba)
+            except gspread.exceptions.WorksheetNotFound:
+                aba = planilha.add_worksheet(title=nome_aba, rows="100", cols="20")
+
+            aba.clear()
+            valores = [df_salvar.columns.tolist()] + df_salvar.values.tolist()
+            aba.update(values=valores, range_name="A1")
+            
+            aplicar_estilizacao_sheets(aba, len(valores), len(df_salvar.columns))
+            sucesso_sheets = True
+        except Exception as e:
+            st.error(f"⚠️ Erro ao gravar no Google Sheets: {e}")
+
+    try:
+        df_salvar.to_excel(nome_arquivo_local, index=False)
+    except Exception as e:
+        st.error(f"Erro no backup local: {e}")
+
+    st.cache_data.clear()
+    return sucesso_sheets or os.path.exists(nome_arquivo_local)
 
 def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_equipamentos: Dict[str, str]) -> bool:
     """Insere/atualiza registros garantindo o uso exclusivo das colunas oficiais."""
     df, _ = carregar_dados_excel(unidade)
     setor_limpo = setor_selecionado.strip()
     
-    # Redireciona chaves recebidas para o mapa de nomenclatura oficial
     dados_normalizados = {}
     for k, v in dados_equipamentos.items():
         col_destino = MAPA_RENOMEAR_COLUNAS.get(k, k)
@@ -277,38 +318,26 @@ def adicionar_ou_atualizar_registro(unidade: str, setor_selecionado: str, dados_
 
     return salvar_no_excel(df, unidade)
 
-def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
-    """Salva os dados no Google Sheets mantendo a estrutura limpa e organizada."""
-    sucesso_sheets = False
-    planilha = conectar_google_sheets()
-    nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
-    nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
+def adicionar_e_salvar_sem_sobrescrever(
+    codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
+) -> bool:
+    """Cadastra um patrimônio individual vindo do leitor de código de barras."""
+    setor_limpo = setor.strip()
+    codigo_limpo = codigo.strip()
+    fabricante_limpo = fabricante.strip()
+    
+    patrimonio_col = formatar_nome_patrimonio(patrimonio)
+    coluna_fabricante = formatar_nome_fabricante(patrimonio)
 
-    df_salvar = expurgar_e_normalizar_setores(df).fillna("").astype(str)
+    if not setor_limpo or not codigo_limpo or not patrimonio_col or not unidade:
+        return False
 
-    if planilha:
-        try:
-            try:
-                aba = planilha.worksheet(nome_aba)
-            except gspread.exceptions.WorksheetNotFound:
-                aba = planilha.add_worksheet(title=nome_aba, rows="100", cols="20")
-
-            aba.clear()
-            valores = [df_salvar.columns.tolist()] + df_salvar.values.tolist()
-            aba.update(values=valores, range_name="A1")
-            
-            aplicar_estilizacao_sheets(aba, len(valores), len(df_salvar.columns))
-            sucesso_sheets = True
-        except Exception as e:
-            st.error(f"⚠️ Erro ao gravar no Google Sheets: {e}")
-
-    try:
-        df_salvar.to_excel(nome_arquivo_local, index=False)
-    except Exception as e:
-        st.error(f"Erro no backup local: {e}")
-
-    st.cache_data.clear()
-    return sucesso_sheets or os.path.exists(nome_arquivo_local)
+    dados_envio = {
+        patrimonio_col: codigo_limpo,
+        coluna_fabricante: fabricante_limpo
+    }
+    
+    return adicionar_ou_atualizar_registro(unidade, setor_limpo, dados_envio)
 
 def excluir_setor(setor: str, unidade: str) -> bool:
     """Exclui todas as entradas de um setor específico."""
@@ -341,3 +370,138 @@ def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
 
             return salvar_no_excel(df, unidade)
     return False
+
+# ==============================================================================
+# INTERFACE STREAMLIT E PADRONIZAÇÃO DE PÁGINAS
+# ==============================================================================
+st.set_page_config(page_title="Sistema de Inventário GTI-SESA", layout="wide")
+
+st.title("🖥️ Sistema de Inventário GTI-SESA")
+
+# Sidebar - Seleção da Unidade e Página
+st.sidebar.header("⚙️ Configurações Gerais")
+unidade_selecionada = st.sidebar.selectbox("Selecione a Unidade (URS / UBS):", LISTA_UNIDADES_PADRAO)
+
+pagina = st.sidebar.radio("Navegação de Páginas:", [
+    "1. Cadastro / Leitor de Código de Barras",
+    "2. Cadastramento por Setor (Lote)",
+    "3. Consulta e Gerenciamento do Inventário"
+])
+
+st.sidebar.markdown("---")
+st.sidebar.caption(f"Unidade Atual: **{unidade_selecionada}**")
+
+# ------------------------------------------------------------------------------
+# PÁGINA 1: CADASTRO RÁPIDO / LEITOR DE CÓDIGO DE BARRAS
+# ------------------------------------------------------------------------------
+if pagina == "1. Cadastro / Leitor de Código de Barras":
+    st.subheader("📦 Cadastro Rápido via Leitor de Código de Barras")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        setor_input = st.selectbox("Selecione o Setor:", SETORES_PADRAO)
+        tipo_equipamento = st.selectbox("Selecione o Tipo de Equipamento:", list(EQUIPAMENTOS_OPCOES.keys()))
+    
+    with col2:
+        fabricante_input = st.selectbox("Selecione o Fabricante:", FABRICANTES_PADRAO)
+        codigo_patrimonio = st.text_input("Código de Patrimônio (Bipagem):", key="bip_codigo")
+
+    if st.button("💾 Gravar Registro Único", type="primary"):
+        if codigo_patrimonio.strip():
+            sucesso = adicionar_e_salvar_sem_sobrescrever(
+                codigo=codigo_patrimonio,
+                patrimonio=tipo_equipamento,
+                setor=setor_input,
+                unidade=unidade_selecionada,
+                fabricante=fabricante_input
+            )
+            if sucesso:
+                st.success(f"Patrimônio `{codigo_patrimonio}` salvo com sucesso na unidade {unidade_selecionada}!")
+            else:
+                st.error("Erro ao salvar no Google Sheets.")
+        else:
+            st.warning("Insira ou bipe um código de patrimônio válido.")
+
+# ------------------------------------------------------------------------------
+# PÁGINA 2: CADASTRAMENTO POR SETOR (EM LOTE)
+# ------------------------------------------------------------------------------
+elif pagina == "2. Cadastramento por Setor (Lote)":
+    st.subheader("📋 Cadastramento Completo por Setor")
+    
+    setor_lote = st.selectbox("Selecione o Setor para Preenchimento:", SETORES_PADRAO, key="setor_lote")
+    
+    st.markdown("---")
+    st.markdown("##### Preencha os Patrimônios e Fabricantes do Setor:")
+    
+    dados_formulario = {}
+    cols = st.columns(2)
+    
+    for idx, (nome_eq, (col_pat, col_fab)) in enumerate(EQUIPAMENTOS_OPCOES.items()):
+        col_pos = cols[idx % 2]
+        with col_pos:
+            st.markdown(f"**{nome_eq}**")
+            pat_val = st.text_input(f"Patrimônio ({nome_eq}):", key=f"pat_{col_pat}")
+            fab_val = st.selectbox(f"Fabricante ({nome_eq}):", FABRICANTES_PADRAO, key=f"fab_{col_fab}")
+            
+            if pat_val.strip():
+                dados_formulario[col_pat] = pat_val.strip()
+                dados_formulario[col_fab] = fab_val if fab_val != "Outro" else ""
+
+    st.markdown("---")
+    if st.button("💾 Salvar Inventário do Setor", type="primary"):
+        if dados_formulario:
+            sucesso = adicionar_ou_atualizar_registro(unidade_selecionada, setor_lote, dados_formulario)
+            if sucesso:
+                st.success(f"Dados do setor `{setor_lote}` salvos com sucesso na aba {unidade_selecionada}!")
+            else:
+                st.error("Erro ao salvar no Google Sheets.")
+        else:
+            st.warning("Preencha ao menos um código de patrimônio.")
+
+# ------------------------------------------------------------------------------
+# PÁGINA 3: CONSULTA E GERENCIAMENTO DO INVENTÁRIO
+# ------------------------------------------------------------------------------
+elif pagina == "3. Consulta e Gerenciamento do Inventário":
+    st.subheader("📊 Consulta e Exclusão de Inventário")
+    
+    df_inventario, origem = carregar_dados_excel(unidade_selecionada)
+    st.caption(f"Fonte de Dados: **{origem}**")
+
+    if not df_inventario.empty:
+        st.dataframe(df_inventario, use_container_width=True)
+        
+        st.markdown("---")
+        st.markdown("### 🗑️ Gerenciamento e Exclusão")
+        
+        tab1, tab2 = st.tabs(["Excluir Patrimônio Específico", "Excluir Setor Completo"])
+        
+        with tab1:
+            setores_existentes = sorted(df_inventario[COLUNA_CHAVE].unique().tolist())
+            if setores_existentes:
+                setor_exc = st.selectbox("Selecione o Setor:", setores_existentes, key="exc_pat_setor")
+                coluna_exc = st.selectbox(
+                    "Selecione o Equipamento a ser Removido:",
+                    list(EQUIPAMENTOS_OPCOES.keys()),
+                    key="exc_pat_col"
+                )
+                
+                if st.button("❌ Remover Patrimônio Selecionado"):
+                    col_real = EQUIPAMENTOS_OPCOES[coluna_exc][0]
+                    if excluir_patrimonio(setor_exc, col_real, unidade_selecionada):
+                        st.success(f"Patrimônio do equipamento `{coluna_exc}` removido com sucesso!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao remover o patrimônio.")
+        
+        with tab2:
+            setores_existentes_del = sorted(df_inventario[COLUNA_CHAVE].unique().tolist())
+            if setores_existentes_del:
+                setor_del = st.selectbox("Selecione o Setor Completo a Excluir:", setores_existentes_del, key="exc_setor_full")
+                if st.button("🔥 Excluir Todo o Setor", type="primary"):
+                    if excluir_setor(setor_del, unidade_selecionada):
+                        st.success(f"Setor `{setor_del}` e todos os seus itens foram excluídos!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao excluir o setor.")
+    else:
+        st.info(f"Nenhum registro encontrado para a unidade **{unidade_selecionada}**.")
