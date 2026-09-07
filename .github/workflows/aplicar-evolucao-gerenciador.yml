@@ -1,0 +1,26 @@
+name: Aplicar evolucao do gerenciador
+on:
+  push:
+    paths:
+      - 'scripts/evoluir_gerenciador_exclusao.py'
+jobs:
+  aplicar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Aplicar alteracao
+        run: python scripts/evoluir_gerenciador_exclusao.py
+      - name: Validar sintaxe
+        run: python -m py_compile sistema_inventario.py
+      - name: Commitar alteracao
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add sistema_inventario.py
+          git commit -m 'Evoluir persistencia do gerenciador de exclusao' || exit 0
+          git push
