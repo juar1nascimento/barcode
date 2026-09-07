@@ -74,12 +74,12 @@ def conectar_google_sheets():
 
 def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Remove estritamente a coluna 'Setor', garantindo que apenas 'Local / Setor'
-    exista e organize o fluxo de dados sequencial do inventário.
+    Regra estrita: consolida a seleção do menu suspenso do site exclusivamente
+    na coluna 'Local / Setor' e deleta qualquer ocorrência da antiga coluna 'Setor'.
     """
     df = df.copy()
     
-    # 1. Migração e eliminação da coluna 'Setor' obsoleta
+    # 1. Se existir a coluna antiga 'Setor', transfere seus dados para 'Local / Setor' se estiver vazio
     if "Setor" in df.columns:
         if COLUNA_CHAVE in df.columns:
             df[COLUNA_CHAVE] = df[COLUNA_CHAVE].replace("", np.nan).fillna(df["Setor"]).fillna("")
@@ -87,39 +87,38 @@ def expurgar_e_normalizar_setores(df: pd.DataFrame) -> pd.DataFrame:
             df[COLUNA_CHAVE] = df["Setor"]
         df = df.drop(columns=["Setor"])
 
-    # 2. Garante a coluna 'Local / Setor' na primeira posição
+    # 2. Assegura que 'Local / Setor' exista na posição inicial
     if COLUNA_CHAVE not in df.columns:
         df.insert(0, COLUNA_CHAVE, "")
 
-    # 3. Elimina qualquer coluna obsoleta adicional
+    # 3. Elimina qualquer coluna obsoleta da tabela
     cols_para_remover = [c for c in COLUNAS_OBSOLETAS if c in df.columns]
     if cols_para_remover:
         df = df.drop(columns=cols_para_remover)
 
-    # 4. Ordenação otimizada: Local / Setor -> Patrimônio -> Fabricante
-    outras_colunas = [c for c in df.columns if c != COLUNA_CHAVE]
-    
-    # Ordena mantendo pares organizados (Patrimônio seguido de seu Fabricante)
-    colunas_ordenadas = [COLUNA_CHAVE]
-    for col in COLUNAS_PADRAO:
-        if col in outras_colunas and col not in colunas_ordenadas:
-            colunas_ordenadas.append(col)
-            outras_colunas.remove(col)
-    
-    # Adiciona colunas customizadas remanescentes
-    colunas_ordenadas.extend(outras_colunas)
+    # 4. Ordena para colocar 'Local / Setor' na primeira coluna (Coluna A)
+    colunas_finais = [COLUNA_CHAVE] + [c for c in df.columns if c != COLUNA_CHAVE]
+    return df[colunas_finais]
 
-    return df[colunas_ordenadas]
+def remover_coluna_setor_da_planilha(aba: gspread.Worksheet):
+    """
+    Verifica no Google Sheets se a coluna A é 'Setor' e exclui fisicamente a coluna da aba.
+    """
+    try:
+        primeira_linha = aba.row_values(1)
+        if primeira_linha and primeira_linha[0].strip().lower() == "setor":
+            aba.delete_columns(1)  # Apaga fisicamente a coluna A no Google Sheets
+    except Exception:
+        pass
 
 def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_colunas: int):
     """
-    Aplica formatação visual profissional na aba do Google Sheets.
+    Aplica a formatação visual e alinhamento na aba do Google Sheets.
     """
     try:
-        # Congela a primeira linha (cabeçalho)
         aba.freeze(rows=1)
 
-        # Formatação do Cabeçalho (Fundo Azul Escuro, Texto Branco e Negrito)
+        # Estilo do Cabeçalho (Azul Escuro com texto Branco)
         aba.format(f"A1:{gspread.utils.rowcol_to_a1(1, total_colunas)}", {
             "backgroundColor": {"red": 0.12, "green": 0.30, "blue": 0.47},
             "textFormat": {"foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}, "bold": True, "fontSize": 10},
@@ -128,29 +127,19 @@ def aplicar_estilizacao_sheets(aba: gspread.Worksheet, total_linhas: int, total_
         })
 
         if total_linhas > 1:
-            # Formatação do Corpo da Tabela (Alinhamento centralizado e fonte limpa)
             intervalo_dados = f"A2:{gspread.utils.rowcol_to_a1(total_linhas, total_colunas)}"
             aba.format(intervalo_dados, {
                 "textFormat": {"fontSize": 9},
                 "horizontalAlignment": "CENTER",
                 "verticalAlignment": "MIDDLE"
             })
-
-            # Aplicação de efeito zebrado (linhas alternadas suaves)
-            for i in range(2, total_linhas + 1):
-                if i % 2 == 0:
-                    cor_fundo = {"red": 0.97, "green": 0.98, "blue": 0.98} # Cinza claro
-                    aba.format(f"A{i}:{gspread.utils.rowcol_to_a1(i, total_colunas)}", {
-                        "backgroundColor": cor_fundo
-                    })
-    except Exception as e:
-        # Falha silenciosa de estilização para não interromper o fluxo do aplicativo
+    except Exception:
         pass
 
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     """
-    Carrega os dados da planilha organizando o layout e expurgando colunas legadas.
+    Carrega dados do Google Sheets aplicando a regra de leitura em 'Local / Setor'.
     """
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
@@ -159,12 +148,13 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     if planilha:
         try:
             aba = planilha.worksheet(nome_aba)
-            valores = aba.get_all_values()
             
+            # Remove fisicamente a coluna 'Setor' do Sheets se ela ainda existir lá
+            remover_coluna_setor_da_planilha(aba)
+
+            valores = aba.get_all_values()
             if valores and len(valores) > 1:
-                cabeçalho = valores[0]
-                linhas = valores[1:]
-                df = pd.DataFrame(linhas, columns=cabeçalho)
+                df = pd.DataFrame(valores[1:], columns=valores[0])
                 df = df.fillna("").astype(str)
                 df = expurgar_e_normalizar_setores(df)
                 return df, f"Google Sheets ({nome_aba})"
@@ -179,7 +169,7 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
         except Exception as e:
             st.error(f"Erro ao ler do Google Sheets: {e}")
 
-    # Fallback Local
+    # Fallback arquivo local
     if os.path.exists(nome_arquivo_local):
         try:
             df = pd.read_excel(nome_arquivo_local, dtype=str)
@@ -193,17 +183,16 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
 
 def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     """
-    Salva os dados no Google Sheets aplicando reorganização de colunas e estilização visual.
+    Grava os dados exclusivamente com a coluna 'Local / Setor' na Coluna A.
     """
     sucesso_sheets = False
     planilha = conectar_google_sheets()
     nome_aba = re.sub(r'[^a-zA-Z0-9_ ]', '_', unidade)[:30].strip()
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
 
-    # Processa e ordena o DataFrame
+    # Aplica filtro que expurga totalmente a coluna 'Setor'
     df_salvar = expurgar_e_normalizar_setores(df).fillna("").astype(str)
 
-    # 1. Gravação e Estilização no Google Sheets
     if planilha:
         try:
             try:
@@ -215,13 +204,11 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
             valores = [df_salvar.columns.tolist()] + df_salvar.values.tolist()
             aba.update(values=valores, range_name="A1")
             
-            # Aplica nova estilização visual
             aplicar_estilizacao_sheets(aba, len(valores), len(df_salvar.columns))
             sucesso_sheets = True
         except Exception as e:
             st.error(f"⚠️ Erro ao gravar no Google Sheets: {e}")
 
-    # 2. Backup Local
     try:
         df_salvar.to_excel(nome_arquivo_local, index=False)
     except Exception as e:
