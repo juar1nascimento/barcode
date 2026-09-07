@@ -72,32 +72,34 @@ FABRICANTES_PADRAO = _limpar_opcoes_menu([
 # ==============================================================================
 TIPOS_PATRIMONIO_PERMITIDOS = (
     "CPU",
-    "Monitor",
+    "Monitores",
     "Teclado",
     "Mouse",
-    "Impressora",
-    "Outros Patrimônios",
+    "Imprenssoras",
+    "Outros Dispositivos",
 )
 
 # Mapeamento único do menu para as colunas da tabela.
 EQUIPAMENTOS_OPCOES = {
     "CPU": ("CPU - Nº de Patrimônio", "Fabricante CPU"),
-    "Monitor": ("Monitores - Nº de Patrimônio", "Fabricante dos Monitores"),
+    "Monitores": ("Monitores - Nº de Patrimônio", "Fabricante dos Monitores"),
     "Teclado": ("Teclado - Nº de Patrimônio", "Fabricante Teclado"),
     "Mouse": ("Mouse - Nº de Patrimônio", "Fabricante Mouse"),
-    "Impressora": ("Impressora - Nº de Patrimônio", "Fabricante Impressora"),
-    "Outros Patrimônios": ("Outros Patrimônios - Nº de Patrimônio", "Fabricante Outros Patrimônios"),
+    "Imprenssoras": ("Imprenssoras - Nº de Patrimônio", "Fabricante Imprenssoras"),
+    "Outros Dispositivos": ("Outros Dispositivos - Nº de Patrimônio", "Fabricante Outros Dispositivos"),
 }
 
 def opcoes_tipo_patrimonio():
-    """Retorna exclusivamente as opções autorizadas, sem duplicação."""
-    return [
-        opcao for opcao in TIPOS_PATRIMONIO_PERMITIDOS
-        if opcao in EQUIPAMENTOS_OPCOES
-    ]
+    """
+    Lista fechada do menu Tipo de Patrimônio.
+    Não consulta fabricantes, setores, colunas ou dados do Sheets.
+    Portanto, opções antigas/duplicadas não podem reaparecer.
+    """
+    return list(TIPOS_PATRIMONIO_PERMITIDOS)
+
 
 def validar_tipo_patrimonio(tipo: str) -> str:
-    """Impede gravação de tipos que não pertençam à lista global autorizada."""
+    """Bloqueia qualquer tipo que não esteja na lista fechada do menu."""
     tipo_limpo = re.sub(r"\s+", " ", str(tipo or "").strip())
     if tipo_limpo not in TIPOS_PATRIMONIO_PERMITIDOS:
         raise ValueError(
@@ -106,41 +108,6 @@ def validar_tipo_patrimonio(tipo: str) -> str:
         )
     return tipo_limpo
 
-# Ordem oficial da tabela: equipamento em ordem alfabética,
-# com patrimônio imediatamente ao lado do respectivo fabricante.
-ORDEM_COLUNAS_OFICIAL = [
-    "Local / Setor",
-    "CPU - Nº de Patrimônio", "Fabricante CPU",
-    "Estabilizador - Nº de Patrimônio", "Fabricante Estabilizador",
-    "Impressora - Nº de Patrimônio", "Fabricante Impressora",
-    "Monitores - Nº de Patrimônio", "Fabricante dos Monitores",
-    "Outros Patrimônios - Nº de Patrimônio", "Fabricante Outros Patrimônios",
-    "Mouse - Nº de Patrimônio", "Fabricante Mouse",
-    "Nobreak - Nº de Patrimônio", "Fabricante Nobreak",
-    "Switch - Nº de Patrimônio", "Fabricante Switch",
-    "Teclado - Nº de Patrimônio", "Fabricante Teclado"
-]
-
-# Mapeamento para redirecionar nomes duplicados/alternativos.
-MAPA_RENOMEAR_COLUNAS = {
-    "Computador - Nº de Patrimônio": "CPU - Nº de Patrimônio",
-    "Computador - N° de Patrimônio": "CPU - Nº de Patrimônio",
-    "CPU - N° de Patrimônio": "CPU - Nº de Patrimônio",
-    "Fabricante Computador": "Fabricante CPU",
-    "Fabricante do Computador": "Fabricante CPU",
-    "Monitor - Nº de Patrimônio": "Monitores - Nº de Patrimônio",
-    "Monitor - N° de Patrimônio": "Monitores - Nº de Patrimônio",
-    "Monitores - N° de Patrimônio": "Monitores - Nº de Patrimônio",
-    "Fabricante Monitor": "Fabricante dos Monitores",
-    "Fabricante do Monitor": "Fabricante dos Monitores",
-    "Fabricante Monitores": "Fabricante dos Monitores",
-    "Fabricante do Teclado": "Fabricante Teclado",
-    "Fabricante do Mouse": "Fabricante Mouse",
-    "Fabricante da Impressora": "Fabricante Impressora",
-    "Fabricante do Nobreak": "Fabricante Nobreak",
-    "Fabricante do Switch": "Fabricante Switch",
-    "Fabricante do Estabilizador": "Fabricante Estabilizador"
-}
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
     p_limpo = validar_tipo_patrimonio(patrimonio)
