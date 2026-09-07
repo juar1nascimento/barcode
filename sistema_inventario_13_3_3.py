@@ -86,25 +86,34 @@ EQUIPAMENTOS_OPCOES = {
     "Teclado": ("Teclado - Nº de Patrimônio", "Fabricante Teclado"),
     "Mouse": ("Mouse - Nº de Patrimônio", "Fabricante Mouse"),
     "Imprenssoras": ("Imprenssoras - Nº de Patrimônio", "Fabricante Imprenssoras"),
-    "Outros Dispositivos": ("Outros Dispositivos - Nº de Patrimônio", "Fabricante Outros Dispositivos"),
+    "Outros Dispositivos": (
+        "Outros Dispositivos - Nº de Patrimônio",
+        "Fabricante Outros Dispositivos",
+    ),
 }
 
 def opcoes_tipo_patrimonio():
     """
-    Lista fechada do menu Tipo de Patrimônio.
-    Não consulta fabricantes, setores, colunas ou dados do Sheets.
-    Portanto, opções antigas/duplicadas não podem reaparecer.
+    FONTE ÚNICA E FECHADA DO MENU "Tipo de Patrimônio".
+    Nenhum dado do Sheets, fabricante ou coluna pode acrescentar opções.
     """
-    return list(TIPOS_PATRIMONIO_PERMITIDOS)
+    return [
+        "CPU",
+        "Monitores",
+        "Teclado",
+        "Mouse",
+        "Imprenssoras",
+        "Outros Dispositivos",
+    ]
 
 
 def validar_tipo_patrimonio(tipo: str) -> str:
-    """Bloqueia qualquer tipo que não esteja na lista fechada do menu."""
+    """Aceita somente os seis tipos oficialmente autorizados."""
     tipo_limpo = re.sub(r"\s+", " ", str(tipo or "").strip())
     if tipo_limpo not in TIPOS_PATRIMONIO_PERMITIDOS:
         raise ValueError(
-            "Tipo de patrimônio não autorizado. "
-            "Use somente: " + ", ".join(TIPOS_PATRIMONIO_PERMITIDOS)
+            f"Tipo de patrimônio inválido: {tipo_limpo!r}. "
+            "Permitidos: " + ", ".join(TIPOS_PATRIMONIO_PERMITIDOS)
         )
     return tipo_limpo
 
@@ -472,7 +481,7 @@ if pagina == "1. Cadastro / Leitor de Código de Barras":
     col1, col2 = st.columns(2)
     with col1:
         setor_input = st.selectbox("Selecione o Setor:", SETORES_PADRAO)
-        tipo_equipamento = st.selectbox("Selecione o Tipo de Equipamento:", opcoes_tipo_patrimonio())
+        tipo_equipamento = st.selectbox("Selecione o Tipo de Patrimônio:", opcoes_tipo_patrimonio(), key="tipo_patrimonio_principal")
     
     with col2:
         fabricante_input = st.selectbox("Selecione o Fabricante:", FABRICANTES_PADRAO)
@@ -552,7 +561,7 @@ elif pagina == "3. Consulta e Gerenciamento do Inventário":
             if setores_existentes:
                 setor_exc = st.selectbox("Selecione o Setor:", setores_existentes, key="exc_pat_setor")
                 coluna_exc = st.selectbox(
-                    "Selecione o Equipamento a ser Removido:",
+                    "Selecione o Tipo de Patrimônio a ser Removido:",
                     opcoes_tipo_patrimonio(),
                     key="exc_pat_col"
                 )
