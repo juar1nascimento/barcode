@@ -401,7 +401,12 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         with col_btn2:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=f"Tabela_{unidade.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
 
-        st.session_state.setdefault("gerenciador_exclusao_aberto", False)
+        # O gerenciador permanece aberto durante toda a sessão da página.
+        # O st.expander não expõe evento de abertura/fechamento; manter o estado
+        # verdadeiro evita que qualquer rerun causado por selectbox/botão feche
+        # automaticamente o painel durante a operação de exclusão.
+        st.session_state.setdefault("gerenciador_exclusao_aberto", True)
+        st.session_state["gerenciador_exclusao_aberto"] = True
         st.session_state.setdefault("tipo_operacao_exclusao", "Excluir Patrimônio")
         st.session_state.setdefault("del_setor", None)
         st.session_state.setdefault("del_setor_patrimonio", None)
