@@ -227,7 +227,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
         with tab_unificada:
             info_fab = f" | **{header_fabricante}:** `{fabricante_input.strip()}`" if fabricante_input.strip() else ""
-            st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Cabeçalho:** `{header_patrimonio}`{info_fab}")
+            st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Patrimônio:** `{header_patrimonio}`{info_fab}")
             col_camera, col_usb = st.columns([1.2, 1])
 
             with col_camera:
