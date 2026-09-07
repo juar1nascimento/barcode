@@ -4,9 +4,9 @@ import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
-# Importação dos módulos independentes e constantes
+# Importação dos módulos independentes e constantes (AGORA INCLUI ARQUIVO_EXCEL)
 from Tabela_de_dados_Inventário import (
-    COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
+    ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO,
     carregar_dados_excel, excluir_setor, excluir_patrimonio
 )
@@ -58,14 +58,15 @@ def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str
     if not setor_limpo or not codigo_limpo or not patrimonio_limpo or not unidade:
         return False
 
-    # 1. Carrega o DataFrame atual e o caminho da planilha
+    # 1. Carrega o DataFrame atual e o caminho da planilha (CORRIGIDO)
     try:
-        df_atual, caminho_excel = carregar_dados_excel(unidade)
+        df_atual, _ = carregar_dados_excel(unidade)
         df = df_atual.copy()
+        caminho_excel = ARQUIVO_EXCEL
     except Exception as e:
         print(f"[ERRO CARREGAR EXCEL]: {e}")
         df = pd.DataFrame(columns=[COLUNA_CHAVE] + COLUNAS_PADRAO)
-        caminho_excel = "Inventario_GTI.xlsx"
+        caminho_excel = ARQUIVO_EXCEL
 
     if df.empty or COLUNA_CHAVE not in df.columns:
         df = pd.DataFrame(columns=[COLUNA_CHAVE])
