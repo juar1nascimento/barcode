@@ -406,6 +406,10 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         st.session_state.setdefault("del_setor", None)
         st.session_state.setdefault("del_setor_patrimonio", None)
         st.session_state.setdefault("del_coluna_patrimonio", None)
+        if st.session_state.pop("reset_del_setor", False):
+            st.session_state.del_setor = None
+        if st.session_state.pop("reset_del_coluna_patrimonio", False):
+            st.session_state.del_coluna_patrimonio = None
 
         with st.expander(
             f"🗑️ Gerenciador de Exclusão — Aba ({unidade})",
@@ -452,9 +456,9 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if sucesso:
                         st.session_state.mensagem_sucesso = f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso."
                         st.session_state.gerenciador_exclusao_aberto = True
-                        st.session_state.del_setor = None
+                        st.session_state.reset_del_setor = True
                         st.session_state.del_setor_patrimonio = None
-                        st.session_state.del_coluna_patrimonio = None
+                        st.session_state.reset_del_coluna_patrimonio = True
                     else:
                         st.session_state.mensagem_sucesso = f"⚠️ Nenhum registro foi excluído para o setor '{setor_para_excluir}'."
                         st.session_state.gerenciador_exclusao_aberto = True
@@ -512,7 +516,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if sucesso:
                         st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' e seu fabricante foram excluídos do setor '{setor_patrimonio_del}'."
                         st.session_state.gerenciador_exclusao_aberto = True
-                        st.session_state.del_coluna_patrimonio = None
+                        st.session_state.reset_del_coluna_patrimonio = True
                         st.session_state.del_setor_patrimonio = setor_patrimonio_del
                     else:
                         st.session_state.mensagem_sucesso = f"⚠️ Nenhum patrimônio foi excluído para o setor '{setor_patrimonio_del}'."
