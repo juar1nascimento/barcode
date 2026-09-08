@@ -45,7 +45,7 @@ requests==2.34.2
 requests-oauthlib==2.0.0
 rpds-py==2026.6.3
 six==1.17.0
-sql_metadata==3.0.0
+sql_metadata==3.0.1
 sqlglot==30.17.0
 st-gsheets-connection==0.1.0
 starlette==1.6.0
