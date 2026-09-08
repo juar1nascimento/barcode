@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable, List, Optional
+from typing import Iterable, List
 
 TIPOS_PATRIMONIO_OFICIAIS = (
     "CPU",
@@ -18,6 +18,11 @@ SETORES_OFICIAIS = (
     "Administração",
     "Almoxarifado",
     "Consultório",
+    "Consultório 2",
+    "Consultório 4 - odontologia",
+    "Consultório 5 - Enfermaria",
+    "Consultório 6 - Clinico",
+    "Consultório 7 - odontologia",
     "Farmácia",
     "Gerência",
     "Odontologia",
@@ -26,6 +31,8 @@ SETORES_OFICIAIS = (
     "Sala de Curativo",
     "Sala de Preparo",
     "Sala de Vacina",
+    "Sala dos Agentes de Saúde",
+    "Triagem",
 )
 
 TEXTOS_PROIBIDOS_MENU = frozenset({
