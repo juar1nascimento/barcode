@@ -23,6 +23,17 @@ def test_setores_menu_eh_unico_ordenado_e_sem_cabecalhos():
     assert "Fabricante Monitor" not in setores
 
 
+def test_setores_historicos_distintos_sao_preservados():
+    setores = setores_menu()
+    assert "Consultório 2" in setores
+    assert "Consultório 4 - odontologia" in setores
+    assert "Consultório 5 - Enfermaria" in setores
+    assert "Consultório 6 - Clinico" in setores
+    assert "Consultório 7 - odontologia" in setores
+    assert "Sala dos Agentes de Saúde" in setores
+    assert "Triagem" in setores
+
+
 def test_tipos_menu_nao_contem_artefatos():
     tipos = tipos_patrimonio_menu()
     assert tipos == sorted(set(tipos), key=str.casefold)
@@ -82,7 +93,6 @@ def test_exclusao_patrimonio_remove_somente_um_registro_do_setor():
     novo, alterado = _aplicar_exclusao_patrimonio(df, "Farmácia", "Código de Barras")
     assert alterado is True
     assert len(novo) == 3
-    # O helper legado escolhe a primeira linha do setor após a normalização/ordenação.
     assert "333" not in novo["Código de Barras"].tolist()
     assert "111" in novo["Código de Barras"].tolist()
     assert "222" in novo["Código de Barras"].tolist()
