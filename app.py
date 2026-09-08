@@ -16,6 +16,33 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Fundo visual da tela de login. O formulário e a autenticação continuam
+# sendo renderizados pelo login.py; aqui apenas definimos a camada visual
+# global para evitar qualquer alteração na lógica dos campos de acesso.
+st.markdown("""
+    <style>
+        .stApp {
+            background-color: #f2f4f7 !important;
+            background-image:
+                linear-gradient(rgba(242, 244, 247, 0.18), rgba(242, 244, 247, 0.18)),
+                url("https://raw.githubusercontent.com/juar1nascimento/barcode/main/assets/login_background.svg") !important;
+            background-size: cover !important;
+            background-position: center center !important;
+            background-repeat: no-repeat !important;
+            background-attachment: fixed !important;
+        }
+
+        header, footer, #MainMenu { visibility: hidden; }
+
+        @media (max-width: 768px) {
+            .stApp {
+                background-position: center center !important;
+                background-attachment: scroll !important;
+            }
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # Estilização Responsiva Mobile
 st.markdown("""
     <style>
