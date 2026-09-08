@@ -230,32 +230,46 @@ def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> Tuple[pd.DataFrame,
     df = _normalizar_legacy_dataframe(df)
     if df.empty:
         return df.copy(), False
-    mask = df["Setor"].astype(str).str.strip().str.casefold() == normalizar_setor(setor).casefold()
+    setor_normalizado = normalizar_setor(setor).casefold()
+    mask = df["Setor"].astype(str).str.strip().str.casefold() == setor_normalizado
     return (df.loc[~mask].copy(), True) if mask.any() else (df.copy(), False)
 
 
 def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> Tuple[pd.DataFrame, bool]:
+    """Remove exatamente uma linha do setor selecionado.
+
+    A interface atual seleciona uma coluna/atributo exibido a partir da primeira
+    linha do setor. A implementação anterior usava o valor dessa primeira linha
+    como filtro global, podendo apagar vários patrimônios do mesmo tipo. Agora a
+    exclusão é feita pelo índice da linha efetivamente selecionada.
+    """
     df = _normalizar_legacy_dataframe(df)
     if df.empty:
         return df.copy(), False
-    mask_setor = df["Setor"].astype(str).str.strip().str.casefold() == normalizar_setor(setor).casefold()
+
+    setor_normalizado = normalizar_setor(setor).casefold()
+    mask_setor = df["Setor"].astype(str).str.strip().str.casefold() == setor_normalizado
     if not mask_setor.any():
         return df.copy(), False
-    subset = df.loc[mask_setor].copy()
-    coluna = str(coluna or "").strip()
-    if coluna == "Tipo de Patrimônio":
-        valor = _valor_texto(subset.iloc[0]["Tipo de Patrimônio"])
-        mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(valor)
-    elif coluna == "Nº de Patrimônio":
-        valor = _valor_texto(subset.iloc[0]["Nº de Patrimônio"])
-        mask_excluir = mask_setor & df["Nº de Patrimônio"].astype(str).str.strip().eq(valor)
-    elif coluna == "Código de Barras":
-        valor = _valor_texto(subset.iloc[0]["Código de Barras"])
-        mask_excluir = mask_setor & df["Código de Barras"].astype(str).str.strip().eq(valor)
-    else:
+
+    subset = df.loc[mask_setor]
+    coluna = _valor_texto(coluna)
+    colunas_validas = set(COLUNAS_INVENTARIO)
+    if coluna not in colunas_validas:
         tipo = _normalizar_tipo(re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", coluna, flags=re.I))
-        mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(tipo)
-    return (df.loc[~mask_excluir].copy(), True) if mask_excluir.any() else (df.copy(), False)
+        if tipo not in TIPOS_PATRIMONIO:
+            return df.copy(), False
+        coluna = "Tipo de Patrimônio"
+
+    indice_alvo = subset.index[0]
+    valor_alvo = _valor_texto(df.at[indice_alvo, coluna])
+    if not valor_alvo:
+        return df.copy(), False
+
+    mask_excluir = pd.Series(False, index=df.index)
+    mask_excluir.loc[indice_alvo] = True
+    novo = df.loc[~mask_excluir].copy().reset_index(drop=True)
+    return novo, True
 
 
 def excluir_setor(setor: str, unidade: str) -> bool:
