@@ -33,7 +33,7 @@ pandas==3.0.5
 pillow==12.3.0
 protobuf==7.36.1
 pyarrow==25.0.1
-pyasn1==0.6.0
+pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycparser==3.0
 pydeck==0.9.3
@@ -45,7 +45,7 @@ requests==2.34.2
 requests-oauthlib==2.0.0
 rpds-py==2026.6.3
 six==1.17.0
-sql_metadata==3.0.1
+sql_metadata==3.0.0
 sqlglot==30.17.0
 st-gsheets-connection==0.1.0
 starlette==1.6.0
