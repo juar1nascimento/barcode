@@ -10,23 +10,27 @@ from Tabela_de_dados_Inventario_7_2 import (
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
     carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio
 )
+from inventario_regras import (
+    setores_menu,
+    tipos_patrimonio_menu,
+    normalizar_setor,
+    normalizar_fabricante,
+)
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
 # ==============================================================================
-TIPOS_PATRIMONIO_PERMITIDOS = (
-    "CPU",
-    "Monitores",
-    "Teclado",
-    "Mouse",
-    "Imprenssoras",
-    "Outros Dispositivos",
-)
+TIPOS_PATRIMONIO_PERMITIDOS = tuple(tipos_patrimonio_menu())
 
 
 def opcoes_tipo_patrimonio() -> List[str]:
-    """Retorna exclusivamente os seis tipos oficiais de patrimônio."""
-    return list(TIPOS_PATRIMONIO_PERMITIDOS)
+    """Retorna exclusivamente os tipos oficiais centralizados."""
+    return list(tipos_patrimonio_menu())
+
+
+def opcoes_setor() -> List[str]:
+    """Retorna exclusivamente os setores oficiais, normalizados e ordenados."""
+    return list(setores_menu())
 
 
 def validar_tipo_patrimonio(tipo: str) -> str:
@@ -46,9 +50,9 @@ def validar_tipo_patrimonio(tipo: str) -> str:
 def adicionar_e_salvar_sem_sobrescrever(
     codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
 ) -> bool:
-    setor_limpo = setor.strip()
-    codigo_limpo = codigo.strip()
-    fabricante_limpo = fabricante.strip()
+    setor_limpo = normalizar_setor(str(setor or "").strip())
+    codigo_limpo = str(codigo or "").strip()
+    fabricante_limpo = normalizar_fabricante(str(fabricante or "").strip())
 
     try:
         patrimonio_validado = validar_tipo_patrimonio(patrimonio)
@@ -77,7 +81,10 @@ def adicionar_e_salvar_sem_sobrescrever(
         df[coluna_fabricante] = ""
 
     df = df.fillna("").astype(str)
-    mask_setor = df[COLUNA_CHAVE].str.strip().str.lower() == setor_limpo.lower()
+    df[COLUNA_CHAVE] = df[COLUNA_CHAVE].map(normalizar_setor)
+    if coluna_fabricante in df.columns:
+        df[coluna_fabricante] = df[coluna_fabricante].map(normalizar_fabricante)
+    mask_setor = df[COLUNA_CHAVE].str.strip().str.casefold() == setor_limpo.casefold()
     indices_setor = df[mask_setor].index
 
     linha_destino_idx = None
@@ -212,37 +219,18 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     st.divider()
 
-    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
-    # Não é montado a partir dos dados existentes na planilha.
-    opcoes_setor = [
-        "Consultório",
-        "Almoxarifado",
-        "Farmacia",
-        "Sala de Preparo",
-        "Sala de Vacina",
-        "Sala de curativo",
-        "Gerencia",
-        "Administração",
-        "Odontologia",
-        "Recepção",
-        "Outro Setor",
-    ]
-
-    # IMPORTANTE: o menu de Tipo de patrimônio NÃO é montado a partir das colunas
-    # existentes na planilha. Isso impede que opções antigas como Monitor,
-    # Computador, Fabricante Monitor, Fabricante Computador etc. reapareçam.
+    # Menu fechado e centralizado. Não reutiliza cabeçalhos ou valores históricos.
+    opcoes_setor_menu = opcoes_setor()
     opcoes_patrimonio = opcoes_tipo_patrimonio()
 
     col_desc1, col_desc2, col_desc3, col_desc4 = st.columns([1, 1, 1, 1])
     with col_desc1:
-        setor_selecionado = st.selectbox("Setor:", opcoes_setor, index=None, placeholder="Selecione um setor...")
+        setor_selecionado = st.selectbox("Setor:", opcoes_setor_menu, index=None, placeholder="Selecione um setor...", key="setor_oficial_v5")
         setor_input = ""
-        if setor_selecionado == "Consultório":
-            setor_input = "Consultório"
-        elif setor_selecionado == "Outro Setor":
-            setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...")
+        if setor_selecionado == "Outro Setor":
+            setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...", key="outro_setor_nome_v5")
         elif setor_selecionado:
-            setor_input = setor_selecionado
+            setor_input = normalizar_setor(setor_selecionado)
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
@@ -251,7 +239,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             opcoes_patrimonio,
             index=None,
             placeholder="Selecione o patrimônio...",
-            key="tipo_patrimonio_oficial_v4"
+            key="tipo_patrimonio_oficial_v5"
         )
 
     with col_desc3:
@@ -262,7 +250,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         fabricante_input = ""
         if descricao_final:
             rotulo_fabricante = formatar_nome_fabricante(descricao_final)
-            fabricante_input = st.text_input(f"{rotulo_fabricante}:", placeholder="Ex: Dell, HP, Samsung...")
+            fabricante_input = st.text_input(f"{rotulo_fabricante}:", placeholder="Ex: Dell, HP, Samsung...", key="fabricante_input_v5")
 
     st.divider()
 
@@ -401,10 +389,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         with col_btn2:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=f"Tabela_{unidade.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
 
-        # O gerenciador permanece aberto durante toda a sessão da página.
-        # O st.expander não expõe evento de abertura/fechamento; manter o estado
-        # verdadeiro evita que qualquer rerun causado por selectbox/botão feche
-        # automaticamente o painel durante a operação de exclusão.
+        # Gerenciador de exclusão
         st.session_state.setdefault("gerenciador_exclusao_aberto", True)
         st.session_state["gerenciador_exclusao_aberto"] = True
         st.session_state.setdefault("tipo_operacao_exclusao", "Excluir Patrimônio")
@@ -422,14 +407,14 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         ):
             lista_setores_existentes = sorted(
                 dict.fromkeys(
-                    str(s).strip()
+                    normalizar_setor(s)
                     for s in df_atual[COLUNA_CHAVE].tolist()
                     if str(s).strip()
                 ),
                 key=str.casefold,
             )
 
-            st.caption("Selecione a operação. Após uma exclusão, o gerenciador permanece aberto e preserva o setor selecionado quando ele ainda existir.")
+            st.caption("Selecione a operação. A exclusão de patrimônio atua somente sobre o item escolhido; a exclusão de setor remove todos os registros daquele setor nesta unidade.")
             tipo_operacao = st.radio(
                 "Operação de exclusão:",
                 ["Excluir Setor", "Excluir Patrimônio"],
@@ -478,48 +463,51 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     placeholder="Selecione um setor...",
                 )
 
-                colunas_com_dados, valores_map = [], {}
+                patrimonio_opcoes = []
                 if setor_patrimonio_del:
-                    linha_setor_df = df_atual[
-                        df_atual[COLUNA_CHAVE].astype(str).str.strip().str.casefold()
-                        == str(setor_patrimonio_del).strip().casefold()
-                    ]
-                    if not linha_setor_df.empty:
-                        for col in df_atual.columns:
-                            if col == COLUNA_CHAVE or col in COLUNAS_OBSOLETAS or str(col).startswith("Fabricante "):
+                    mascara_setor = df_atual[COLUNA_CHAVE].astype(str).map(normalizar_setor).str.casefold() == normalizar_setor(setor_patrimonio_del).casefold()
+                    linhas_setor = df_atual.loc[mascara_setor]
+                    vistos = set()
+                    for _, linha in linhas_setor.iterrows():
+                        for tipo in opcoes_tipo_patrimonio():
+                            if tipo not in df_atual.columns:
                                 continue
-                            val = str(linha_setor_df.iloc[0][col]).strip()
-                            if val and val.lower() not in {"nan", "none", "null", "<na>"}:
-                                colunas_com_dados.append(col)
-                                valores_map[col] = val
+                            valor = str(linha.get(tipo, "")).strip()
+                            if valor and valor.casefold() not in {"nan", "none", "null", "<na>"}:
+                                chave = (tipo.casefold(), valor.casefold())
+                                if chave not in vistos:
+                                    vistos.add(chave)
+                                    patrimonio_opcoes.append((tipo, valor))
+                    patrimonio_opcoes.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
 
-                colunas_com_dados = sorted(colunas_com_dados, key=str.casefold)
-                coluna_patrimonio_del = st.selectbox(
+                opcoes_exclusao = [f"{tipo} — {valor}" for tipo, valor in patrimonio_opcoes]
+                escolha_patrimonio = st.selectbox(
                     "Selecione o Patrimônio:",
-                    options=colunas_com_dados,
+                    options=opcoes_exclusao,
                     index=None,
                     key="del_coluna_patrimonio",
                     placeholder="Selecione o patrimônio...",
-                    format_func=lambda c: f"{c} (Código: {valores_map.get(c, '')})",
-                ) if colunas_com_dados else None
+                ) if opcoes_exclusao else None
 
-                if setor_patrimonio_del and not colunas_com_dados:
+                if setor_patrimonio_del and not opcoes_exclusao:
                     st.info("ℹ️ O setor selecionado não possui patrimônio preenchido para exclusão.")
-                elif coluna_patrimonio_del:
+                elif escolha_patrimonio:
+                    tipo_escolhido, valor_escolhido = escolha_patrimonio.split(" — ", 1)
                     st.warning(
-                        f"⚠️ Será removido o patrimônio **{coluna_patrimonio_del}** do setor **{setor_patrimonio_del}** e, quando existir, o fabricante correspondente."
+                        f"⚠️ Será removido somente o patrimônio **{tipo_escolhido} = {valor_escolhido}** do setor **{setor_patrimonio_del}**. Outros patrimônios do setor serão preservados."
                     )
 
-                if coluna_patrimonio_del and setor_patrimonio_del and st.button(
-                    f"🗑️ Confirmar Exclusão de '{coluna_patrimonio_del}'",
+                if escolha_patrimonio and setor_patrimonio_del and st.button(
+                    f"🗑️ Confirmar Exclusão de '{escolha_patrimonio}'",
                     type="secondary",
                     use_container_width=True,
                     key="btn_excluir_patrimonio",
                 ):
-                    sucesso = excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
+                    tipo_escolhido, valor_escolhido = escolha_patrimonio.split(" — ", 1)
+                    sucesso = excluir_patrimonio(setor_patrimonio_del, tipo_escolhido, unidade, valor_escolhido)
                     carregar_dados_excel.clear()
                     if sucesso:
-                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' e seu fabricante foram excluídos do setor '{setor_patrimonio_del}'."
+                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{tipo_escolhido} = {valor_escolhido}' excluído do setor '{setor_patrimonio_del}'."
                         st.session_state.gerenciador_exclusao_aberto = True
                         st.session_state.reset_del_coluna_patrimonio = True
                         st.session_state.del_setor_patrimonio = setor_patrimonio_del
@@ -527,7 +515,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         st.session_state.mensagem_sucesso = f"⚠️ Nenhum patrimônio foi excluído para o setor '{setor_patrimonio_del}'."
                         st.session_state.gerenciador_exclusao_aberto = True
                     st.rerun()
-
 
 
 if __name__ == "__main__":
