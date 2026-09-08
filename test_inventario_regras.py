@@ -10,6 +10,7 @@ from inventario_regras import (
     texto_menu_proibido,
     tipos_patrimonio_menu,
 )
+from Tabela_de_dados_Inventario_7_2 import _aplicar_exclusao_patrimonio, _aplicar_exclusao_setor
 
 
 def test_setores_menu_eh_unico_ordenado_e_sem_cabecalhos():
@@ -65,3 +66,47 @@ def test_normalizar_dataframe_e_ordenar_nao_apagam_registros():
     assert ordenado.iloc[0]["Setor"] == "Almoxarifado"
     assert ordenado.iloc[1]["Fabricante"] == "HP"
     assert ordenado.iloc[2]["Fabricante"] == "Lenovo"
+
+
+def _df_teste_exclusao():
+    return pd.DataFrame([
+        {"Setor": "Farmacia", "Tipo de Patrimônio": "Monitores", "Nº de Patrimônio": "MON-001", "Código de Barras": "111", "Fabricante": "hp", "Data Cadastro": "", "Origem": "", "Status": "Ativo"},
+        {"Setor": "Farmácia", "Tipo de Patrimônio": "Monitores", "Nº de Patrimônio": "MON-002", "Código de Barras": "222", "Fabricante": "Dell", "Data Cadastro": "", "Origem": "", "Status": "Ativo"},
+        {"Setor": "Farmácia", "Tipo de Patrimônio": "CPU", "Nº de Patrimônio": "CPU-001", "Código de Barras": "333", "Fabricante": "Lenovo", "Data Cadastro": "", "Origem": "", "Status": "Ativo"},
+        {"Setor": "Almoxarifado", "Tipo de Patrimônio": "Monitores", "Nº de Patrimônio": "MON-003", "Código de Barras": "444", "Fabricante": "Dell", "Data Cadastro": "", "Origem": "", "Status": "Ativo"},
+    ])
+
+
+def test_exclusao_patrimonio_remove_somente_um_registro_do_setor():
+    df = _df_teste_exclusao()
+    novo, alterado = _aplicar_exclusao_patrimonio(df, "Farmácia", "Código de Barras")
+    assert alterado is True
+    assert len(novo) == 3
+    assert "111" not in novo["Código de Barras"].tolist()
+    assert "222" in novo["Código de Barras"].tolist()
+    assert "333" in novo["Código de Barras"].tolist()
+    assert "444" in novo["Código de Barras"].tolist()
+
+
+def test_exclusao_patrimonio_nao_apaga_outro_setor():
+    df = _df_teste_exclusao()
+    novo, alterado = _aplicar_exclusao_patrimonio(df, "Farmacia", "Tipo de Patrimônio")
+    assert alterado is True
+    assert len(novo) == 3
+    assert "444" in novo["Código de Barras"].tolist()
+
+
+def test_exclusao_setor_remove_todos_os_registros_do_setor_normalizado():
+    df = _df_teste_exclusao()
+    novo, alterado = _aplicar_exclusao_setor(df, "Farmacia")
+    assert alterado is True
+    assert len(novo) == 1
+    assert novo.iloc[0]["Setor"] == "Almoxarifado"
+    assert novo.iloc[0]["Código de Barras"] == "444"
+
+
+def test_exclusao_patrimonio_nao_altera_dataframe_quando_setor_nao_existe():
+    df = _df_teste_exclusao()
+    novo, alterado = _aplicar_exclusao_patrimonio(df, "Recepção", "Código de Barras")
+    assert alterado is False
+    assert len(novo) == len(df)
