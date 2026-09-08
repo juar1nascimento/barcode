@@ -1,6 +1,7 @@
 import os
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional, Tuple
 
 import gspread
@@ -20,6 +21,18 @@ SETORES_PADRAO = ["Consultório", "Almoxarifado", "Farmacia", "Sala de Preparo",
 LISTA_URS_PADRAO = ["URS Novo Horizonte", "URS Jacaraípe", "URS Boa Vista", "URS Feu Rosa", "URS Serra Sede", "URS Serra Dourada"]
 LISTA_UBS_PADRAO = ["UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)", "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos", "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra", "UBS Itinerante (atendimento na UBS)"]
 UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO
+
+FUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")
+
+
+def _agora_brasilia() -> datetime:
+    """Retorna a data/hora oficial do cadastro no fuso de Brasília."""
+    return datetime.now(FUSO_HORARIO_APLICACAO)
+
+
+def _data_hora_cadastro() -> str:
+    """Formata o instante do cadastro de forma estável e auditável."""
+    return _agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
@@ -219,7 +232,7 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         "Tipo de Patrimônio": tipo,
         "Nº de Patrimônio": numero,
         "Fabricante": fabricante,
-        "Data Cadastro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Data Cadastro": _data_hora_cadastro(),
     }
     df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
     return salvar_no_excel(df, unidade)

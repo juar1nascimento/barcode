@@ -1,4 +1,10 @@
+import sys
+from pathlib import Path
+
 import pandas as pd
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import Tabela_de_dados_Inventario_7_2 as backend
 
@@ -108,3 +114,25 @@ def test_exclusao_por_numero_eh_especifica_do_setor():
     assert alterado is True
     assert len(novo) == 1
     assert novo.iloc[0]["Setor"] == "Recepção"
+
+
+def test_data_hora_cadastro_brasilia(monkeypatch):
+    estado = {"df": pd.DataFrame(columns=backend.COLUNAS_INVENTARIO)}
+    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))
+    monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
+    assert backend.registrar_patrimonio("PAT-DATA-001", "CPU", "Farmacia", "UBS Teste", "Dell")
+    valor = estado["df"].iloc[-1]["Data Cadastro"]
+    dt = backend.datetime.strptime(valor, "%Y-%m-%d %H:%M:%S").replace(tzinfo=backend.FUSO_HORARIO_APLICACAO)
+    agora = backend._agora_brasilia()
+    assert valor
+    assert len(valor) == 19
+    assert abs((agora - dt).total_seconds()) < 10
+
+
+def test_cadastro_nao_reintroduz_colunas_removidas(monkeypatch):
+    estado = {"df": pd.DataFrame(columns=backend.COLUNAS_INVENTARIO)}
+    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))
+    monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
+    assert backend.registrar_patrimonio("PAT-SCHEMA-001", "Monitores", "Farmacia", "UBS Teste", "HP")
+    assert list(estado["df"].columns) == backend.COLUNAS_INVENTARIO
+    assert not any(c in estado["df"].columns for c in ("Código de Barras", "Origem", "Status"))
