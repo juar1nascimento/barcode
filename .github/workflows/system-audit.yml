@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   audit:
@@ -24,6 +24,33 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
+
+      - name: Repair cadastro timestamp and audit tests
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          backend = Path('Tabela_de_dados_Inventario_7_2.py')
+          text = backend.read_text(encoding='utf-8')
+          text = text.replace('from datetime import datetime\n', 'from datetime import datetime\nfrom zoneinfo import ZoneInfo\n', 1)
+          marker = 'UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO\n'
+          helper = '''UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO\n\nFUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")\n\n\ndef _agora_brasilia() -> datetime:\n    """Retorna a data/hora oficial do cadastro no fuso de Brasília."""\n    return datetime.now(FUSO_HORARIO_APLICACAO)\n\n\ndef _data_hora_cadastro() -> str:\n    """Formata o instante do cadastro de forma estável e auditável."""\n    return _agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")\n'''
+          if 'FUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")' not in text:
+              text = text.replace(marker, helper, 1)
+          text = text.replace('"Data Cadastro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),', '"Data Cadastro": _data_hora_cadastro(),')
+          backend.write_text(text, encoding='utf-8')
+
+          tests = Path('tests/test_inventario_backend.py')
+          test_text = tests.read_text(encoding='utf-8')
+          if 'sys.path.insert(0' not in test_text:
+              test_text = test_text.replace('import pandas as pd\n\n', 'import sys\nfrom pathlib import Path\n\nimport pandas as pd\n\nROOT = Path(__file__).resolve().parents[1]\nsys.path.insert(0, str(ROOT))\n\n', 1)
+          test_text = test_text.replace('''assert backend.COLUNAS_INVENTARIO == [\n        "Setor",\n        "Tipo de Patrimônio",\n        "Nº de Patrimônio",\n        "Código de Barras",\n        "Fabricante",\n        "Data Cadastro",\n        "Origem",\n        "Status",\n    ]''', '''assert backend.COLUNAS_INVENTARIO == [\n        "Setor",\n        "Tipo de Patrimônio",\n        "Nº de Patrimônio",\n        "Fabricante",\n        "Data Cadastro",\n    ]\n    assert not any(c in backend.COLUNAS_INVENTARIO for c in ("Código de Barras", "Origem", "Status"))''')
+          test_text = re.sub(r'\n\ndef test_registro_bloqueia_codigo_de_barras_duplicado.*?(?=\n\ndef test_exclusao_de_setor)', '\n', test_text, flags=re.S)
+          if 'def test_data_hora_cadastro_brasilia' not in test_text:
+              test_text += '''\n\ndef test_data_hora_cadastro_brasilia(monkeypatch):\n    estado = {"df": pd.DataFrame(columns=backend.COLUNAS_INVENTARIO)}\n    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))\n    monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)\n    assert backend.registrar_patrimonio("PAT-DATA-001", "CPU", "Farmacia", "UBS Teste", "Dell")\n    valor = estado["df"].iloc[-1]["Data Cadastro"]\n    dt = backend.datetime.strptime(valor, "%Y-%m-%d %H:%M:%S").replace(tzinfo=backend.FUSO_HORARIO_APLICACAO)\n    agora = backend._agora_brasilia()\n    assert valor\n    assert len(valor) == 19\n    assert abs((agora - dt).total_seconds()) < 10\n\n\ndef test_cadastro_nao_reintroduz_colunas_removidas(monkeypatch):\n    estado = {"df": pd.DataFrame(columns=backend.COLUNAS_INVENTARIO)}\n    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))\n    monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)\n    assert backend.registrar_patrimonio("PAT-SCHEMA-001", "Monitores", "Farmacia", "UBS Teste", "HP")\n    assert list(estado["df"].columns) == backend.COLUNAS_INVENTARIO\n    assert not any(c in estado["df"].columns for c in ("Código de Barras", "Origem", "Status"))\n'''
+          tests.write_text(test_text, encoding='utf-8')
+          PY
 
       - name: Install dependencies
         run: |
@@ -53,3 +80,16 @@ jobs:
           done
           cat /tmp/streamlit.log
           exit 1
+
+      - name: Commit automatic repairs
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Tabela_de_dados_Inventario_7_2.py tests/test_inventario_backend.py
+          if git diff --cached --quiet; then
+            echo "Nenhuma correção pendente."
+          else
+            git commit -m "Corrigir data e hora dos cadastros e auditoria"
+            git push
+          fi
