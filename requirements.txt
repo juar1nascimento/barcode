@@ -36,7 +36,8 @@ pyarrow==25.0.1
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycparser==3.0
-pydeck==0.9.3
+pydeck==0.9.0
+pytest==8.4.2
 python-dateutil==2.9.0.post0
 python-multipart==0.0.32
 referencing==0.37.0
@@ -55,7 +56,7 @@ tornado==6.1
 typing_extensions==4.16.0
 tzdata==2026.3
 urllib3==2.7.0
-uvicorn==0.52.4
+uvicorn==0.52.0
 validators==0.35.0
 watchdog==6.0.0
 websockets==16.1.1
