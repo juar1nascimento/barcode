@@ -141,7 +141,16 @@ def renderizar_login() -> bool:
 
     st.markdown("""
         <style>
-            .stApp { background-color: #f2f4f7 !important; }
+            .stApp {
+                background-color: #f2f4f7 !important;
+                background-image:
+                    linear-gradient(rgba(242, 244, 247, 0.18), rgba(242, 244, 247, 0.18)),
+                    url("https://raw.githubusercontent.com/juar1nascimento/barcode/main/assets/login_background.svg") !important;
+                background-size: cover !important;
+                background-position: center center !important;
+                background-repeat: no-repeat !important;
+                background-attachment: fixed !important;
+            }
             header, footer, #MainMenu { visibility: hidden; }
             .main .block-container { padding-top: 1.6rem !important; padding-bottom: 2.5rem !important; }
             .login-logo-wrap {
@@ -242,6 +251,7 @@ def renderizar_login() -> bool:
                 .login-logo { width: 220px; max-width: 72vw; }
                 div[data-testid="stForm"] { max-width: 100% !important; padding: 28px 24px !important; }
                 .error-box { max-width: 100%; }
+                .stApp { background-attachment: scroll !important; }
             }
         </style>
     """, unsafe_allow_html=True)
