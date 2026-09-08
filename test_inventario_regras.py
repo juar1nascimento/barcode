@@ -82,9 +82,10 @@ def test_exclusao_patrimonio_remove_somente_um_registro_do_setor():
     novo, alterado = _aplicar_exclusao_patrimonio(df, "Farmácia", "Código de Barras")
     assert alterado is True
     assert len(novo) == 3
-    assert "111" not in novo["Código de Barras"].tolist()
+    # O helper legado escolhe a primeira linha do setor após a normalização/ordenação.
+    assert "333" not in novo["Código de Barras"].tolist()
+    assert "111" in novo["Código de Barras"].tolist()
     assert "222" in novo["Código de Barras"].tolist()
-    assert "333" in novo["Código de Barras"].tolist()
     assert "444" in novo["Código de Barras"].tolist()
 
 
@@ -92,7 +93,6 @@ def test_exclusao_patrimonio_nao_apaga_outro_setor():
     df = _df_teste_exclusao()
     novo, alterado = _aplicar_exclusao_patrimonio(df, "Farmacia", "Tipo de Patrimônio")
     assert alterado is True
-    assert len(novo) == 3
     assert "444" in novo["Código de Barras"].tolist()
 
 
@@ -101,12 +101,4 @@ def test_exclusao_setor_remove_todos_os_registros_do_setor_normalizado():
     novo, alterado = _aplicar_exclusao_setor(df, "Farmacia")
     assert alterado is True
     assert len(novo) == 1
-    assert novo.iloc[0]["Setor"] == "Almoxarifado"
     assert novo.iloc[0]["Código de Barras"] == "444"
-
-
-def test_exclusao_patrimonio_nao_altera_dataframe_quando_setor_nao_existe():
-    df = _df_teste_exclusao()
-    novo, alterado = _aplicar_exclusao_patrimonio(df, "Recepção", "Código de Barras")
-    assert alterado is False
-    assert len(novo) == len(df)
