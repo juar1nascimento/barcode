@@ -11,7 +11,6 @@ def renderizar_card_entrada(lista_urs, lista_ubs):
 
         urs_entrada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_entrada")
         ubs_entrada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_entrada")
-
         if urs_entrada != "Selecione uma URS...":
             st.session_state.saved_setor = urs_entrada
         elif ubs_entrada != "Selecione uma UBS...":
@@ -32,9 +31,7 @@ def renderizar_sistema_entrada():
     st.markdown("Módulo para registro de recebimento e alocação de novos equipamentos nas unidades.")
     st.divider()
 
-    if "numero_patrimonio_val" not in st.session_state:
-        st.session_state.numero_patrimonio_val = ""
-
+    st.session_state.setdefault("numero_patrimonio_val", "")
     unidade_atual = st.session_state.get("saved_setor", "")
     st.info(f"📍 Unidade de Destino Selecionada: **{unidade_atual or 'Nenhuma unidade selecionada'}**")
 
@@ -42,10 +39,12 @@ def renderizar_sistema_entrada():
     c1, c2 = st.columns(2)
     with c1:
         num_patrimonio = st.text_input("Número de Patrimônio:", value=st.session_state.numero_patrimonio_val, placeholder="Aguardando bipagem ou digitação...", key="input_num_patrimonio")
-        setor_origem = st.text_input("Setor de origem:", placeholder="Ex: Almoxarifado Central", key="entrada_setor_origem")
+        setor_destino = st.text_input("Setor de destino:", placeholder="Ex: Farmácia, Recepção, Almoxarifado", key="entrada_setor_destino")
     with c2:
         tipo_equipamento = st.selectbox("Tipo de Equipamento:", ["Computador (Desktop)", "Monitor/Tela", "Nobreak", "Impressora", "Outros"], key="entrada_tipo")
-        data_recebimento = st.date_input("Data de Recebimento", key="entrada_data")
+        st.date_input("Data de Recebimento", key="entrada_data")
+
+    setor_origem = st.text_input("Setor de origem:", placeholder="Ex: Almoxarifado Central", key="entrada_setor_origem")
 
     st.subheader("2. Código de Patrimônio do Equipamento")
     codigo_entrada = st.text_input("Bipe ou digite o código do patrimônio:", placeholder="Aguardando bipagem...", key="input_bip_patrimonio", on_change=atualizar_numero_patrimonio)
@@ -57,14 +56,17 @@ def renderizar_sistema_entrada():
             st.warning("Informe ou bipe o código do equipamento antes de confirmar.")
         elif not unidade_atual:
             st.warning("Selecione uma unidade no Portal antes de registrar a entrada.")
+        elif not setor_destino.strip():
+            st.warning("Informe o setor de destino do equipamento.")
         else:
-            sucesso, mensagem = registrar_entrada(valor_final, tipo_equipamento, unidade_atual, setor_origem.strip() or "Entrada", num_patrimonio.strip(), fabricante.strip(), setor_origem.strip())
+            sucesso, mensagem = registrar_entrada(valor_final, tipo_equipamento, unidade_atual, setor_destino.strip(), num_patrimonio.strip(), fabricante.strip(), setor_origem.strip())
             if sucesso:
                 st.session_state.numero_patrimonio_val = ""
-                st.session_state.mensagem_entrada = f"✅ {mensagem} Código `{valor_final}` registrado em **{unidade_atual}**."
+                st.session_state.mensagem_entrada = f"Código `{valor_final}` registrado em **{unidade_atual} / {setor_destino.strip()}**."
                 st.rerun()
             else:
                 st.error(mensagem)
 
-    if st.session_state.pop("mensagem_entrada", None):
-        st.success(st.session_state.pop("mensagem_entrada", ""))
+    mensagem = st.session_state.pop("mensagem_entrada", None)
+    if mensagem:
+        st.success(f"✅ Entrada registrada com sucesso. {mensagem}")
