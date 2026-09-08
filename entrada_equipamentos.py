@@ -42,7 +42,7 @@ def renderizar_sistema_entrada():
         setor_destino = st.text_input("Setor de destino:", placeholder="Ex: Farmácia, Recepção, Almoxarifado", key="entrada_setor_destino")
     with c2:
         tipo_equipamento = st.selectbox("Tipo de Equipamento:", ["Computador (Desktop)", "Monitor/Tela", "Nobreak", "Impressora", "Outros"], key="entrada_tipo")
-        st.date_input("Data de Recebimento", key="entrada_data")
+        data_recebimento = st.date_input("Data de Recebimento", key="entrada_data")
 
     setor_origem = st.text_input("Setor de origem:", placeholder="Ex: Almoxarifado Central", key="entrada_setor_origem")
 
@@ -59,7 +59,7 @@ def renderizar_sistema_entrada():
         elif not setor_destino.strip():
             st.warning("Informe o setor de destino do equipamento.")
         else:
-            sucesso, mensagem = registrar_entrada(valor_final, tipo_equipamento, unidade_atual, setor_destino.strip(), num_patrimonio.strip(), fabricante.strip(), setor_origem.strip())
+            sucesso, mensagem = registrar_entrada(valor_final, tipo_equipamento, unidade_atual, setor_destino.strip(), num_patrimonio.strip(), fabricante.strip(), setor_origem.strip(), data_recebimento)
             if sucesso:
                 st.session_state.numero_patrimonio_val = ""
                 st.session_state.mensagem_entrada = f"Código `{valor_final}` registrado em **{unidade_atual} / {setor_destino.strip()}**."
