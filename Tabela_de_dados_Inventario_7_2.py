@@ -10,9 +10,11 @@ from google.oauth2.service_account import Credentials
 
 ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Setor"
-COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Status", "Fabricante", "Data Cadastro", "Origem"]
+COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Código de Barras", "Origem", "Status"]
 TIPOS_PATRIMONIO = ("CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos")
-COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Código de Barras", "Fabricante", "Data Cadastro", "Origem", "Status"]
+# Schema definitivo: as colunas Código de Barras, Origem e Status não são persistidas.
+# O valor lido pelo scanner passa a ser gravado em Nº de Patrimônio.
+COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
 COLUNAS_PADRAO = COLUNAS_INVENTARIO.copy()
 SETORES_PADRAO = ["Consultório", "Almoxarifado", "Farmacia", "Sala de Preparo", "Sala de Vacina", "Sala de curativo", "Gerencia", "Administração", "Odontologia", "Recepção", "Outro Setor"]
 LISTA_URS_PADRAO = ["URS Novo Horizonte", "URS Jacaraípe", "URS Boa Vista", "URS Feu Rosa", "URS Serra Sede", "URS Serra Dourada"]
@@ -75,8 +77,13 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=COLUNAS_INVENTARIO)
     df = df.fillna("").copy()
     df.columns = [str(c).strip() for c in df.columns]
-    if "Tipo de Patrimônio" in df.columns and "Código de Barras" in df.columns:
-        return df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
+
+    # Formato definitivo já normalizado.
+    if "Tipo de Patrimônio" in df.columns and "Nº de Patrimônio" in df.columns:
+        saida = df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
+        return saida
+
+    # Formato anterior: cada tipo era uma coluna e o código bipado ficava nela.
     setor_col = "Setor" if "Setor" in df.columns else (df.columns[0] if len(df.columns) else "Setor")
     registros = []
     for _, row in df.iterrows():
@@ -95,7 +102,13 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 if "fabricante" in str(c2).casefold() and _inferir_tipo_fabricante(c2) == tipo:
                     fabricante = _valor_texto(row.get(c2, ""))
                     break
-            registros.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": valor, "Código de Barras": "", "Fabricante": fabricante, "Data Cadastro": "", "Origem": "Migração do formato anterior", "Status": "Ativo"})
+            registros.append({
+                "Setor": setor,
+                "Tipo de Patrimônio": tipo,
+                "Nº de Patrimônio": valor,
+                "Fabricante": fabricante,
+                "Data Cadastro": "",
+            })
     return pd.DataFrame(registros, columns=COLUNAS_INVENTARIO).fillna("").astype(str)
 
 
@@ -147,7 +160,7 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
                     partes.append(_normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])))
                     fontes.append(nome)
             if partes:
-                combinado = pd.concat(partes, ignore_index=True).drop_duplicates(subset=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Código de Barras"], keep="first")
+                combinado = pd.concat(partes, ignore_index=True).drop_duplicates(subset=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"], keep="first")
                 return combinado.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), f"Google Sheets ({' + '.join(fontes)})"
             return pd.DataFrame(columns=COLUNAS_INVENTARIO), f"Google Sheets ({nome_aba})"
         except Exception as e:
@@ -172,9 +185,9 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
             try:
                 aba = planilha.worksheet(nome_aba)
             except gspread.exceptions.WorksheetNotFound:
-                aba = planilha.add_worksheet(title=nome_aba, rows=max(100, len(df_salvar) + 10), cols=12)
+                aba = planilha.add_worksheet(title=nome_aba, rows=max(100, len(df_salvar) + 10), cols=8)
             aba.batch_clear([f"A1:Z{max(100, aba.row_count)}"])
-            aba.resize(rows=max(100, len(df_salvar) + 10), cols=12)
+            aba.resize(rows=max(100, len(df_salvar) + 10), cols=max(8, len(COLUNAS_INVENTARIO)))
             valores = [COLUNAS_INVENTARIO] + df_salvar[COLUNAS_INVENTARIO].values.tolist()
             aba.update(values=valores, range_name="A1")
             sucesso_sheets = True
@@ -193,15 +206,21 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     setor = _valor_texto(setor)
     tipo = _normalizar_tipo(tipo_patrimonio)
     fabricante = _valor_texto(fabricante)
-    numero = _valor_texto(numero_patrimonio)
+    numero = _valor_texto(numero_patrimonio) or codigo
     if tipo not in TIPOS_PATRIMONIO or not unidade or not setor or not codigo:
         return False
     df, _ = carregar_dados_excel(unidade)
     df = _normalizar_legacy_dataframe(df)
-    if (df["Código de Barras"].astype(str).str.strip() == codigo).any():
-        st.warning(f"O código de barras `{codigo}` já está cadastrado nesta unidade.")
+    if (df["Nº de Patrimônio"].astype(str).str.strip() == numero).any():
+        st.warning(f"O número de patrimônio `{numero}` já está cadastrado nesta unidade.")
         return False
-    nova = {"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Código de Barras": codigo, "Fabricante": fabricante, "Data Cadastro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Origem": "Sistema de Inventários", "Status": "Ativo"}
+    nova = {
+        "Setor": setor,
+        "Tipo de Patrimônio": tipo,
+        "Nº de Patrimônio": numero,
+        "Fabricante": fabricante,
+        "Data Cadastro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
     df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
     return salvar_no_excel(df, unidade)
 
@@ -236,9 +255,6 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
     elif coluna == "Nº de Patrimônio":
         valor = _valor_texto(subset.iloc[0]["Nº de Patrimônio"])
         mask_excluir = mask_setor & df["Nº de Patrimônio"].astype(str).str.strip().eq(valor)
-    elif coluna == "Código de Barras":
-        valor = _valor_texto(subset.iloc[0]["Código de Barras"])
-        mask_excluir = mask_setor & df["Código de Barras"].astype(str).str.strip().eq(valor)
     else:
         tipo = _normalizar_tipo(re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", coluna, flags=re.I))
         mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(tipo)
@@ -248,10 +264,14 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
 def excluir_setor(setor: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_setor(df, setor)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    if not alterado:
+        return False
+    return salvar_no_excel(novo, unidade)
 
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    if not alterado:
+        return False
+    return salvar_no_excel(novo, unidade)
