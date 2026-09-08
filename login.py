@@ -9,8 +9,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import streamlit as st
 
-# Logo da Prefeitura da Serra em SVG Nativo
-LOGO_SERRA_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 180" width="280" height="97"><g><path d="M 15,15 L 145,15 C 145,105 130,150 80,170 C 30,150 15,105 15,15 Z" fill="#1b8e42" stroke="#146830" stroke-width="2"/><path d="M 27,27 L 133,27 C 133,98 120,138 80,155 C 40,138 27,98 27,27 Z" fill="#ffffff"/><path d="M 27,27 L 133,27 L 133,48 L 27,48 Z" fill="#1b8e42"/><text x="80" y="42" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="15" fill="#ffffff" text-anchor="middle">SERRA</text><text x="44" y="40" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#ffffff" text-anchor="middle">1535</text><text x="116" y="40" font-family="Arial, Helvetica, sans-serif" font-size="8" fill="#ffffff" text-anchor="middle">1822</text><text x="33" y="40" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#ffffff" text-anchor="middle">★</text><text x="127" y="40" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#ffffff" text-anchor="middle">★</text><circle cx="80" cy="72" r="16" fill="none" stroke="#000000" stroke-width="4" stroke-dasharray="6,4"/><circle cx="80" cy="72" r="11" fill="#fbd100" stroke="#000000" stroke-width="1.5"/><path d="M 74,78 L 74,68 L 82,68 L 80,64 L 86,64 L 84,68 L 86,78 Z" fill="#000000"/><rect x="42" y="93" width="76" height="10" fill="#000000"/><rect x="46" y="89" width="8" height="4" fill="#000000"/><rect x="58" y="89" width="8" height="4" fill="#000000"/><rect x="70" y="89" width="8" height="4" fill="#000000"/><rect x="82" y="89" width="8" height="4" fill="#000000"/><rect x="94" y="89" width="8" height="4" fill="#000000"/><rect x="106" y="89" width="8" height="4" fill="#000000"/><path d="M 40,135 L 120,135 C 120,120 40,120 40,135 Z" fill="#fbd100"/><line x1="80" y1="105" x2="80" y2="120" stroke="#fbd100" stroke-width="2"/><line x1="65" y1="108" x2="72" y2="121" stroke="#fbd100" stroke-width="2"/><line x1="95" y1="108" x2="88" y2="121" stroke="#fbd100" stroke-width="2"/><line x1="53" y1="115" x2="65" y2="124" stroke="#fbd100" stroke-width="2"/><line x1="107" y1="115" x2="95" y2="124" stroke="#fbd100" stroke-width="2"/><path d="M 33,138 Q 50,122 65,135 Q 80,118 95,138 Q 110,125 127,138 L 127,143 C 115,152 45,152 33,143 Z" fill="#2d8647" stroke="#1e5c30" stroke-width="1"/><path d="M 36,143 Q 80,158 124,143 C 110,157 50,157 36,143 Z" fill="#1b4d89"/><text x="35" y="102" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#ffffff" text-anchor="middle">★</text><text x="125" y="102" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#ffffff" text-anchor="middle">★</text><text x="80" y="152" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#ffffff" text-anchor="middle">★</text></g><text x="195" y="62" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="normal" fill="#000000" letter-spacing="1">PREFEITURA MUNICIPAL DA</text><text x="193" y="135" font-family="Arial Black, Gadget, sans-serif" font-size="76" font-weight="900" fill="#000000" letter-spacing="-1">SERRA</text></svg>"""
+# Logotipo vetorial otimizado da Prefeitura Municipal da Serra.
+# Mantém o brasão e reorganiza a tipografia para reproduzir a proporção
+# visual da referência enviada, sem perda de qualidade em telas de alta resolução.
+LOGO_SERRA_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 160" role="img" aria-label="Prefeitura Municipal da Serra"><defs><linearGradient id="verde" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f9848"/><stop offset="1" stop-color="#16753a"/></linearGradient></defs><g transform="translate(0,2)"><path d="M12 10H148C148 92 133 135 80 153C27 135 12 92 12 10Z" fill="url(#verde)" stroke="#125f31" stroke-width="2"/><path d="M25 23H135V48H25Z" fill="#18823e"/><path d="M25 23H135C135 88 121 125 80 142C39 125 25 88 25 23Z" fill="#fff"/><path d="M25 23H135V48H25Z" fill="#18823e"/><text x="80" y="42" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="700" fill="#fff">SERRA</text><text x="45" y="42" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="7" fill="#fff">1535</text><text x="115" y="42" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="7" fill="#fff">1822</text><text x="32" y="42" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="9" fill="#fff">★</text><text x="128" y="42" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="9" fill="#fff">★</text><circle cx="80" cy="70" r="15" fill="none" stroke="#111" stroke-width="3.5" stroke-dasharray="5,4"/><circle cx="80" cy="70" r="10" fill="#fbd100" stroke="#111" stroke-width="1.3"/><path d="M74 77V67H82L80 63L86 63L84 67V77Z" fill="#111"/><rect x="42" y="91" width="76" height="10" rx="1" fill="#111"/><rect x="47" y="87" width="8" height="4" fill="#111"/><rect x="59" y="87" width="8" height="4" fill="#111"/><rect x="71" y="87" width="8" height="4" fill="#111"/><rect x="83" y="87" width="8" height="4" fill="#111"/><rect x="95" y="87" width="8" height="4" fill="#111"/><rect x="107" y="87" width="8" height="4" fill="#111"/><path d="M40 133H120C120 120 40 120 40 133Z" fill="#fbd100"/><path d="M80 103V119M65 106L72 120M95 106L88 120M53 113L65 123M107 113L95 123" stroke="#fbd100" stroke-width="2"/><path d="M33 136Q50 120 65 133Q80 116 95 136Q110 123 127 136V141C115 149 45 149 33 141Z" fill="#2d8647" stroke="#1e5c30"/><path d="M36 141Q80 156 124 141C110 154 50 154 36 141Z" fill="#1b4d89"/><text x="35" y="101" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="8" fill="#fff">★</text><text x="125" y="101" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="8" fill="#fff">★</text><text x="80" y="150" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="8" fill="#fff">★</text></g><g fill="#111"><text x="170" y="48" font-family="Arial,Helvetica,sans-serif" font-size="20" font-weight="400" letter-spacing="0.6">PREFEITURA MUNICIPAL DA</text><text x="168" y="116" font-family="Arial Black,Arial,Helvetica,sans-serif" font-size="64" font-weight="900" letter-spacing="-1.2">SERRA</text></g></svg>"""
 
 ADMIN_EMAIL_DEFAULT = "juari.neris@gmail.com"
 DB_FILE = "db_usuarios.json"
@@ -95,8 +97,6 @@ def processar_acao_via_url():
     if "acao" in params and "usuario" in params:
         acao = params["acao"]
         user_email = params["usuario"].strip().lower()
-        
-        # Limpa os parâmetros da URL após ler
         st.query_params.clear()
 
         db = carregar_usuarios()
@@ -113,7 +113,7 @@ def processar_acao_via_url():
             """
             enviar_email(user_email, "Cadastro Aceito - Prefeitura da Serra", corpo)
             st.success(f"Solicitação do usuário {user_email} foi APROVADA com sucesso!")
-            
+
         elif acao == "recusar":
             if user_email in db:
                 db[user_email]["aprovado"] = False
@@ -127,26 +127,43 @@ def processar_acao_via_url():
             st.error(f"Solicitação do usuário {user_email} foi RECUSADA.")
 
 def renderizar_login() -> bool:
-    # Processa ações vindas do e-mail (se houver)
     processar_acao_via_url()
 
     if "autenticado" not in st.session_state:
         st.session_state.autenticado = False
-
     if "tela_atual" not in st.session_state:
         st.session_state.tela_atual = "login"
-
     if st.session_state.autenticado:
         return True
 
-    b64_logo = base64.b64encode(LOGO_SERRA_SVG.encode("utf-8")).decode("utf-8")
-    logo_html = f'<div style="text-align: center; margin-bottom: 25px;"><img src="data:image/svg+xml;base64,{b64_logo}" width="280" /></div>'
+    b64_logo = base64.b64encode(LOGO_SERRA_SVG.encode("utf-8")).decode("ascii")
+    logo_html = f'''<div class="login-logo-wrap"><img src="data:image/svg+xml;base64,{b64_logo}" class="login-logo" alt="Prefeitura Municipal da Serra" /></div>'''
 
     st.markdown("""
         <style>
             .stApp { background-color: #f2f4f7 !important; }
             header, footer, #MainMenu { visibility: hidden; }
+            .main .block-container { padding-top: 1.6rem !important; padding-bottom: 2.5rem !important; }
+            .login-logo-wrap {
+                width: 100%;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                margin: 0 auto 2.15rem auto;
+                line-height: 0;
+            }
+            .login-logo {
+                width: 230px;
+                height: auto;
+                max-width: 78vw;
+                display: block;
+                image-rendering: auto;
+            }
             div[data-testid="stForm"] {
+                width: 100% !important;
+                max-width: 810px !important;
+                margin: 0 auto !important;
+                box-sizing: border-box !important;
                 background-color: #ffffff !important;
                 border: 1px solid #e1e4e8 !important;
                 border-radius: 4px !important;
@@ -154,9 +171,13 @@ def renderizar_login() -> bool:
                 box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
             }
             .login-title {
-                text-align: center; font-size: 20px; font-weight: 600; color: #24292e; margin-bottom: 25px;
+                text-align: center;
+                font-size: 20px;
+                line-height: 1.25;
+                font-weight: 600;
+                color: #24292e;
+                margin: 0 0 25px 0;
             }
-            /* Regra corrigida para alinhar o botão/link à direita */
             button[kind="tertiary"] {
                 display: flex !important;
                 justify-content: flex-end !important;
@@ -177,37 +198,60 @@ def renderizar_login() -> bool:
                 text-align: right !important;
             }
             div[data-baseweb="input"] {
-                background-color: #f4f6f8 !important; border: 1px solid #d1d5da !important; border-radius: 4px !important;
+                background-color: #f4f6f8 !important;
+                border: 1px solid #d1d5da !important;
+                border-radius: 4px !important;
             }
             div[data-baseweb="select"] > div {
-                background-color: #ffffff !important; border: 1px solid #d1d5da !important; border-radius: 4px !important;
+                background-color: #ffffff !important;
+                border: 1px solid #d1d5da !important;
+                border-radius: 4px !important;
             }
             div[data-baseweb="select"] svg, div[data-baseweb="input"] button svg { transform: scale(0.65) !important; }
             div[data-testid="stForm"] button[kind="secondaryFormSubmit"],
             div[data-testid="stForm"] button[kind="primaryFormSubmit"] {
-                background-color: #555555 !important; color: #ffffff !important; border: none !important;
-                border-radius: 4px !important; height: 42px !important; font-size: 14px !important;
-                font-weight: 600 !important; margin-top: 15px !important;
+                background-color: #555555 !important;
+                color: #ffffff !important;
+                border: none !important;
+                border-radius: 4px !important;
+                height: 42px !important;
+                font-size: 14px !important;
+                font-weight: 600 !important;
+                margin-top: 15px !important;
             }
             div[data-testid="stForm"] button[kind="secondaryFormSubmit"]:hover,
             div[data-testid="stForm"] button[kind="primaryFormSubmit"]:hover {
-                background-color: #333333 !important; color: #ffffff !important;
+                background-color: #333333 !important;
+                color: #ffffff !important;
             }
             .error-box {
-                background-color: #fdf2f2; border: 1px solid #f8b4b4; border-left: 4px solid #e02424;
-                color: #9b1c1c; padding: 12px 16px; border-radius: 4px; font-size: 13px; margin-top: 15px;
+                width: 100%;
+                max-width: 810px;
+                box-sizing: border-box;
+                margin: 15px auto 0 auto;
+                background-color: #fdf2f2;
+                border: 1px solid #f8b4b4;
+                border-left: 4px solid #e02424;
+                color: #9b1c1c;
+                padding: 12px 16px;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+            @media (max-width: 768px) {
+                .main .block-container { padding-left: 0.75rem !important; padding-right: 0.75rem !important; padding-top: 1rem !important; }
+                .login-logo { width: 220px; max-width: 72vw; }
+                div[data-testid="stForm"] { max-width: 100% !important; padding: 28px 24px !important; }
+                .error-box { max-width: 100%; }
             }
         </style>
     """, unsafe_allow_html=True)
 
-    _, col_center, _ = st.columns([1, 1.8, 1])
+    # Coluna central proporcional à referência visual enviada.
+    _, col_center, _ = st.columns([0.7, 2.0, 0.7])
 
     with col_center:
         st.markdown(logo_html, unsafe_allow_html=True)
 
-        # -------------------------------------------------------------
-        # TELA 1: DIGITAR E-MAIL DE RECUPERAÇÃO
-        # -------------------------------------------------------------
         if st.session_state.tela_atual == "redefinicao_solicitar":
             with st.form(key="form_solicitar_email", clear_on_submit=False):
                 st.markdown('<div class="login-title">Redefinição de senha</div>', unsafe_allow_html=True)
@@ -227,28 +271,15 @@ def renderizar_login() -> bool:
                 st.session_state.tela_atual = "login"
                 st.rerun()
 
-        # -------------------------------------------------------------
-        # TELA 2: DEFINIR NOVO LOGIN (E-MAIL) E CONFIRMAR SENHA (8 DIGITOS)
-        # -------------------------------------------------------------
         elif st.session_state.tela_atual == "redefinicao_criar":
             with st.form(key="form_criar_usuario", clear_on_submit=False):
                 st.markdown('<div class="login-title">Redefinição de senha</div>', unsafe_allow_html=True)
-                
                 st.write("**Login de Usuário (Obrigatório ser E-mail)**")
-                novo_usuario = st.text_input(
-                    "Usuário", 
-                    value=st.session_state.get('email_solicitante', ''), 
-                    placeholder="usuario@dominio.com", 
-                    label_visibility="collapsed", 
-                    key="novo_user"
-                )
-
+                novo_usuario = st.text_input("Usuário", value=st.session_state.get('email_solicitante', ''), placeholder="usuario@dominio.com", label_visibility="collapsed", key="novo_user")
                 st.write("**Nova Senha (Exatamente 8 caracteres alfanuméricos)**")
                 nova_senha = st.text_input("Nova Senha", value="", type="password", placeholder="Ex: serra123", label_visibility="collapsed", key="nova_pass")
-
                 st.write("**Confirme a Nova Senha**")
                 confirma_senha = st.text_input("Confirmar Senha", value="", type="password", placeholder="Repita a senha", label_visibility="collapsed", key="confirma_pass")
-
                 btn_finalizar = st.form_submit_button("Cadastrar e Solicitar Autorização", use_container_width=True)
 
                 if btn_finalizar:
@@ -263,18 +294,13 @@ def renderizar_login() -> bool:
                             st.error(msg_erro)
                         else:
                             db = carregar_usuarios()
-                            db[novo_user_clean] = {
-                                "senha": hash_senha(nova_senha),
-                                "aprovado": False
-                            }
+                            db[novo_user_clean] = {"senha": hash_senha(nova_senha), "aprovado": False}
                             salvar_usuarios(db)
 
                             admin_email = st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)
                             app_url = st.secrets.get("email", {}).get("app_url", "http://localhost:8501").rstrip("/")
-
                             params_aprovar = urllib.parse.urlencode({"acao": "aprovar", "usuario": novo_user_clean})
                             params_recusar = urllib.parse.urlencode({"acao": "recusar", "usuario": novo_user_clean})
-
                             link_aprovar = f"{app_url}/?{params_aprovar}"
                             link_recusar = f"{app_url}/?{params_recusar}"
 
@@ -282,9 +308,7 @@ def renderizar_login() -> bool:
                             <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
                                 <h3 style="color: #1b8e42;">Alerta de Novo Usuário / Solicitação de Cadastro</h3>
                                 <p>Um novo cadastro/redefinição foi solicitado no sistema:</p>
-                                <ul>
-                                    <li><b>E-mail/Usuário Solicitado:</b> {novo_user_clean}</li>
-                                </ul>
+                                <ul><li><b>E-mail/Usuário Solicitado:</b> {novo_user_clean}</li></ul>
                                 <p>Clique em uma das opções abaixo para responder à solicitação diretamente:</p>
                                 <div style="margin-top: 25px;">
                                     <a href="{link_aprovar}" style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-right: 15px; display: inline-block;">Autorizar Cadastro</a>
@@ -293,7 +317,6 @@ def renderizar_login() -> bool:
                             </div>
                             """
                             enviar_email(admin_email, f"Solicitação de Cadastro: {novo_user_clean}", corpo_admin)
-
                             st.success(f"Solicitação enviada com sucesso! Um e-mail com os botões de autorização foi encaminhado para {admin_email}.")
                             st.session_state.tela_atual = "login"
 
@@ -301,42 +324,32 @@ def renderizar_login() -> bool:
                 st.session_state.tela_atual = "login"
                 st.rerun()
 
-        # -------------------------------------------------------------
-        # TELA PRINCIPAL DE LOGIN
-        # -------------------------------------------------------------
         else:
             with st.form(key="glpi_login_form", clear_on_submit=False):
                 st.markdown('<div class="login-title">Faça login na sua conta</div>', unsafe_allow_html=True)
-
                 st.write("**Usuário**")
                 usuario = st.text_input("Usuário", value="", placeholder="seuemail@serra.es.gov.br", label_visibility="collapsed", key="login_user")
-
                 st.write("**Senha**")
                 senha = st.text_input("Senha", value="", type="password", label_visibility="collapsed", key="login_pass")
 
-                # Link alinhado no canto direito abaixo do campo de senha
                 if st.form_submit_button("Esqueceu sua senha?", type="tertiary"):
                     st.session_state.tela_atual = "redefinicao_solicitar"
                     st.rerun()
 
                 st.write("**Origem de login**")
                 origem = st.selectbox("Origem de login", ["SERRA.LOCAL", "BANCO DE DADOS INTERNO"], label_visibility="collapsed", key="login_domain")
-
                 submit = st.form_submit_button("Entrar", use_container_width=True)
 
                 if submit:
                     user_clean = usuario.strip().lower()
-                    
                     if not user_clean or not senha.strip():
                         st.session_state.erro_login_msg = "Uso inválido de ID de sessão ou credenciais incorretas"
                     else:
                         db = carregar_usuarios()
-                        
                         if user_clean not in db:
                             st.session_state.erro_login_msg = "Acesso negado: Este e-mail não está cadastrado no sistema"
                         else:
                             dados_user = db[user_clean]
-                            
                             if not dados_user.get("aprovado", False):
                                 st.session_state.erro_login_msg = "Seu e-mail está cadastrado, porém ainda aguarda AUTORIZAÇÃO do administrador"
                             elif dados_user.get("senha") != hash_senha(senha) and dados_user.get("senha") != senha:
@@ -348,10 +361,6 @@ def renderizar_login() -> bool:
                                 st.rerun()
 
             if st.session_state.get("erro_login_msg"):
-                st.markdown(f"""
-                    <div class="error-box">
-                        {st.session_state.erro_login_msg}
-                    </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f'''<div class="error-box">{st.session_state.erro_login_msg}</div>''', unsafe_allow_html=True)
 
     return False
