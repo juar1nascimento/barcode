@@ -1,5 +1,10 @@
 import streamlit as st
 
+from Tabela_de_dados_Inventario_7_2 import UNIDADES_PADRAO
+from inventario_regras import setores_menu, tipos_patrimonio_menu, normalizar_setor, normalizar_fabricante
+from movimentacao_inventario import registrar_entrada
+
+
 def renderizar_card_entrada(lista_urs, lista_ubs):
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📥 Entrada de Equipamentos</h3>", unsafe_allow_html=True)
@@ -8,21 +13,18 @@ def renderizar_card_entrada(lista_urs, lista_ubs):
 
         urs_entrada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_entrada")
         ubs_entrada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_entrada")
-
         if urs_entrada != "Selecione uma URS...":
             st.session_state.saved_setor = urs_entrada
         elif ubs_entrada != "Selecione uma UBS...":
             st.session_state.saved_setor = ubs_entrada
 
         st.write("")
-        
         if st.button("📂 Abrir Entrada nesta Aba", use_container_width=True, type="primary", key="btn_entrada"):
             st.session_state.pagina_atual = "entrada"
             st.rerun()
 
 
 def atualizar_numero_patrimonio():
-    """Sincroniza o número lido pelo leitor no campo 'Número de Patrimônio'"""
     st.session_state.numero_patrimonio_val = st.session_state.input_bip_patrimonio
 
 
@@ -30,43 +32,94 @@ def renderizar_sistema_entrada():
     st.title("📥 Entrada de Equipamentos - GTI-SESA")
     st.markdown("Módulo para registro de recebimento e alocação de novos equipamentos nas unidades.")
     st.divider()
-    
-    if "numero_patrimonio_val" not in st.session_state:
-        st.session_state.numero_patrimonio_val = ""
 
-    setor_atual = st.session_state.get("saved_setor", "Unidade não selecionada")
-    st.info(f"📍 Unidade de Destino Selecionada: **{setor_atual}**")
-    
+    st.session_state.setdefault("numero_patrimonio_val", "")
+    unidade_atual = st.session_state.get("saved_setor", "")
+    st.info(f"📍 Unidade de Destino Selecionada: **{unidade_atual or 'Nenhuma unidade selecionada'}**")
+
     st.subheader("1. Informações do Recebimento")
     c1, c2 = st.columns(2)
     with c1:
-        # Texto atualizado para 'Número de Patrimônio:'
         num_patrimonio = st.text_input(
-            "Número de Patrimônio:", 
-            value=st.session_state.numero_patrimonio_val, 
-            placeholder="Aguardando bipagem ou digitação...", 
-            key="input_num_patrimonio"
+            "Número de Patrimônio:",
+            value=st.session_state.numero_patrimonio_val,
+            placeholder="Aguardando bipagem ou digitação...",
+            key="input_num_patrimonio",
         )
-        # Texto atualizado para 'Setor de origem:'
-        setor_origem = st.text_input("Setor de origem:", placeholder="Ex: Almoxarifado Central")
-        
+        setor_destino = st.selectbox(
+            "Setor de destino:",
+            setores_menu(),
+            index=None,
+            placeholder="Selecione um setor...",
+            key="entrada_setor_destino",
+        )
+        setor_destino_custom = ""
+        if setor_destino == "Outro Setor":
+            setor_destino_custom = st.text_input(
+                "Nome do Setor:",
+                placeholder="Digite o nome do setor...",
+                key="entrada_setor_destino_custom",
+            )
     with c2:
-        st.selectbox("Tipo de Equipamento:", ["Computador (Desktop)", "Monitor/Tela", "Nobreak", "Impressora", "Outros"])
-        st.date_input("Data de Recebimento")
+        tipo_equipamento = st.selectbox(
+            "Tipo de Equipamento:",
+            tipos_patrimonio_menu(),
+            index=None,
+            placeholder="Selecione o tipo de patrimônio...",
+            key="entrada_tipo",
+        )
+        data_recebimento = st.date_input("Data de Recebimento", key="entrada_data")
+
+    setor_origem = st.text_input(
+        "Setor de origem:",
+        placeholder="Ex: Almoxarifado Central",
+        key="entrada_setor_origem",
+    )
 
     st.subheader("2. Código de Patrimônio do Equipamento")
-    # Dispara atualização automática do campo 'Número de Patrimônio' ao bipar
     codigo_entrada = st.text_input(
-        "Bipe ou digite o código do patrimônio:", 
-        placeholder="Aguardando bipagem...", 
+        "Bipe ou digite o código do patrimônio:",
+        placeholder="Aguardando bipagem...",
         key="input_bip_patrimonio",
-        on_change=atualizar_numero_patrimonio
+        on_change=atualizar_numero_patrimonio,
     )
-    
-    if st.button("✅ Confirmar Entrada de Equipamento", type="primary", use_container_width=True):
-        valor_final = num_patrimonio.strip() or codigo_entrada.strip()
-        if valor_final:
-            st.success(f"Equipamento com Patrimônio `{valor_final}` registrado com sucesso no setor **{setor_atual}**!")
-            st.session_state.numero_patrimonio_val = ""
-        else:
+    fabricante = st.text_input(
+        "Fabricante:",
+        placeholder="Ex: Dell, HP, Lenovo...",
+        key="entrada_fabricante",
+    )
+
+    setor_final = setor_destino_custom.strip() if setor_destino == "Outro Setor" else normalizar_setor(setor_destino or "")
+    fabricante_final = normalizar_fabricante(fabricante.strip())
+
+    if st.button("✅ Confirmar Entrada de Equipamento", type="primary", use_container_width=True, key="btn_confirmar_entrada"):
+        valor_final = codigo_entrada.strip() or num_patrimonio.strip()
+        if not valor_final:
             st.warning("Informe ou bipe o código do equipamento antes de confirmar.")
+        elif not unidade_atual:
+            st.warning("Selecione uma unidade no Portal antes de registrar a entrada.")
+        elif not setor_final:
+            st.warning("Selecione ou informe o setor de destino do equipamento.")
+        elif not tipo_equipamento:
+            st.warning("Selecione o tipo de patrimônio do equipamento.")
+        else:
+            sucesso, mensagem = registrar_entrada(
+                valor_final,
+                tipo_equipamento,
+                unidade_atual,
+                setor_final,
+                num_patrimonio.strip(),
+                fabricante_final,
+                setor_origem.strip(),
+                data_recebimento,
+            )
+            if sucesso:
+                st.session_state.numero_patrimonio_val = ""
+                st.session_state.mensagem_entrada = f"Código `{valor_final}` registrado em **{unidade_atual} / {setor_final}**."
+                st.rerun()
+            else:
+                st.error(mensagem)
+
+    mensagem = st.session_state.pop("mensagem_entrada", None)
+    if mensagem:
+        st.success(f"✅ Entrada registrada com sucesso. {mensagem}")
