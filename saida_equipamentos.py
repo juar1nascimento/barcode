@@ -1,5 +1,6 @@
 import streamlit as st
 
+from Tabela_de_dados_Inventario_7_2 import UNIDADES_PADRAO
 from movimentacao_inventario import registrar_saida
 
 
@@ -40,7 +41,8 @@ def renderizar_sistema_saida():
 
     destino = ""
     if motivo == "Transferência para outra Unidade":
-        destino = st.text_input("Unidade de Destino:", placeholder="Ex: UBS Feu Rosa", key="saida_destino")
+        opcoes_destino = [u for u in UNIDADES_PADRAO if u.casefold() != unidade_atual.casefold()]
+        destino = st.selectbox("Unidade de Destino:", opcoes_destino, key="saida_destino")
 
     observacoes = st.text_area("Observações / Justificativa:", placeholder="Descreva os detalhes da saída...", key="saida_observacoes")
 
