@@ -10,19 +10,19 @@ COLUNAS_INVENTARIO = [
 ]
 
 
-def _carregar(unidade: str, secrets=None) -> pd.DataFrame:
-    df, _ = carregar_dados(unidade, secrets)
-    if df is None or df.empty:
-        return pd.DataFrame(columns=COLUNAS_INVENTARIO)
-    return df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
-
-
 def carregar_dados_excel(unidade: str, secrets=None):
     return carregar_dados(unidade, secrets)
 
 
 def salvar_no_excel(df: pd.DataFrame, unidade: str, secrets=None) -> bool:
     return salvar_dados(df, unidade, secrets)
+
+
+def _carregar(unidade: str, secrets=None) -> pd.DataFrame:
+    df, _ = carregar_dados_excel(unidade, secrets)
+    if df is None or df.empty:
+        return pd.DataFrame(columns=COLUNAS_INVENTARIO)
+    return df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
 
 
 def registrar_entrada(codigo_barras: str, tipo_equipamento: str, unidade: str, setor: str,
