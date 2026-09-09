@@ -1,4 +1,5 @@
 from sistema_inventario import opcoes_setor, opcoes_tipo_patrimonio
+from modulos.sistema_inventarios.sistema import TIPOS_CONSULTORIO, montar_setor_consultorio
 
 
 def test_menu_setor_usa_apenas_regras_centralizadas():
@@ -22,3 +23,14 @@ def test_menu_patrimonio_usa_apenas_tipos_oficiais():
     assert "Local/Setor" not in tipos
     assert "Nobreak" not in tipos
     assert tipos == ["CPU", "Imprenssoras", "Monitores", "Mouse", "Outros Dispositivos", "Teclado"]
+
+
+def test_consultorio_oferece_tipos_clinicos():
+    assert TIPOS_CONSULTORIO == ["Psicologia", "Psiquiatria"]
+
+
+def test_montar_setor_consultorio():
+    assert montar_setor_consultorio("3", "Psicologia") == "Consultório 3 - Psicologia"
+    assert montar_setor_consultorio("7", "Psiquiatria") == "Consultório 7 - Psiquiatria"
+    assert montar_setor_consultorio("", "Psicologia") == ""
+    assert montar_setor_consultorio("3", "") == ""
