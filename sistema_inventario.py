@@ -8,7 +8,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio
+    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
 )
 
 # ==============================================================================
@@ -46,61 +46,17 @@ def validar_tipo_patrimonio(tipo: str) -> str:
 def adicionar_e_salvar_sem_sobrescrever(
     codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
 ) -> bool:
-    setor_limpo = setor.strip()
-    codigo_limpo = codigo.strip()
-    fabricante_limpo = fabricante.strip()
+    """Ponto único de entrada do cadastro da interface.
 
+    A tela preserva seu layout e seus controles, mas toda validação,
+    normalização, prevenção de duplicidade e persistência ficam no backend.
+    """
     try:
-        patrimonio_validado = validar_tipo_patrimonio(patrimonio)
+        validar_tipo_patrimonio(patrimonio)
     except ValueError as e:
         st.error(str(e))
         return False
-
-    patrimonio_cabecalho = formatar_nome_patrimonio(patrimonio_validado)
-    coluna_fabricante = formatar_nome_fabricante(patrimonio_validado)
-
-    if not setor_limpo or not codigo_limpo or not patrimonio_cabecalho or not unidade:
-        return False
-
-    try:
-        df_atual, _ = carregar_dados_excel(unidade)
-        df = df_atual.copy()
-    except Exception:
-        df = pd.DataFrame(columns=[COLUNA_CHAVE] + list(TIPOS_PATRIMONIO_PERMITIDOS))
-
-    if df.empty or COLUNA_CHAVE not in df.columns:
-        df = pd.DataFrame(columns=[COLUNA_CHAVE])
-
-    if patrimonio_cabecalho not in df.columns:
-        df[patrimonio_cabecalho] = ""
-    if coluna_fabricante not in df.columns:
-        df[coluna_fabricante] = ""
-
-    df = df.fillna("").astype(str)
-    mask_setor = df[COLUNA_CHAVE].str.strip().str.lower() == setor_limpo.lower()
-    indices_setor = df[mask_setor].index
-
-    linha_destino_idx = None
-    for idx in indices_setor:
-        val_celula = str(df.at[idx, patrimonio_cabecalho]).strip().lower()
-        if val_celula in ["", "nan", "none", "<na>", "null"]:
-            linha_destino_idx = idx
-            break
-
-    if linha_destino_idx is not None:
-        df.at[linha_destino_idx, patrimonio_cabecalho] = codigo_limpo
-        if fabricante_limpo:
-            df.at[linha_destino_idx, coluna_fabricante] = fabricante_limpo
-    else:
-        nova_linha = {col: "" for col in df.columns}
-        nova_linha[COLUNA_CHAVE] = setor_limpo
-        nova_linha[patrimonio_cabecalho] = codigo_limpo
-        nova_linha[coluna_fabricante] = fabricante_limpo
-        df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
-
-    sucesso = salvar_no_excel(df, unidade)
-    carregar_dados_excel.clear()
-    return sucesso
+    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante)
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever

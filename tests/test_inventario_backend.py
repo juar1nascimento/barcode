@@ -319,3 +319,52 @@ def test_cadastro_nao_reintroduz_colunas_removidas(monkeypatch):
     assert backend.registrar_patrimonio("PAT-SCHEMA-001", "Monitores", "Farmacia", "UBS Teste", "HP")
     assert list(estado["df"].columns) == COLUNAS
     assert not any(c in estado["df"].columns for c in ("Código de Barras", "Origem", "Status"))
+
+
+
+def test_carga_em_massa_sem_gravacao_parcial(monkeypatch):
+    estado = _estado_vazio()
+    _mock_persistencia(monkeypatch, estado)
+    registros = [
+        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": f"LOTE-{i:03d}", "fabricante": "Dell"}
+        for i in range(1, 101)
+    ]
+    ok, erros = backend.registrar_patrimonios_em_lote(registros, "UBS Teste")
+    assert ok and erros == []
+    assert len(estado["df"]) == 100
+    assert list(estado["df"]["Nº de Patrimônio"])[0] == "LOTE-001"
+    assert list(estado["df"]["Nº de Patrimônio"])[-1] == "LOTE-100"
+
+
+def test_carga_em_massa_com_duplicidade_nao_grava_parcialmente(monkeypatch):
+    estado = _estado_vazio()
+    _mock_persistencia(monkeypatch, estado)
+    registros = [
+        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": "LOTE-001"},
+        {"tipo_patrimonio": "Monitor", "setor": "Farmacia", "numero_patrimonio": "LOTE-002"},
+        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": " lote-001 "},
+    ]
+    ok, erros = backend.registrar_patrimonios_em_lote(registros, "UBS Teste")
+    assert not ok
+    assert erros
+    assert estado["df"].empty
+
+
+def test_carga_em_massa_rejeita_lote_maior_que_limite(monkeypatch):
+    estado = _estado_vazio()
+    _mock_persistencia(monkeypatch, estado)
+    registros = [
+        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": f"MAX-{i}"}
+        for i in range(1001)
+    ]
+    ok, erros = backend.registrar_patrimonios_em_lote(registros, "UBS Teste")
+    assert not ok and erros
+    assert estado["df"].empty
+
+
+def test_interface_delega_cadastro_ao_backend(monkeypatch):
+    import sistema_inventario as ui
+    chamadas = []
+    monkeypatch.setattr(ui, "registrar_patrimonio", lambda *args: chamadas.append(args) or True)
+    assert ui.adicionar_e_salvar("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")
+    assert chamadas == [("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")]

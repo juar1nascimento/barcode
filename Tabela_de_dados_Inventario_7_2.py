@@ -297,6 +297,62 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     return salvar_no_excel(df, unidade_limpa)
 
 
+def registrar_patrimonios_em_lote(registros, unidade: str):
+    """Valida e grava vários patrimônios de uma vez, sem gravação parcial.
+
+    Cada item deve conter: tipo_patrimonio, setor e numero_patrimonio ou
+    codigo_barras; fabricante é opcional. O lote inteiro é validado antes
+    de qualquer alteração no Google Sheets. Retorna (sucesso, erros).
+    """
+    registros = list(registros or [])
+    erros = []
+    if not registros:
+        return False, ["O lote está vazio."]
+    if len(registros) > 1000:
+        return False, ["O lote excede o limite de 1000 patrimônios por operação."]
+
+    unidade_limpa = _normalizar_unidade_aba(unidade)
+    df, _ = carregar_dados_excel(unidade_limpa)
+    df = _normalizar_legacy_dataframe(df)
+    existentes = set(df["Nº de Patrimônio"].map(_chave_texto))
+    vistos = set()
+    novos = []
+
+    for posicao, item in enumerate(registros, start=1):
+        item = item or {}
+        codigo = _valor_texto(item.get("codigo_barras", ""))
+        numero = _valor_texto(item.get("numero_patrimonio", "")) or codigo
+        tipo = _normalizar_tipo(item.get("tipo_patrimonio", ""))
+        setor = _valor_texto(item.get("setor", ""))
+        fabricante = _valor_texto(item.get("fabricante", ""))
+        ok, mensagem = validar_cadastro_patrimonio(tipo, setor, unidade_limpa, numero)
+        if not ok:
+            erros.append(f"Registro {posicao}: {mensagem}")
+            continue
+        chave = _chave_texto(numero)
+        if chave in existentes:
+            erros.append(f"Registro {posicao}: o patrimônio `{numero}` já existe na unidade.")
+            continue
+        if chave in vistos:
+            erros.append(f"Registro {posicao}: o patrimônio `{numero}` está duplicado no próprio lote.")
+            continue
+        vistos.add(chave)
+        novos.append({
+            "Setor": setor,
+            "Tipo de Patrimônio": tipo,
+            "Nº de Patrimônio": numero,
+            "Fabricante": fabricante,
+            "Data Cadastro": _data_hora_cadastro(),
+        })
+
+    if erros:
+        return False, erros
+
+    df_final = pd.concat([df, pd.DataFrame(novos, columns=COLUNAS_INVENTARIO)], ignore_index=True)
+    sucesso = salvar_no_excel(df_final, unidade_limpa)
+    return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
+
+
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
     return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio)
 
