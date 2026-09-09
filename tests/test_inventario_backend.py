@@ -406,3 +406,17 @@ def test_carga_em_lote_anexa_apenas_novas_linhas(monkeypatch, tmp_path):
     assert ok and erros == []
     rows = planilha.sheets["UBS Teste"].rows
     assert [r[2] for r in rows[1:]] == ["BASE-001", "LOTE-001", "LOTE-002"]
+
+
+def test_cadastro_repetido_apos_append_e_idempotente(monkeypatch, tmp_path):
+    planilha = _FakeSpreadsheet()
+    aba = planilha.add_worksheet(title="UBS Teste", rows=100, cols=len(COLUNAS))
+    aba.update(values=[COLUNAS, ["Farmacia", "CPU", "REPETIDO-001", "Dell", "2026-09-09 10:00:00"]], range_name="A1")
+    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: planilha)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
+    monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)
+    backend.carregar_dados_excel.clear()
+    assert backend.registrar_patrimonio("REPETIDO-001", "CPU", "Farmacia", "UBS Teste", "Dell") is False
+    rows = planilha.sheets["UBS Teste"].rows
+    assert [r[2] for r in rows[1:]] == ["REPETIDO-001"]

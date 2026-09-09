@@ -239,12 +239,29 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
             existente, _ = carregar_dados_excel(unidade)
             combinado = pd.concat([existente, df_novos], ignore_index=True)
             return salvar_no_excel(combinado, unidade)
-        valores = df_novos[COLUNAS_INVENTARIO].values.tolist()
+        # Releitura imediatamente antes do append: se uma tentativa anterior
+        # já chegou ao Sheets mas a resposta se perdeu, não duplicamos a linha.
+        atuais = aba.get_all_values()
+        existentes = {
+            _chave_texto(linha[2])
+            for linha in atuais[1:]
+            if len(linha) > 2 and not _eh_vazio(linha[2])
+        }
+        valores = []
+        for linha in df_novos[COLUNAS_INVENTARIO].values.tolist():
+            chave = _chave_texto(linha[2])
+            if chave and chave in existentes:
+                continue
+            valores.append([str(v) for v in linha])
+            if chave:
+                existentes.add(chave)
+        if not valores:
+            carregar_dados_excel.clear()
+            return True
         aba.append_rows(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS")
         lidos = aba.get_all_values()
-        esperado = [list(map(str, linha)) for linha in valores]
-        existentes = [list(map(str, linha[:len(COLUNAS_INVENTARIO)])) for linha in lidos[1:]]
-        if len(lidos) < len(esperado) + 1 or sum(1 for linha in esperado if linha in existentes) != len(esperado):
+        existentes_pos = [list(map(str, linha[:len(COLUNAS_INVENTARIO)])) for linha in lidos[1:]]
+        if sum(1 for linha in valores if linha in existentes_pos) != len(valores):
             st.error("⚠️ O Google Sheets não confirmou todas as linhas anexadas.")
             return False
         carregar_dados_excel.clear()
