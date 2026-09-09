@@ -62,7 +62,7 @@ def renderizar_sistema_entrada():
         elif not tipo_equipamento:
             st.warning("Selecione o tipo de patrimônio do equipamento.")
         else:
-            sucesso, mensagem = registrar_entrada(valor_final, tipo_equipamento, unidade_atual, setor_final, num_patrimonio.strip(), fabricante_final, setor_origem.strip(), data_recebimento)
+            sucesso, mensagem = registrar_entrada(valor_final, tipo_equipamento, unidade_atual, setor_final, num_patrimonio.strip(), fabricante_final, setor_origem.strip(), data_recebimento, st.secrets)
             if sucesso:
                 st.session_state.numero_patrimonio_val = ""
                 st.session_state.mensagem_entrada = f"Código `{valor_final}` registrado em **{unidade_atual} / {setor_final}**."
