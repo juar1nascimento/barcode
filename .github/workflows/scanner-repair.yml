@@ -15,20 +15,10 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           p = Path('sistema_inventario.py')
           s = p.read_text(encoding='utf-8')
-          old = '''                        const parentDoc = window.parent.document;
-                        const inputEl = parentDoc.querySelector('input[placeholder*="Aguardando bipagem"]');
-                        if (inputEl) {
-                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                            nativeSetter.call(inputEl, decodedText);
-                            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-                            setTimeout(() => {
-                                const buttons = Array.from(parentDoc.querySelectorAll('button'));
-                                const submitBtn = buttons.find(b => b.innerText.includes('Registrar Manualmente'));
-                                if (submitBtn) submitBtn.click();
-                            }, 150);
-                        }'''
+          pattern = r'''(?ms)^\s{24}const parentDoc = window\.parent\.document;\n\s{24}const inputEl = parentDoc\.querySelector\('input\[placeholder\*="Aguardando bipagem"\]'\);\n\s{24}if \(inputEl\) \{.*?^\s{24}\}'''
           new = '''                        const parentWin = window.parent;
                         const parentDoc = parentWin.document;
                         const inputEl = parentDoc.querySelector('input[placeholder*="Aguardando bipagem"]');
@@ -56,9 +46,10 @@ jobs:
                             document.getElementById('scan-status').innerText = "⚠️ Falha ao transferir o código para o cadastro. Use o botão manual.";
                             console.error('Falha no bridge do scanner:', erro);
                         }'''
-          if old not in s:
-              raise SystemExit('Bloco antigo do scanner não encontrado; nenhuma alteração aplicada.')
-          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          novo, n = re.subn(pattern, new, s, count=1)
+          if n != 1:
+              raise SystemExit('Bloco do scanner não localizado; nenhuma alteração aplicada.')
+          p.write_text(novo, encoding='utf-8')
           PY
           python -m compileall -q sistema_inventario.py
       - name: Commit repair
