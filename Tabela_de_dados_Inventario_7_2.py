@@ -41,8 +41,19 @@ def formatar_nome_fabricante(patrimonio: str) -> str:
 
 def _normalizar_tipo(valor: str) -> str:
     valor = re.sub(r"\s+", " ", str(valor or "").strip())
-    mapa = {"computador": "CPU", "cpu": "CPU", "monitor": "Monitores", "monitores": "Monitores", "teclado": "Teclado", "mouse": "Mouse", "impressora": "Imprenssoras", "impressoras": "Imprenssoras"}
-    return mapa.get(valor.casefold(), valor if valor in TIPOS_PATRIMONIO else "Outros Dispositivos")
+    mapa = {
+        "computador": "CPU",
+        "cpu": "CPU",
+        "monitor": "Monitores",
+        "monitores": "Monitores",
+        "teclado": "Teclado",
+        "mouse": "Mouse",
+        "impressora": "Imprenssoras",
+        "impressoras": "Imprenssoras",
+        "imprenssoras": "Imprenssoras",
+        "outros dispositivos": "Outros Dispositivos",
+    }
+    return mapa.get(valor.casefold(), valor if valor in TIPOS_PATRIMONIO else "")
 
 
 def _normalizar_unidade_aba(nome: str) -> str:
@@ -57,6 +68,31 @@ def _valor_texto(v) -> str:
     if re.fullmatch(r"-?\d+\.0", s):
         s = s[:-2]
     return s
+
+
+def _chave_texto(v) -> str:
+    return re.sub(r"\s+", " ", _valor_texto(v)).casefold()
+
+
+def _eh_vazio(v) -> bool:
+    return _valor_texto(v).casefold() in {"", "none", "nan", "null", "<na>"}
+
+
+def validar_cadastro_patrimonio(tipo_patrimonio: str, setor: str, unidade: str, numero_patrimonio: str) -> Tuple[bool, str]:
+    tipo = _normalizar_tipo(tipo_patrimonio)
+    setor_limpo = _valor_texto(setor)
+    unidade_limpa = _normalizar_unidade_aba(unidade)
+    numero = _valor_texto(numero_patrimonio)
+
+    if not unidade_limpa or unidade_limpa.casefold().startswith("selecione"):
+        return False, "Selecione uma unidade válida."
+    if not setor_limpo or setor_limpo.casefold().startswith("selecione"):
+        return False, "Selecione ou informe um setor válido."
+    if not tipo:
+        return False, "Selecione um tipo de patrimônio válido."
+    if not numero or numero.casefold().startswith("selecione"):
+        return False, "Informe ou leia o número de patrimônio."
+    return True, ""
 
 
 def _inferir_tipo_coluna(cabecalho: str) -> Optional[str]:
@@ -86,7 +122,10 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = df.fillna("").copy()
     df.columns = [str(c).strip() for c in df.columns]
     if "Tipo de Patrimônio" in df.columns and "Nº de Patrimônio" in df.columns:
-        return df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
+        normalizado = df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
+        for coluna in COLUNAS_INVENTARIO:
+            normalizado[coluna] = normalizado[coluna].map(_valor_texto)
+        return normalizado
     setor_col = "Setor" if "Setor" in df.columns else (df.columns[0] if len(df.columns) else "Setor")
     registros = []
     for _, row in df.iterrows():
@@ -98,7 +137,7 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             if not tipo:
                 continue
             valor = _valor_texto(row.get(col, ""))
-            if not valor or valor.casefold() in {"none", "nan", "null"}:
+            if _eh_vazio(valor):
                 continue
             fabricante = ""
             for c2 in df.columns:
@@ -227,20 +266,35 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
 
 def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
     codigo = _valor_texto(codigo_barras)
-    setor = _valor_texto(setor)
+    setor_limpo = _valor_texto(setor)
+    unidade_limpa = _normalizar_unidade_aba(unidade)
     tipo = _normalizar_tipo(tipo_patrimonio)
-    fabricante = _valor_texto(fabricante)
+    fabricante_limpo = _valor_texto(fabricante)
     numero = _valor_texto(numero_patrimonio) or codigo
-    if tipo not in TIPOS_PATRIMONIO or not unidade or not setor or not numero:
+
+    valido, mensagem = validar_cadastro_patrimonio(tipo, setor_limpo, unidade_limpa, numero)
+    if not valido:
+        if mensagem:
+            st.warning(mensagem)
         return False
-    df, _ = carregar_dados_excel(unidade)
+
+    df, _ = carregar_dados_excel(unidade_limpa)
     df = _normalizar_legacy_dataframe(df)
-    if (df["Nº de Patrimônio"].astype(str).str.strip() == numero).any():
+    chave_numero = _chave_texto(numero)
+    existentes = df["Nº de Patrimônio"].map(_chave_texto)
+    if (existentes == chave_numero).any():
         st.warning(f"O número de patrimônio `{numero}` já está cadastrado nesta unidade.")
         return False
-    nova = {"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro()}
+
+    nova = {
+        "Setor": setor_limpo,
+        "Tipo de Patrimônio": tipo,
+        "Nº de Patrimônio": numero,
+        "Fabricante": fabricante_limpo,
+        "Data Cadastro": _data_hora_cadastro(),
+    }
     df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
-    return salvar_no_excel(df, unidade)
+    return salvar_no_excel(df, unidade_limpa)
 
 
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
@@ -254,7 +308,7 @@ def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> Tuple[pd.DataFrame,
     df = _normalizar_legacy_dataframe(df)
     if df.empty:
         return df.copy(), False
-    mask = df["Setor"].astype(str).str.strip().str.casefold() == _valor_texto(setor).casefold()
+    mask = df["Setor"].map(_chave_texto) == _chave_texto(setor)
     return (df.loc[~mask].copy(), True) if mask.any() else (df.copy(), False)
 
 
@@ -262,7 +316,7 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
     df = _normalizar_legacy_dataframe(df)
     if df.empty:
         return df.copy(), False
-    mask_setor = df["Setor"].astype(str).str.strip().str.casefold() == _valor_texto(setor).casefold()
+    mask_setor = df["Setor"].map(_chave_texto) == _chave_texto(setor)
     if not mask_setor.any():
         return df.copy(), False
     subset = df.loc[mask_setor].copy()
@@ -272,7 +326,7 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
         mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(valor)
     elif coluna == "Nº de Patrimônio":
         valor = _valor_texto(subset.iloc[0]["Nº de Patrimônio"])
-        mask_excluir = mask_setor & df["Nº de Patrimônio"].astype(str).str.strip().eq(valor)
+        mask_excluir = mask_setor & df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(valor))
     else:
         tipo = _normalizar_tipo(re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", coluna, flags=re.I))
         mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(tipo)
