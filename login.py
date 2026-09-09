@@ -1,10 +1,13 @@
 import base64
 import hashlib
 import html
+import hmac
 import json
 import os
 import re
+import secrets
 import smtplib
+import time
 import urllib.parse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -15,9 +18,39 @@ ADMIN_EMAIL_DEFAULT = ""
 DB_FILE = "db_usuarios.json"
 LOGO_FILE = Path(__file__).resolve().parent / "assets" / "logo_serra_login.jpg"
 DEFAULT_ADMIN_HASH = "3166b70d4b201c3754a99631ace5a8cfa1b240a676b7a4ed0b3fc5ee0a7ae976"
+PBKDF2_ITERATIONS = 310_000
+APPROVAL_TOKEN_TTL_SECONDS = 15 * 60
+
 
 def hash_senha(senha: str) -> str:
-    return hashlib.sha256(senha.encode("utf-8")).hexdigest()
+    """Gera hash de senha moderno, com salt aleatório e PBKDF2-HMAC-SHA256."""
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def verificar_senha(senha: str, armazenada: str) -> tuple[bool, bool]:
+    """Retorna (válida, precisa_migrar).
+
+    Hashes SHA-256 legados continuam aceitos temporariamente para permitir
+    migração transparente no primeiro login bem-sucedido.
+    """
+    valor = str(armazenada or "")
+    if valor.startswith("pbkdf2_sha256$"):
+        try:
+            _, iteracoes, salt_hex, digest_hex = valor.split("$", 3)
+            iteracoes = int(iteracoes)
+            salt = bytes.fromhex(salt_hex)
+            esperado = bytes.fromhex(digest_hex)
+            atual = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), salt, iteracoes)
+            return hmac.compare_digest(atual, esperado), False
+        except (ValueError, TypeError):
+            return False, False
+    if re.fullmatch(r"[0-9a-f]{64}", valor):
+        atual = hashlib.sha256(senha.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(atual, valor), True
+    return False, False
+
 
 def carregar_usuarios() -> dict:
     if not os.path.exists(DB_FILE):
@@ -26,47 +59,119 @@ def carregar_usuarios() -> dict:
         salvar_usuarios(db)
         return db
     try:
-        with open(DB_FILE, "r", encoding="utf-8") as f: return json.load(f)
-    except Exception: return {}
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
 
 def salvar_usuarios(db: dict):
-    with open(DB_FILE, "w", encoding="utf-8") as f: json.dump(db, f, indent=4, ensure_ascii=False)
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(db, f, indent=4, ensure_ascii=False)
+
 
 def validar_email(email: str) -> bool:
     return bool(re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email.strip()))
 
+
 def validar_senha_alfanumerica_8(senha: str) -> tuple[bool, str]:
-    if len(senha) != 8: return False, "A senha deve conter exatamente 8 caracteres."
-    if not senha.isalnum(): return False, "A senha deve ser alfanumérica (apenas letras e números, sem símbolos)."
-    if not (any(c.isalpha() for c in senha) and any(c.isdigit() for c in senha)): return False, "A senha deve conter ao menos uma letra e um número."
+    if len(senha) != 8:
+        return False, "A senha deve conter exatamente 8 caracteres."
+    if not senha.isalnum():
+        return False, "A senha deve ser alfanumérica (apenas letras e números, sem símbolos)."
+    if not (any(c.isalpha() for c in senha) and any(c.isdigit() for c in senha)):
+        return False, "A senha deve conter ao menos uma letra e um número."
     return True, ""
+
+
+def _segredo_aprovacao() -> str:
+    return str(st.secrets.get("email", {}).get("approval_secret", "")).strip()
+
+
+def _criar_token_aprovacao(acao: str, usuario: str) -> str:
+    segredo = _segredo_aprovacao()
+    if not segredo:
+        raise RuntimeError("approval_secret não configurado nas Secrets.")
+    expira = int(time.time()) + APPROVAL_TOKEN_TTL_SECONDS
+    payload = f"{acao}|{usuario.strip().lower()}|{expira}"
+    assinatura = hmac.new(segredo.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return secrets.token_urlsafe(8) + "." + urllib.parse.quote(payload, safe="") + "." + assinatura
+
+
+def _validar_token_aprovacao(token: str) -> tuple[str, str] | None:
+    segredo = _segredo_aprovacao()
+    try:
+        nonce, payload_encoded, assinatura = str(token).split(".", 2)
+        if not nonce or not segredo:
+            return None
+        payload = urllib.parse.unquote(payload_encoded)
+        esperado = hmac.new(segredo.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(assinatura, esperado):
+            return None
+        acao, usuario, expira = payload.split("|", 2)
+        if acao not in {"aprovar", "recusar"} or int(expira) < int(time.time()):
+            return None
+        return acao, usuario.strip().lower()
+    except (ValueError, TypeError):
+        return None
+
 
 def enviar_email(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool, str]:
     try:
-        cfg = st.secrets.get("email", {}); host = cfg.get("smtp_server", "smtp.gmail.com"); port = int(cfg.get("smtp_port", 587)); sender = cfg.get("sender_email", ""); password = cfg.get("sender_password", "")
-        if not sender or not password: return False, "Credenciais SMTP não configuradas nas Secrets."
-        msg = MIMEMultipart("alternative"); msg["From"] = sender; msg["To"] = destinatario; msg["Subject"] = assunto; msg.attach(MIMEText(corpo_html, "html"))
-        with smtplib.SMTP(host, port) as server: server.starttls(); server.login(sender, password); server.sendmail(sender, destinatario, msg.as_string())
+        cfg = st.secrets.get("email", {})
+        host = cfg.get("smtp_server", "smtp.gmail.com")
+        port = int(cfg.get("smtp_port", 587))
+        sender = cfg.get("sender_email", "")
+        password = cfg.get("sender_password", "")
+        if not sender or not password:
+            return False, "Credenciais SMTP não configuradas nas Secrets."
+        msg = MIMEMultipart("alternative")
+        msg["From"] = sender
+        msg["To"] = destinatario
+        msg["Subject"] = assunto
+        msg.attach(MIMEText(corpo_html, "html"))
+        with smtplib.SMTP(host, port) as server:
+            server.starttls()
+            server.login(sender, password)
+            server.sendmail(sender, destinatario, msg.as_string())
         return True, "E-mail enviado com sucesso."
-    except Exception as e: return False, f"Erro SMTP: {e}"
+    except Exception:
+        return False, "Não foi possível enviar o e-mail SMTP."
+
 
 def processar_acao_via_url():
-    p = st.query_params
-    if "acao" not in p or "usuario" not in p: return
-    acao = str(p["acao"]); user = str(p["usuario"]).strip().lower(); st.query_params.clear(); db = carregar_usuarios()
-    if user not in db or acao not in {"aprovar", "recusar"}: return
-    db[user]["aprovado"] = acao == "aprovar"; salvar_usuarios(db)
+    token = st.query_params.get("token")
+    if not token:
+        return
+    st.query_params.clear()
+    dados = _validar_token_aprovacao(str(token))
+    if not dados:
+        st.error("Link de autorização inválido ou expirado.")
+        return
+    acao, user = dados
+    db = carregar_usuarios()
+    if user not in db:
+        return
+    db[user]["aprovado"] = acao == "aprovar"
+    salvar_usuarios(db)
     corpo = f"<h3>Prefeitura Municipal da Serra</h3><p>Sua solicitação para <b>{html.escape(user)}</b> foi <b>{'ACEITA' if acao == 'aprovar' else 'RECUSADA'}</b>.</p>"
     enviar_email(user, "Atualização do cadastro - Prefeitura da Serra", corpo)
     (st.success if acao == "aprovar" else st.error)(f"Solicitação do usuário {user} foi {'APROVADA' if acao == 'aprovar' else 'RECUSADA'}.")
 
+
 def _logo_uri() -> str:
-    try: return "data:image/jpeg;base64," + base64.b64encode(LOGO_FILE.read_bytes()).decode("ascii")
-    except OSError: return ""
+    try:
+        return "data:image/jpeg;base64," + base64.b64encode(LOGO_FILE.read_bytes()).decode("ascii")
+    except OSError:
+        return ""
+
 
 def renderizar_login() -> bool:
-    processar_acao_via_url(); st.session_state.setdefault("autenticado", False); st.session_state.setdefault("tela_atual", "login")
-    if st.session_state.autenticado: return True
+    processar_acao_via_url()
+    st.session_state.setdefault("autenticado", False)
+    st.session_state.setdefault("tela_atual", "login")
+    if st.session_state.autenticado:
+        return True
     logo = _logo_uri()
     st.markdown('''<style>
 html,body,[data-testid="stAppViewContainer"],[data-testid="stAppViewContainer"]>.main,.stApp{background:#f5f7fb!important}header,footer,#MainMenu{visibility:hidden!important}
@@ -85,44 +190,101 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
 </style>''', unsafe_allow_html=True)
     _, center, _ = st.columns([.015,1,.015])
     with center:
-        if logo: st.markdown(f'<img src="{logo}" class="login-logo" alt="Prefeitura Municipal da Serra">', unsafe_allow_html=True)
+        if logo:
+            st.markdown(f'<img src="{logo}" class="login-logo" alt="Prefeitura Municipal da Serra">', unsafe_allow_html=True)
         if st.session_state.tela_atual == "redefinicao_solicitar":
             with st.form("form_solicitar_email", clear_on_submit=False):
-                st.markdown('<div class="login-title">Redefinição de senha</div><div class="login-divider"></div>', unsafe_allow_html=True); st.write("**Informe seu e-mail de acesso**")
-                email_req=st.text_input("E-mail",placeholder="seuemail@serra.es.gov.br",label_visibility="collapsed",key="email_req")
-                if st.form_submit_button("Avançar",use_container_width=True):
-                    if validar_email(email_req): st.session_state.email_solicitante=email_req.strip().lower(); st.session_state.tela_atual="redefinicao_criar"; st.rerun()
-                    else: st.error("Por favor, informe um e-mail com formato válido.")
-            if st.button("← Voltar ao Login",use_container_width=True,key="btn_voltar_solicitar"): st.session_state.tela_atual="login"; st.rerun()
+                st.markdown('<div class="login-title">Redefinição de senha</div><div class="login-divider"></div>', unsafe_allow_html=True)
+                st.write("**Informe seu e-mail de acesso**")
+                email_req = st.text_input("E-mail", placeholder="seuemail@serra.es.gov.br", label_visibility="collapsed", key="email_req")
+                if st.form_submit_button("Avançar", use_container_width=True):
+                    if validar_email(email_req):
+                        st.session_state.email_solicitante = email_req.strip().lower()
+                        st.session_state.tela_atual = "redefinicao_criar"
+                        st.rerun()
+                    else:
+                        st.error("Por favor, informe um e-mail com formato válido.")
+            if st.button("← Voltar ao Login", use_container_width=True, key="btn_voltar_solicitar"):
+                st.session_state.tela_atual = "login"
+                st.rerun()
         elif st.session_state.tela_atual == "redefinicao_criar":
-            with st.form("form_criar_usuario",clear_on_submit=False):
-                st.markdown('<div class="login-title">Redefinição de senha</div><div class="login-divider"></div>',unsafe_allow_html=True); st.write("**Login de Usuário (Obrigatório ser E-mail)**")
-                novo=st.text_input("Usuário",value=st.session_state.get("email_solicitante",""),placeholder="usuario@dominio.com",label_visibility="collapsed",key="novo_user"); st.write("**Nova Senha (Exatamente 8 caracteres alfanuméricos)**")
-                nova=st.text_input("Nova Senha",type="password",placeholder="Nova senha",label_visibility="collapsed",key="nova_pass"); st.write("**Confirme a Nova Senha**"); confirma=st.text_input("Confirmar Senha",type="password",placeholder="Repita a senha",label_visibility="collapsed",key="confirma_pass")
-                if st.form_submit_button("Cadastrar e Solicitar Autorização",use_container_width=True):
-                    user=novo.strip().lower()
-                    if not validar_email(user): st.error("O nome de usuário deve ser obrigatoriamente um e-mail válido.")
-                    elif nova!=confirma: st.error("A confirmação de senha não confere com a nova senha digitada.")
+            with st.form("form_criar_usuario", clear_on_submit=False):
+                st.markdown('<div class="login-title">Redefinição de senha</div><div class="login-divider"></div>', unsafe_allow_html=True)
+                st.write("**Login de Usuário (Obrigatório ser E-mail)**")
+                novo = st.text_input("Usuário", value=st.session_state.get("email_solicitante", ""), placeholder="usuario@dominio.com", label_visibility="collapsed", key="novo_user")
+                st.write("**Nova Senha (Exatamente 8 caracteres alfanuméricos)**")
+                nova = st.text_input("Nova Senha", type="password", placeholder="Nova senha", label_visibility="collapsed", key="nova_pass")
+                st.write("**Confirme a Nova Senha**")
+                confirma = st.text_input("Confirmar Senha", type="password", placeholder="Repita a senha", label_visibility="collapsed", key="confirma_pass")
+                if st.form_submit_button("Cadastrar e Solicitar Autorização", use_container_width=True):
+                    user = novo.strip().lower()
+                    if not validar_email(user):
+                        st.error("O nome de usuário deve ser obrigatoriamente um e-mail válido.")
+                    elif nova != confirma:
+                        st.error("A confirmação de senha não confere com a nova senha digitada.")
                     else:
-                        ok,msg=validar_senha_alfanumerica_8(nova)
-                        if not ok: st.error(msg)
+                        ok, msg = validar_senha_alfanumerica_8(nova)
+                        if not ok:
+                            st.error(msg)
                         else:
-                            db=carregar_usuarios(); db[user]={"senha":hash_senha(nova),"aprovado":False}; salvar_usuarios(db); cfg=st.secrets.get("email",{}); admin=cfg.get("admin_email",""); base=cfg.get("app_url","http://localhost:8501").rstrip("/"); a=urllib.parse.urlencode({"acao":"aprovar","usuario":user}); r=urllib.parse.urlencode({"acao":"recusar","usuario":user}); body=f'<p>Solicitação de cadastro: <b>{html.escape(user)}</b></p><p><a href="{html.escape(base+"/?"+a,quote=True)}">Autorizar</a> | <a href="{html.escape(base+"/?"+r,quote=True)}">Recusar</a></p>'; enviar_email(admin,"Solicitação de Cadastro",body); st.success("Solicitação enviada ao administrador."); st.session_state.tela_atual="login"
-            if st.button("← Cancelar",use_container_width=True,key="btn_cancelar_criar"): st.session_state.tela_atual="login"; st.rerun()
+                            db = carregar_usuarios()
+                            db[user] = {"senha": hash_senha(nova), "aprovado": False}
+                            salvar_usuarios(db)
+                            cfg = st.secrets.get("email", {})
+                            admin = cfg.get("admin_email", "")
+                            base = cfg.get("app_url", "http://localhost:8501").rstrip("/")
+                            try:
+                                token_aprovar = _criar_token_aprovacao("aprovar", user)
+                                token_recusar = _criar_token_aprovacao("recusar", user)
+                                link_aprovar = base + "/?" + urllib.parse.urlencode({"token": token_aprovar})
+                                link_recusar = base + "/?" + urllib.parse.urlencode({"token": token_recusar})
+                                body = f'<p>Solicitação de cadastro: <b>{html.escape(user)}</b></p><p><a href="{html.escape(link_aprovar, quote=True)}">Autorizar</a> | <a href="{html.escape(link_recusar, quote=True)}">Recusar</a></p>'
+                                enviado, mensagem = enviar_email(admin, "Solicitação de Cadastro", body)
+                                if not enviado:
+                                    st.error(mensagem)
+                                else:
+                                    st.success("Solicitação enviada ao administrador.")
+                                    st.session_state.tela_atual = "login"
+                            except RuntimeError as exc:
+                                st.error(str(exc))
+            if st.button("← Cancelar", use_container_width=True, key="btn_cancelar_criar"):
+                st.session_state.tela_atual = "login"
+                st.rerun()
         else:
-            with st.form("glpi_login_form",clear_on_submit=False):
-                st.markdown('<div class="login-title">Faça login na sua conta</div><div class="login-divider"></div>',unsafe_allow_html=True); st.write("**Usuário**"); usuario=st.text_input("Usuário",placeholder="seuemail@serra.es.gov.br",label_visibility="collapsed",key="login_user"); st.write("**Senha**"); senha=st.text_input("Senha",type="password",label_visibility="collapsed",key="login_pass")
-                if st.form_submit_button("Esqueceu sua senha?",type="tertiary"): st.session_state.tela_atual="redefinicao_solicitar"; st.rerun()
-                st.write("**Origem de login**"); st.selectbox("Origem de login",["SERRA.LOCAL"],label_visibility="collapsed",key="login_domain")
-                if st.form_submit_button("Entrar",use_container_width=True):
-                    user=usuario.strip().lower()
-                    if not user or not senha.strip(): st.session_state.erro_login_msg="Uso inválido de ID de sessão ou credenciais incorretas"
+            with st.form("glpi_login_form", clear_on_submit=False):
+                st.markdown('<div class="login-title">Faça login na sua conta</div><div class="login-divider"></div>', unsafe_allow_html=True)
+                st.write("**Usuário**")
+                usuario = st.text_input("Usuário", placeholder="seuemail@serra.es.gov.br", label_visibility="collapsed", key="login_user")
+                st.write("**Senha**")
+                senha = st.text_input("Senha", type="password", label_visibility="collapsed", key="login_pass")
+                if st.form_submit_button("Esqueceu sua senha?", type="tertiary"):
+                    st.session_state.tela_atual = "redefinicao_solicitar"
+                    st.rerun()
+                st.write("**Origem de login**")
+                st.selectbox("Origem de login", ["SERRA.LOCAL"], label_visibility="collapsed", key="login_domain")
+                if st.form_submit_button("Entrar", use_container_width=True):
+                    user = usuario.strip().lower()
+                    if not user or not senha.strip():
+                        st.session_state.erro_login_msg = "Uso inválido de ID de sessão ou credenciais incorretas"
                     else:
-                        db=carregar_usuarios()
-                        if user not in db: st.session_state.erro_login_msg="Acesso negado: Este e-mail não está cadastrado no sistema"
-                        elif not db[user].get("aprovado",False): st.session_state.erro_login_msg="Seu e-mail está cadastrado, porém ainda aguarda AUTORIZAÇÃO do administrador"
-                        elif db[user].get("senha")!=hash_senha(senha): st.session_state.erro_login_msg="Uso inválido de ID de sessão ou credenciais incorretas"
-                        else: st.session_state.autenticado=True; st.session_state.usuario_logado=user; st.session_state.erro_login_msg=None; st.rerun()
+                        db = carregar_usuarios()
+                        if user not in db:
+                            st.session_state.erro_login_msg = "Acesso negado: Este e-mail não está cadastrado no sistema"
+                        elif not db[user].get("aprovado", False):
+                            st.session_state.erro_login_msg = "Seu e-mail está cadastrado, porém ainda aguarda AUTORIZAÇÃO do administrador"
+                        else:
+                            valido, migrar = verificar_senha(senha, db[user].get("senha", ""))
+                            if not valido:
+                                st.session_state.erro_login_msg = "Uso inválido de ID de sessão ou credenciais incorretas"
+                            else:
+                                if migrar:
+                                    db[user]["senha"] = hash_senha(senha)
+                                    salvar_usuarios(db)
+                                st.session_state.autenticado = True
+                                st.session_state.usuario_logado = user
+                                st.session_state.erro_login_msg = None
+                                st.rerun()
                 st.markdown('<div class="login-divider-after-button"></div>', unsafe_allow_html=True)
-            if st.session_state.get("erro_login_msg"): st.markdown(f'<div class="error-box">{html.escape(str(st.session_state.erro_login_msg))}</div>',unsafe_allow_html=True)
+            if st.session_state.get("erro_login_msg"):
+                st.markdown(f'<div class="error-box">{html.escape(str(st.session_state.erro_login_msg))}</div>', unsafe_allow_html=True)
     return False
