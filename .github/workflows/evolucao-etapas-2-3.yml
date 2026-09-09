@@ -1,0 +1,116 @@
+name: Evolução segura etapas 2 e 3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Tabela_de_dados_Inventario_7_2.py'
+      - '.github/workflows/evolucao-etapas-2-3.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  evolve:
+    if: ${{ !startsWith(github.event.head_commit.message, 'Etapa 2-3:') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Aplicar endurecimento de persistência e exclusão
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('Tabela_de_dados_Inventario_7_2.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('import re\\nfrom datetime', 'import re\\nimport threading\\nfrom datetime', 1)
+          needle = 'UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO\\nFUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")'
+          repl = needle + '\\n_PERSISTENCIA_LOCK = threading.RLock()'
+          if '_PERSISTENCIA_LOCK = threading.RLock()' not in s:
+              s = s.replace(needle, repl, 1)
+          needle = 'def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:'
+          repl = '''def _serializar_persistencia(func):
+              """Serializa operações de leitura-modificação-gravação no processo Streamlit."""
+              def wrapper(*args, **kwargs):
+                  with _PERSISTENCIA_LOCK:
+                      return func(*args, **kwargs)
+              wrapper.__name__ = getattr(func, "__name__", "wrapper")
+              wrapper.__doc__ = getattr(func, "__doc__", None)
+              return wrapper
+
+
+          @_serializar_persistencia
+          def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:'''
+          if 'def _serializar_persistencia' not in s:
+              s = s.replace(needle, repl, 1)
+          if '@_serializar_persistencia\\ndef registrar_patrimonio' not in s:
+              s = s.replace('def registrar_patrimonio(codigo_barras:', '@_serializar_persistencia\\ndef registrar_patrimonio(codigo_barras:', 1)
+          if '@_serializar_persistencia\\ndef registrar_patrimonios_em_lote' not in s:
+              s = s.replace('def registrar_patrimonios_em_lote(registros, unidade: str):', '@_serializar_persistencia\\ndef registrar_patrimonios_em_lote(registros, unidade: str):', 1)
+          start = s.index('def _aplicar_exclusao_patrimonio(')
+          end = s.index('\\n\\ndef excluir_setor(', start)
+          new = '''def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> Tuple[pd.DataFrame, bool]:
+              """Exclui exatamente um patrimônio quando o alvo é um número.
+
+              Mantém compatibilidade com a interface legada que envia o tipo.
+              """
+              df = _normalizar_legacy_dataframe(df)
+              if df.empty:
+                  return df.copy(), False
+              mask_setor = df["Setor"].map(_chave_texto) == _chave_texto(setor)
+              if not mask_setor.any():
+                  return df.copy(), False
+              alvo = _valor_texto(coluna)
+              mask_excluir = mask_setor & df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(alvo))
+              if mask_excluir.any():
+                  return df.loc[~mask_excluir].copy(), True
+              tipo = _normalizar_tipo(re.sub(r"\\s*-\\s*N[ºo]?\\s*de\\s*Patrim[ôo]nio", "", alvo, flags=re.I))
+              if not tipo:
+                  return df.copy(), False
+              candidatos = df.index[mask_setor & df["Tipo de Patrimônio"].astype(str).eq(tipo)]
+              if len(candidatos) == 0:
+                  return df.copy(), False
+              mask_excluir = df.index == candidatos[0]
+              return df.loc[~mask_excluir].copy(), True
+          '''
+          s = s[:start] + new + s[end:]
+          p.write_text(s, encoding='utf-8')
+          PY
+          python -m py_compile Tabela_de_dados_Inventario_7_2.py
+      - name: Criar testes da evolução
+        run: |
+          cat > tests/test_evolucao_etapas.py <<'PY'
+          import pandas as pd
+          import Tabela_de_dados_Inventario_7_2 as backend
+
+          def test_persistencia_tem_lock():
+              assert hasattr(backend, '_PERSISTENCIA_LOCK')
+
+          def test_exclusao_por_numero_remove_apenas_um_registro():
+              df = pd.DataFrame([
+                  {'Setor':'Consultório','Tipo de Patrimônio':'CPU','Nº de Patrimônio':'100','Fabricante':'Dell','Data Cadastro':''},
+                  {'Setor':'Consultório','Tipo de Patrimônio':'CPU','Nº de Patrimônio':'200','Fabricante':'HP','Data Cadastro':''},
+              ], columns=backend.COLUNAS_INVENTARIO)
+              novo, alterado = backend._aplicar_exclusao_patrimonio(df, 'Consultório', '100')
+              assert alterado
+              assert list(novo['Nº de Patrimônio']) == ['200']
+
+          def test_exclusao_por_tipo_legada_remove_so_um():
+              df = pd.DataFrame([
+                  {'Setor':'Consultório','Tipo de Patrimônio':'CPU','Nº de Patrimônio':'100','Fabricante':'Dell','Data Cadastro':''},
+                  {'Setor':'Consultório','Tipo de Patrimônio':'CPU','Nº de Patrimônio':'200','Fabricante':'HP','Data Cadastro':''},
+              ], columns=backend.COLUNAS_INVENTARIO)
+              novo, alterado = backend._aplicar_exclusao_patrimonio(df, 'Consultório', 'CPU')
+              assert alterado
+              assert list(novo['Nº de Patrimônio']) == ['200']
+          PY
+          pytest -q tests/test_evolucao_etapas.py
+      - name: Commit evolução
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Tabela_de_dados_Inventario_7_2.py tests/test_evolucao_etapas.py
+          git commit -m 'Etapa 2-3: persistência e exclusão seguras' || exit 0
+          git push
