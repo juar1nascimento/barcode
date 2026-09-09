@@ -1,17 +1,12 @@
 import streamlit as st
 
 from login import renderizar_login
-from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
-from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
-from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
+from modulos.sistema_inventarios import renderizar_card_inventario, renderizar_sistema_inventario
+from modulos.entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
+from modulos.saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 from Tabela_de_dados_Inventario_7_2 import LISTA_URS_PADRAO, LISTA_UBS_PADRAO
 
-st.set_page_config(
-    page_title="Controle de Patrimônio - GTI-SESA",
-    page_icon="📦",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="Controle de Patrimônio - GTI-SESA", page_icon="📦", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
@@ -49,7 +44,6 @@ if st.session_state.pagina_atual == "portal":
     st.title("🖥️ Portal de Sistemas GTI-SESA")
     st.markdown("Bem-vindo ao painel central de aplicações. Escolha o sistema que deseja acessar:")
     st.divider()
-
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         renderizar_card_inventario(lista_urs, lista_ubs)
@@ -57,7 +51,6 @@ if st.session_state.pagina_atual == "portal":
         renderizar_card_entrada(lista_urs, lista_ubs)
         st.write("")
         renderizar_card_saida(lista_urs, lista_ubs)
-
 elif st.session_state.pagina_atual == "inventario":
     renderizar_sistema_inventario()
 elif st.session_state.pagina_atual == "entrada":
