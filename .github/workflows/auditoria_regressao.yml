@@ -1,0 +1,25 @@
+name: Auditoria de regressão
+
+on:
+  push:
+    branches:
+      - main
+      - auditoria-estabilidade-2026-09
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  regressao:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compilar código Python
+        run: python -m compileall -q .
+      - name: Executar testes de regressão
+        run: python -m unittest discover -s tests -p "test_*.py" -v
