@@ -1,17 +1,29 @@
-import os
 import re
-import pandas as pd
-import numpy as np
-import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
+import numpy as np
+import pandas as pd
+import streamlit as st
+
 from Tabela_de_dados_Inventario_7_2 import (
-    ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
-    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, excluir_setor
+    ARQUIVO_EXCEL,
+    COLUNA_CHAVE,
+    COLUNAS_PADRAO,
+    LISTA_URS_PADRAO,
+    LISTA_UBS_PADRAO,
+    formatar_nome_patrimonio,
+    formatar_nome_fabricante,
+    carregar_dados_excel,
+    salvar_no_excel,
+    excluir_setor,
 )
-from inventario_regras import setores_menu, tipos_patrimonio_menu, normalizar_setor, normalizar_fabricante
-from movimentacao_inventario import excluir_patrimonio_exato
+from inventario_regras import (
+    setores_menu,
+    tipos_patrimonio_menu,
+    normalizar_setor,
+    normalizar_fabricante,
+)
+from servicos.movimentacao import excluir_patrimonio_exato
 
 TIPOS_PATRIMONIO_PERMITIDOS = tuple(tipos_patrimonio_menu())
 
