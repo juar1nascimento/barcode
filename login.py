@@ -111,7 +111,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
             with st.form("glpi_login_form",clear_on_submit=False):
                 st.markdown('<div class="login-title">Faça login na sua conta</div>',unsafe_allow_html=True); st.write("**Usuário**"); usuario=st.text_input("Usuário",placeholder="seuemail@serra.es.gov.br",label_visibility="collapsed",key="login_user"); st.write("**Senha**"); senha=st.text_input("Senha",type="password",label_visibility="collapsed",key="login_pass")
                 if st.form_submit_button("Esqueceu sua senha?",type="tertiary"): st.session_state.tela_atual="redefinicao_solicitar"; st.rerun()
-                st.write("**Origem de login**"); st.selectbox("Origem de login",["SERRA.LOCAL","BANCO DE DADOS INTERNO"],label_visibility="collapsed",key="login_domain")
+                st.write("**Origem de login**"); st.selectbox("Origem de login",["SERRA.LOCAL"],label_visibility="collapsed",key="login_domain")
                 if st.form_submit_button("Entrar",use_container_width=True):
                     user=usuario.strip().lower()
                     if not user or not senha.strip(): st.session_state.erro_login_msg="Uso inválido de ID de sessão ou credenciais incorretas"
