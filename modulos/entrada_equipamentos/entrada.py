@@ -1,7 +1,7 @@
 import streamlit as st
 
 from inventario_regras import setores_menu, tipos_patrimonio_menu, normalizar_setor, normalizar_fabricante
-from movimentacao_inventario import registrar_entrada
+from servicos.movimentacao import registrar_entrada
 
 
 def renderizar_card_entrada(lista_urs, lista_ubs):
