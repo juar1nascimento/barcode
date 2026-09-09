@@ -1,5 +1,7 @@
 from pathlib import Path
 import ast
+import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parent
 
@@ -18,6 +20,18 @@ def _imports(path: Path):
 def test_servico_de_movimentacao_nao_importa_streamlit():
     imports = _imports(ROOT / "servicos" / "movimentacao.py")
     assert "streamlit" not in imports
+
+
+def test_importar_servico_nao_carrega_streamlit_antecipadamente():
+    codigo = "import sys; import servicos.movimentacao; assert 'streamlit' not in sys.modules"
+    resultado = subprocess.run(
+        [sys.executable, "-c", codigo],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert resultado.returncode == 0, resultado.stderr
 
 
 def test_servico_de_movimentacao_nao_importa_modulos_funcionais():
