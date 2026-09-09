@@ -37,9 +37,14 @@ def validar_tipo_patrimonio(tipo: str) -> str:
     return tipo_limpo
 
 
+def normalizar_especialidade_consultorio(especialidade: str) -> str:
+    """Limpa o texto digitado sem limitar a especialidade a uma lista fechada."""
+    return re.sub(r"\s+", " ", str(especialidade or "").strip())
+
+
 def montar_setor_consultorio(numero: str, tipo: str) -> str:
     numero_limpo = str(numero or "").strip()
-    tipo_limpo = str(tipo or "").strip()
+    tipo_limpo = normalizar_especialidade_consultorio(tipo)
     if not numero_limpo or not tipo_limpo:
         return ""
     return f"Consultório {numero_limpo} - {tipo_limpo}"
@@ -170,16 +175,16 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...", key="outro_setor_nome_v5")
         elif setor_selecionado == "Consultório":
             st.markdown("**Detalhamento do Consultório**")
-            col_numero, col_tipo = st.columns([1, 1])
+            col_numero, col_especialidade = st.columns([1, 1])
             with col_numero:
-                numero_consultorio = st.text_input("Número do Consultório:", placeholder="Ex.: 1, 2, 3...", key="numero_consultorio_v1")
-            with col_tipo:
-                tipo_consultorio = st.selectbox("Tipo de Consultório:", TIPOS_CONSULTORIO, index=None, placeholder="Psicologia ou Psiquiatria...", key="tipo_consultorio_v1")
-            setor_input = montar_setor_consultorio(numero_consultorio, tipo_consultorio)
-            if numero_consultorio.strip() and tipo_consultorio:
+                numero_consultorio = st.text_input("Número do Consultório:", placeholder="Ex.: 1, 2, 3...", key="numero_consultorio_v2")
+            with col_especialidade:
+                especialidade_consultorio = st.text_input("Especialidade do Consultório:", placeholder="Ex.: Psicologia, Psiquiatria, Fonoaudiologia...", key="especialidade_consultorio_v2")
+            setor_input = montar_setor_consultorio(numero_consultorio, especialidade_consultorio)
+            if numero_consultorio.strip() and normalizar_especialidade_consultorio(especialidade_consultorio):
                 st.caption(f"Setor a ser registrado: **{setor_input}**")
             else:
-                st.info("Informe o número e o tipo do consultório para continuar.")
+                st.info("Informe o número e a especialidade do consultório para continuar.")
         elif setor_selecionado:
             setor_input = normalizar_setor(setor_selecionado)
         st.session_state.saved_setor = setor_input
