@@ -24,13 +24,7 @@ def test_persistencia_nao_importa_streamlit():
 
 def test_importar_persistencia_nao_carrega_streamlit_antecipadamente():
     codigo = "import sys; import persistencia_inventario; assert 'streamlit' not in sys.modules"
-    resultado = subprocess.run(
-        [sys.executable, "-c", codigo],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    resultado = subprocess.run([sys.executable, "-c", codigo], cwd=ROOT, capture_output=True, text=True, check=False)
     assert resultado.returncode == 0, resultado.stderr
 
 
@@ -41,25 +35,21 @@ def test_servico_de_movimentacao_nao_importa_streamlit():
 
 def test_importar_servico_nao_carrega_streamlit_antecipadamente():
     codigo = "import sys; import servicos.movimentacao; assert 'streamlit' not in sys.modules"
-    resultado = subprocess.run(
-        [sys.executable, "-c", codigo],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    resultado = subprocess.run([sys.executable, "-c", codigo], cwd=ROOT, capture_output=True, text=True, check=False)
     assert resultado.returncode == 0, resultado.stderr
 
 
 def test_servico_de_movimentacao_nao_importa_modulos_funcionais():
     imports = _imports(ROOT / "servicos" / "movimentacao.py")
-    proibidos = {
-        "modulos.sistema_inventarios",
-        "modulos.entrada_equipamentos",
-        "modulos.saida_equipamentos",
-        "Tabela_de_dados_Inventario_7_2",
-    }
+    proibidos = {"modulos.sistema_inventarios", "modulos.entrada_equipamentos", "modulos.saida_equipamentos", "Tabela_de_dados_Inventario_7_2"}
     assert proibidos.isdisjoint(imports)
+
+
+def test_facade_legada_aponta_para_persistencia():
+    texto = (ROOT / "Tabela_de_dados_Inventario_7_2.py").read_text(encoding="utf-8")
+    assert "persistencia_inventario" in texto
+    assert "carregar_dados" in texto
+    assert "salvar_dados" in texto
 
 
 def test_facades_legadas_apenas_delegam_para_modulos():
