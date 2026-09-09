@@ -1,7 +1,7 @@
 import streamlit as st
 
 from Tabela_de_dados_Inventario_7_2 import UNIDADES_PADRAO
-from movimentacao_inventario import registrar_saida
+from servicos.movimentacao import registrar_saida
 
 
 def renderizar_card_saida(lista_urs, lista_ubs):
