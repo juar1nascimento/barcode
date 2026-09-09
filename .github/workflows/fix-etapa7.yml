@@ -1,0 +1,33 @@
+name: Fix temporário Etapa 7
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-etapa7.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Corrigir instalação de testes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/etapa-7-regra-integridade.yml')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('python -m pip install -q -r requirements.txt pytest', 'python -m pip install -q pytest pandas openpyxl streamlit gspread google-auth')
+          p.write_text(s, encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/etapa-7-regra-integridade.yml
+          git commit -m 'ci: usar dependencias compativeis na validacao' || true
+          rm -f .github/workflows/fix-etapa7.yml
+          git add -A
+          git commit -m 'chore: remover fix temporario' || true
+          git push
