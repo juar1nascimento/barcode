@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional, Tuple
@@ -20,6 +21,7 @@ LISTA_URS_PADRAO = ["URS Novo Horizonte", "URS Jacaraípe", "URS Boa Vista", "UR
 LISTA_UBS_PADRAO = ["UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)", "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos", "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra", "UBS Itinerante (atendimento na UBS)"]
 UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO
 FUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")
+_PERSISTENCIA_LOCK = threading.RLock()
 
 
 def _agora_brasilia() -> datetime:
@@ -205,6 +207,17 @@ def _verificar_gravacao_google(aba, valores_esperados) -> bool:
         return False
 
 
+def _serializar_persistencia(func):
+    """Serializa operações de persistência no processo Streamlit."""
+    def wrapper(*args, **kwargs):
+        with _PERSISTENCIA_LOCK:
+            return func(*args, **kwargs)
+    wrapper.__name__ = getattr(func, "__name__", "wrapper")
+    wrapper.__doc__ = getattr(func, "__doc__", None)
+    return wrapper
+
+
+@_serializar_persistencia
 def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     unidade = _normalizar_unidade_aba(unidade)
     df_salvar = _normalizar_legacy_dataframe(df).fillna("").astype(str)
@@ -232,6 +245,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     return sucesso_sheets
 
 
+@_serializar_persistencia
 def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
     codigo = _valor_texto(codigo_barras)
     setor_limpo = _valor_texto(setor)
@@ -253,6 +267,7 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     return salvar_no_excel(pd.concat([df, pd.DataFrame([nova])], ignore_index=True), unidade_limpa)
 
 
+@_serializar_persistencia
 def registrar_patrimonios_em_lote(registros, unidade: str):
     registros = list(registros or [])
     if not registros: return False, ["O lote está vazio."]
@@ -295,21 +310,28 @@ def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> Tuple[pd.DataFrame,
 
 
 def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> Tuple[pd.DataFrame, bool]:
+    """Exclui exatamente um patrimônio quando o alvo é um número.
+
+    Mantém compatibilidade com a interface legada que envia o tipo.
+    """
     df = _normalizar_legacy_dataframe(df)
-    if df.empty: return df.copy(), False
+    if df.empty:
+        return df.copy(), False
     mask_setor = df["Setor"].map(_chave_texto) == _chave_texto(setor)
-    if not mask_setor.any(): return df.copy(), False
-    coluna = str(coluna or "").strip()
-    if coluna == "Tipo de Patrimônio":
-        valor = _valor_texto(df.loc[mask_setor].iloc[0]["Tipo de Patrimônio"])
-        mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(valor)
-    elif coluna == "Nº de Patrimônio":
-        valor = _valor_texto(df.loc[mask_setor].iloc[0]["Nº de Patrimônio"])
-        mask_excluir = mask_setor & df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(valor))
-    else:
-        tipo = _normalizar_tipo(re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", coluna, flags=re.I))
-        mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(tipo)
-    return (df.loc[~mask_excluir].copy(), True) if mask_excluir.any() else (df.copy(), False)
+    if not mask_setor.any():
+        return df.copy(), False
+    alvo = _valor_texto(coluna)
+    mask_excluir = mask_setor & df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(alvo))
+    if mask_excluir.any():
+        return df.loc[~mask_excluir].copy(), True
+    tipo = _normalizar_tipo(re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", alvo, flags=re.I))
+    if not tipo:
+        return df.copy(), False
+    candidatos = df.index[mask_setor & df["Tipo de Patrimônio"].astype(str).eq(tipo)]
+    if len(candidatos) == 0:
+        return df.copy(), False
+    mask_excluir = df.index == candidatos[0]
+    return df.loc[~mask_excluir].copy(), True
 
 
 def excluir_setor(setor: str, unidade: str) -> bool:
