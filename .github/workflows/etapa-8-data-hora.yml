@@ -1,0 +1,33 @@
+name: Etapa 8 - Data e hora do inventario
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  aplicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ajustar formato de data e hora
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path("Tabela_de_dados_Inventario_7_2.py")
+          s = p.read_text(encoding="utf-8")
+          s = s.replace('from datetime import datetime', 'from datetime import datetime\n\nfrom auditoria_integridade_google import normalizar_data_hora')
+          s = s.replace('return _agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")', 'return _agora_brasilia().strftime("%d-%m-%Y %H:%M:%S")')
+          alvo = '            normalizado[coluna] = normalizado[coluna].map(_valor_texto)\n'
+          novo = '            normalizado[coluna] = normalizado[coluna].map(_valor_texto)\n        normalizado["Data Cadastro"] = normalizado["Data Cadastro"].map(normalizar_data_hora)\n'
+          if novo not in s:
+              s = s.replace(alvo, novo, 1)
+          p.write_text(s, encoding="utf-8")
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Tabela_de_dados_Inventario_7_2.py auditoria_integridade_google.py
+          git diff --cached --quiet || git commit -m "Etapa 8: padronizar data e hora do inventario"
+          git push
