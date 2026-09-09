@@ -41,12 +41,7 @@ def formatar_nome_fabricante(patrimonio: str) -> str:
 
 def _normalizar_tipo(valor: str) -> str:
     valor = re.sub(r"\s+", " ", str(valor or "").strip())
-    mapa = {
-        "computador": "CPU", "cpu": "CPU", "monitor": "Monitores", "monitores": "Monitores",
-        "teclado": "Teclado", "mouse": "Mouse", "impressora": "Imprenssoras",
-        "impressoras": "Imprenssoras", "imprenssoras": "Imprenssoras",
-        "outros dispositivos": "Outros Dispositivos",
-    }
+    mapa = {"computador": "CPU", "cpu": "CPU", "monitor": "Monitores", "monitores": "Monitores", "teclado": "Teclado", "mouse": "Mouse", "impressora": "Imprenssoras", "impressoras": "Imprenssoras", "imprenssoras": "Imprenssoras", "outros dispositivos": "Outros Dispositivos"}
     return mapa.get(valor.casefold(), valor if valor in TIPOS_PATRIMONIO else "")
 
 
@@ -120,16 +115,20 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     registros = []
     for _, row in df.iterrows():
         setor = _valor_texto(row.get(setor_col, ""))
-        if not setor: continue
+        if not setor:
+            continue
         for col in df.columns:
             tipo = _inferir_tipo_coluna(col)
-            if not tipo: continue
+            if not tipo:
+                continue
             valor = _valor_texto(row.get(col, ""))
-            if _eh_vazio(valor): continue
+            if _eh_vazio(valor):
+                continue
             fabricante = ""
             for c2 in df.columns:
                 if "fabricante" in str(c2).casefold() and _inferir_tipo_fabricante(c2) == tipo:
-                    fabricante = _valor_texto(row.get(c2, "")); break
+                    fabricante = _valor_texto(row.get(c2, ""))
+                    break
             registros.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": valor, "Fabricante": fabricante, "Data Cadastro": ""})
     return pd.DataFrame(registros, columns=COLUNAS_INVENTARIO).fillna("").astype(str)
 
@@ -138,21 +137,9 @@ def conectar_google_sheets():
     try:
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
             sec = st.secrets["connections"]["gsheets"]
-            origem = "connections.gsheets"
         elif "gcp_service_account" in st.secrets:
             sec = st.secrets["gcp_service_account"]
-            origem = "gcp_service_account"
         else:
-            st.error("⚠️ Google Sheets não configurado no Streamlit: falta [connections.gsheets] ou [gcp_service_account] nos Secrets.")
-            return None
-        sheet_url = sec.get("spreadsheet") or st.secrets.get("spreadsheet_url")
-        if not sheet_url:
-            st.error(f"⚠️ Credencial Google encontrada em {origem}, mas o endereço da planilha não foi configurado.")
-            return None
-        private_key = sec.get("private_key")
-        client_email = sec.get("client_email")
-        if not private_key or not client_email:
-            st.error(f"⚠️ Configuração Google incompleta em {origem}: client_email/private_key ausentes.")
             return None
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         keys = ("type", "project_id", "private_key_id", "private_key", "client_email", "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url")
@@ -160,9 +147,10 @@ def conectar_google_sheets():
         creds_dict["type"] = creds_dict.get("type") or "service_account"
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        return client.open_by_url(sheet_url)
+        sheet_url = sec.get("spreadsheet") or st.secrets.get("spreadsheet_url")
+        return client.open_by_url(sheet_url) if sheet_url else None
     except Exception as e:
-        st.error(f"⚠️ Falha na conexão com o Google Sheets: {type(e).__name__}: {e}")
+        st.warning(f"Não foi possível conectar ao Google Sheets: {e}")
         return None
 
 
@@ -233,9 +221,9 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
             aba.update(values=valores, range_name="A1")
             sucesso_sheets = _verificar_gravacao_google(aba, valores)
             if not sucesso_sheets:
-                st.error("⚠️ O Google Sheets não confirmou exatamente os dados enviados. O cadastro foi considerado NÃO salvo.")
+                st.error("⚠️ O Google Sheets aceitou a operação, mas a confirmação não corresponde aos dados enviados.")
         except Exception as e:
-            st.error(f"⚠️ Erro ao gravar no Google Sheets: {type(e).__name__}: {e}")
+            st.error(f"⚠️ Erro ao gravar no Google Sheets: {e}")
     else:
         st.error("⚠️ Google Sheets indisponível: o cadastro NÃO foi considerado salvo na tabela online.")
     try: df_salvar.to_excel(nome_arquivo_local, index=False)
@@ -258,29 +246,25 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     df, _ = carregar_dados_excel(unidade_limpa)
     df = _normalizar_legacy_dataframe(df)
     chave_numero = _chave_texto(numero)
-    existentes = df["Nº de Patrimônio"].map(_chave_texto)
-    if (existentes == chave_numero).any():
+    if (df["Nº de Patrimônio"].map(_chave_texto) == chave_numero).any():
         st.warning(f"O número de patrimônio `{numero}` já está cadastrado nesta unidade.")
         return False
     nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro()}
-    df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
-    return salvar_no_excel(df, unidade_limpa)
+    return salvar_no_excel(pd.concat([df, pd.DataFrame([nova])], ignore_index=True), unidade_limpa)
 
 
 def registrar_patrimonios_em_lote(registros, unidade: str):
     registros = list(registros or [])
-    erros = []
     if not registros: return False, ["O lote está vazio."]
     if len(registros) > 1000: return False, ["O lote excede o limite de 1000 patrimônios por operação."]
     unidade_limpa = _normalizar_unidade_aba(unidade)
     df, _ = carregar_dados_excel(unidade_limpa)
     df = _normalizar_legacy_dataframe(df)
     existentes = set(df["Nº de Patrimônio"].map(_chave_texto))
-    vistos, novos = set(), []
+    vistos, novos, erros = set(), [], []
     for posicao, item in enumerate(registros, start=1):
         item = item or {}
-        codigo = _valor_texto(item.get("codigo_barras", ""))
-        numero = _valor_texto(item.get("numero_patrimonio", "")) or codigo
+        numero = _valor_texto(item.get("numero_patrimonio", "")) or _valor_texto(item.get("codigo_barras", ""))
         tipo = _normalizar_tipo(item.get("tipo_patrimonio", ""))
         setor = _valor_texto(item.get("setor", ""))
         fabricante = _valor_texto(item.get("fabricante", ""))
@@ -292,5 +276,49 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         vistos.add(chave)
         novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro()})
     if erros: return False, erros
-    resultado = pd.concat([df, pd.DataFrame(novos, columns=COLUNAS_INVENTARIO)], ignore_index=True)
-    return salvar_no_excel(resultado, unidade_limpa), []
+    sucesso = salvar_no_excel(pd.concat([df, pd.DataFrame(novos, columns=COLUNAS_INVENTARIO)], ignore_index=True), unidade_limpa)
+    return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
+
+
+def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
+    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio)
+
+
+adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
+
+
+def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> Tuple[pd.DataFrame, bool]:
+    df = _normalizar_legacy_dataframe(df)
+    if df.empty: return df.copy(), False
+    mask = df["Setor"].map(_chave_texto) == _chave_texto(setor)
+    return (df.loc[~mask].copy(), True) if mask.any() else (df.copy(), False)
+
+
+def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> Tuple[pd.DataFrame, bool]:
+    df = _normalizar_legacy_dataframe(df)
+    if df.empty: return df.copy(), False
+    mask_setor = df["Setor"].map(_chave_texto) == _chave_texto(setor)
+    if not mask_setor.any(): return df.copy(), False
+    coluna = str(coluna or "").strip()
+    if coluna == "Tipo de Patrimônio":
+        valor = _valor_texto(df.loc[mask_setor].iloc[0]["Tipo de Patrimônio"])
+        mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(valor)
+    elif coluna == "Nº de Patrimônio":
+        valor = _valor_texto(df.loc[mask_setor].iloc[0]["Nº de Patrimônio"])
+        mask_excluir = mask_setor & df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(valor))
+    else:
+        tipo = _normalizar_tipo(re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", coluna, flags=re.I))
+        mask_excluir = mask_setor & df["Tipo de Patrimônio"].astype(str).eq(tipo)
+    return (df.loc[~mask_excluir].copy(), True) if mask_excluir.any() else (df.copy(), False)
+
+
+def excluir_setor(setor: str, unidade: str) -> bool:
+    df, _ = carregar_dados_excel(unidade)
+    novo, alterado = _aplicar_exclusao_setor(df, setor)
+    return salvar_no_excel(novo, unidade) if alterado else False
+
+
+def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
+    df, _ = carregar_dados_excel(unidade)
+    novo, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
+    return salvar_no_excel(novo, unidade) if alterado else False
