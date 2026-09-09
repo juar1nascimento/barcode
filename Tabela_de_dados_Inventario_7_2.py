@@ -125,7 +125,13 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         normalizado = df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
         for coluna in COLUNAS_INVENTARIO:
             normalizado[coluna] = normalizado[coluna].map(_valor_texto)
-        return normalizado
+        # Linhas canônicas sem setor, tipo ou número são resíduos inválidos
+        # de versões antigas e não podem voltar para a tabela nem para o Sheets.
+        obrigatorias = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"]
+        mask_validos = normalizado[obrigatorias].apply(
+            lambda coluna: coluna.map(lambda valor: not _eh_vazio(valor))
+        ).all(axis=1)
+        return normalizado.loc[mask_validos].reset_index(drop=True)
     setor_col = "Setor" if "Setor" in df.columns else (df.columns[0] if len(df.columns) else "Setor")
     registros = []
     for _, row in df.iterrows():
