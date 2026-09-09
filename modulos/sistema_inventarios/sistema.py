@@ -1,5 +1,5 @@
 import re
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -9,20 +9,15 @@ from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL,
     COLUNA_CHAVE,
     COLUNAS_PADRAO,
-    LISTA_URS_PADRAO,
     LISTA_UBS_PADRAO,
-    formatar_nome_patrimonio,
-    formatar_nome_fabricante,
+    LISTA_URS_PADRAO,
     carregar_dados_excel,
-    salvar_no_excel,
     excluir_setor,
+    formatar_nome_fabricante,
+    formatar_nome_patrimonio,
+    salvar_no_excel,
 )
-from inventario_regras import (
-    setores_menu,
-    tipos_patrimonio_menu,
-    normalizar_setor,
-    normalizar_fabricante,
-)
+from inventario_regras import normalizar_fabricante, normalizar_setor, setores_menu, tipos_patrimonio_menu
 from servicos.movimentacao import excluir_patrimonio_exato
 
 TIPOS_PATRIMONIO_PERMITIDOS = tuple(tipos_patrimonio_menu())
@@ -104,10 +99,7 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
             return None, []
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         barcodes = zxingcpp.read_barcodes(img_rgb)
-        resultados = []
-        for barcode in barcodes:
-            resultados.append({"codigo": barcode.text, "tipo": str(barcode.format).replace("BarcodeFormat.", "")})
-        return img_rgb, resultados
+        return img_rgb, [{"codigo": barcode.text, "tipo": str(barcode.format).replace("BarcodeFormat.", "")} for barcode in barcodes]
     except Exception:
         return None, []
 
@@ -242,7 +234,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             if st.button("🔄 Recarregar Dados da Unidade", use_container_width=True):
-                carregar_dados_excel.clear(); st.rerun()
+                carregar_dados_excel.clear()
+                st.rerun()
         with col_btn2:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=f"Tabela_{unidade.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
         st.session_state.setdefault("gerenciador_exclusao_aberto", True)
@@ -264,10 +257,13 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 if setor_para_excluir:
                     st.warning(f"⚠️ A exclusão removerá todas as informações do setor **{setor_para_excluir}** nesta unidade.")
                 if setor_para_excluir and st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary", use_container_width=True, key="btn_excluir_setor"):
-                    sucesso = excluir_setor(setor_para_excluir, unidade); carregar_dados_excel.clear()
+                    sucesso = excluir_setor(setor_para_excluir, unidade)
+                    carregar_dados_excel.clear()
                     st.session_state.mensagem_sucesso = (f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso." if sucesso else f"⚠️ Nenhum registro foi excluído para o setor '{setor_para_excluir}'.")
                     st.session_state.gerenciador_exclusao_aberto = True
-                    st.session_state.reset_del_setor = True; st.session_state.del_setor_patrimonio = None; st.session_state.reset_del_coluna_patrimonio = True
+                    st.session_state.reset_del_setor = True
+                    st.session_state.del_setor_patrimonio = None
+                    st.session_state.reset_del_coluna_patrimonio = True
                     st.rerun()
             else:
                 setor_patrimonio_del = st.selectbox("Selecione o Setor:", lista_setores_existentes, index=None, key="del_setor_patrimonio", placeholder="Selecione um setor...")
@@ -278,12 +274,14 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     vistos = set()
                     for _, linha in linhas_setor.iterrows():
                         for tipo in opcoes_tipo_patrimonio():
-                            if tipo not in df_atual.columns: continue
+                            if tipo not in df_atual.columns:
+                                continue
                             valor = str(linha.get(tipo, "")).strip()
                             if valor and valor.casefold() not in {"nan", "none", "null", "<na>"}:
                                 chave = (tipo.casefold(), valor.casefold())
                                 if chave not in vistos:
-                                    vistos.add(chave); patrimonio_opcoes.append((tipo, valor))
+                                    vistos.add(chave)
+                                    patrimonio_opcoes.append((tipo, valor))
                     patrimonio_opcoes.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
                 opcoes_exclusao = [f"{tipo} — {valor}" for tipo, valor in patrimonio_opcoes]
                 escolha_patrimonio = st.selectbox("Selecione o Patrimônio:", options=opcoes_exclusao, index=None, key="del_coluna_patrimonio", placeholder="Selecione o patrimônio...") if opcoes_exclusao else None
