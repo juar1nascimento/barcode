@@ -267,18 +267,33 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         lastScannedCode = decodedText; lastScannedTime = agora;
                         tocarBipNativo();
                         document.getElementById('scan-status').innerText = "✅ Lido: " + decodedText + " (Salvando...)";
-                        const parentDoc = window.parent.document;
-                        const inputEl = parentDoc.querySelector('input[placeholder*="Aguardando bipagem"]');
-                        if (inputEl) {
-                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                            nativeSetter.call(inputEl, decodedText);
-                            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-                            setTimeout(() => {
-                                const buttons = Array.from(parentDoc.querySelectorAll('button'));
-                                const submitBtn = buttons.find(b => b.innerText.includes('Registrar Manualmente'));
-                                if (submitBtn) submitBtn.click();
-                            }, 150);
-                        }
+                        const parentWin = window.parent;
+              const parentDoc = parentWin.document;
+              const inputEl = parentDoc.querySelector('input[placeholder*="Aguardando bipagem"]');
+              if (!inputEl) {
+                  document.getElementById('scan-status').innerText = "⚠️ Campo de cadastro não encontrado. Recarregue a página.";
+                  return;
+              }
+              try {
+                  const setter = Object.getOwnPropertyDescriptor(parentWin.HTMLInputElement.prototype, "value").set;
+                  setter.call(inputEl, decodedText);
+                  inputEl.dispatchEvent(new parentWin.Event('input', { bubbles: true }));
+                  inputEl.dispatchEvent(new parentWin.Event('change', { bubbles: true }));
+                  inputEl.focus();
+                  document.getElementById('scan-status').innerText = "✅ Lido: " + decodedText + " (enviando...)";
+                  setTimeout(() => {
+                      const buttons = Array.from(parentDoc.querySelectorAll('button'));
+                      const submitBtn = buttons.find(b => (b.innerText || '').includes('Registrar Manualmente'));
+                      if (submitBtn) {
+                          submitBtn.click();
+                      } else {
+                          document.getElementById('scan-status').innerText = "⚠️ Botão de registro não encontrado. Use o botão manual.";
+                      }
+                  }, 500);
+              } catch (erro) {
+                  document.getElementById('scan-status').innerText = "⚠️ Falha ao transferir o código para o cadastro. Use o botão manual.";
+                  console.error('Falha no bridge do scanner:', erro);
+              }
                     }
                     const html5QrCode = new Html5Qrcode("reader");
                     const config = { fps: 25, qrbox: { width: 250, height: 150 } };
