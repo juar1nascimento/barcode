@@ -55,18 +55,32 @@ def registrar_entrada(codigo_barras: str, tipo_equipamento: str, unidade: str, s
     return (True, "Entrada registrada com sucesso.") if salvar_no_excel(novo_df, unidade) else (False, "Não foi possível persistir a entrada no armazenamento.")
 
 
+def _remover_transferencia_do_destino(df: pd.DataFrame, equipamento: pd.Series) -> pd.DataFrame:
+    """Remove somente a linha criada pela transferência, para tentativa de rollback."""
+    codigo = str(equipamento.get("Código de Barras", "")).strip().casefold()
+    patrimonio = str(equipamento.get("Nº de Patrimônio", "")).strip().casefold()
+    mascara = df["Código de Barras"].astype(str).str.strip().str.casefold().eq(codigo)
+    if patrimonio:
+        mascara = mascara | df["Nº de Patrimônio"].astype(str).str.strip().str.casefold().eq(patrimonio)
+    if mascara.any():
+        return df.drop(index=df.index[mascara][0]).reset_index(drop=True)
+    return df
+
+
 def registrar_saida(codigo_barras: str, unidade: str, motivo: str, destino: str = "", observacoes: str = "") -> tuple[bool, str]:
     codigo = _valor_texto(codigo_barras)
     unidade = _valor_texto(unidade)
     motivo = _valor_texto(motivo)
     destino_limpo = _valor_texto(destino)
+    eh_transferencia = "transferência" in motivo.casefold()
+
     if not unidade:
         return False, "Selecione a unidade de origem."
     if not codigo:
         return False, "Informe ou bipe o código do equipamento."
     if not motivo:
         return False, "Informe o motivo da saída."
-    if "Transferência" in motivo and not destino_limpo:
+    if eh_transferencia and not destino_limpo:
         return False, "Informe a unidade de destino da transferência."
     if destino_limpo.casefold() == unidade.casefold():
         return False, "A unidade de destino deve ser diferente da unidade de origem."
@@ -81,9 +95,10 @@ def registrar_saida(codigo_barras: str, unidade: str, motivo: str, destino: str 
     idx = df_origem.index[mask][0]
     equipamento = df_origem.loc[idx].copy()
 
-    if "Transferência" in motivo:
+    if eh_transferencia:
         df_destino = _carregar(destino_limpo)
-        if (df_destino["Código de Barras"].str.strip().str.casefold() == equipamento["Código de Barras"].strip().casefold()).any():
+        codigo_equipamento = equipamento["Código de Barras"].strip().casefold()
+        if (df_destino["Código de Barras"].str.strip().str.casefold() == codigo_equipamento).any():
             return False, f"O equipamento `{equipamento['Código de Barras']}` já existe na unidade de destino `{destino_limpo}`."
 
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -91,18 +106,27 @@ def registrar_saida(codigo_barras: str, unidade: str, motivo: str, destino: str 
         nova_linha["Status"] = "Ativo"
         nova_linha["Data Cadastro"] = agora
         nova_linha["Origem"] = f"Transferência recebida de {unidade}"
-        df_destino = pd.concat([df_destino, pd.DataFrame([nova_linha])], ignore_index=True)
+        df_destino_novo = pd.concat([df_destino, pd.DataFrame([nova_linha])], ignore_index=True)
 
-        if not salvar_no_excel(df_destino, destino_limpo):
-            return False, "Não foi possível persistir o equipamento na unidade de destino."
+        # A operação é tratada como uma transação de duas etapas: primeiro confirma
+        # a entrada no destino; se a origem falhar, tenta remover a linha recém-criada.
+        if not salvar_no_excel(df_destino_novo, destino_limpo):
+            return False, "Não foi possível persistir o equipamento na unidade de destino. A unidade de origem não foi alterada."
 
-        df_origem.at[idx, "Status"] = "Transferido"
-        df_origem.at[idx, "Origem"] = f"Transferido para {destino_limpo}" + (f" | Observação: {observacoes.strip()}" if observacoes.strip() else "")
-        if not salvar_no_excel(df_origem, unidade):
-            return False, "O equipamento foi gravado no destino, mas a atualização da unidade de origem falhou. Verifique o inventário de origem antes de repetir a transferência."
-        return True, f"Transferência registrada: **{unidade}** → **{destino_limpo}**."
+        df_origem_novo = df_origem.copy()
+        df_origem_novo.at[idx, "Status"] = "Transferido"
+        df_origem_novo.at[idx, "Origem"] = f"Transferido para {destino_limpo}" + (f" | Observação: {observacoes.strip()}" if observacoes.strip() else "")
+        if salvar_no_excel(df_origem_novo, unidade):
+            return True, f"Transferência registrada: **{unidade}** → **{destino_limpo}**."
 
-    status = "Baixado" if "Baixa" in motivo or "Desfazimento" in motivo else "Em movimentação"
+        # Melhor esforço de rollback: evita deixar dois registros ativos quando
+        # a gravação da origem falha depois da gravação do destino.
+        rollback_df = _remover_transferencia_do_destino(df_destino_novo, equipamento)
+        if salvar_no_excel(rollback_df, destino_limpo):
+            return False, "A transferência não foi concluída: a atualização da origem falhou e a entrada criada no destino foi revertida. Nenhuma unidade deve ser repetida sem nova conferência."
+        return False, "Falha crítica na transferência: a origem não foi atualizada e o rollback do destino também falhou. Não repita a operação; confira as duas unidades antes de qualquer nova tentativa."
+
+    status = "Baixado" if "baixa" in motivo.casefold() or "desfazimento" in motivo.casefold() else "Em movimentação"
     detalhe = motivo + (f" | Destino: {destino_limpo}" if destino_limpo else "")
     if observacoes.strip():
         detalhe += f" | Observação: {observacoes.strip()}"
