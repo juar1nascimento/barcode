@@ -207,6 +207,53 @@ def _verificar_gravacao_google(aba, valores_esperados) -> bool:
         return False
 
 
+def _garantir_cabecalho_moderno(aba) -> bool:
+    """Garante que a aba de destino usa o schema canônico antes de anexar linhas."""
+    try:
+        valores = aba.get_all_values()
+        if not valores:
+            aba.update(values=[COLUNAS_INVENTARIO], range_name="A1")
+            return True
+        cabecalho = [str(v).strip() for v in valores[0][:len(COLUNAS_INVENTARIO)]]
+        if cabecalho == COLUNAS_INVENTARIO:
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
+    """Anexa registros sem limpar/regravar a aba inteira."""
+    df_novos = _normalizar_legacy_dataframe(df_novos).fillna("").astype(str)
+    if df_novos.empty:
+        return False
+    planilha = conectar_google_sheets()
+    if not planilha:
+        st.error("⚠️ Google Sheets indisponível: o cadastro NÃO foi considerado salvo na tabela online.")
+        return False
+    unidade = _normalizar_unidade_aba(unidade)
+    nome_aba = _nome_aba(unidade)
+    try:
+        aba = _obter_aba_gravacao(planilha, nome_aba, len(df_novos) + 1)
+        if not _garantir_cabecalho_moderno(aba):
+            existente, _ = carregar_dados_excel(unidade)
+            combinado = pd.concat([existente, df_novos], ignore_index=True)
+            return salvar_no_excel(combinado, unidade)
+        valores = df_novos[COLUNAS_INVENTARIO].values.tolist()
+        aba.append_rows(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS")
+        lidos = aba.get_all_values()
+        esperado = [list(map(str, linha)) for linha in valores]
+        existentes = [list(map(str, linha[:len(COLUNAS_INVENTARIO)])) for linha in lidos[1:]]
+        if len(lidos) < len(esperado) + 1 or sum(1 for linha in esperado if linha in existentes) != len(esperado):
+            st.error("⚠️ O Google Sheets não confirmou todas as linhas anexadas.")
+            return False
+        carregar_dados_excel.clear()
+        return True
+    except Exception as e:
+        st.error(f"⚠️ Erro ao anexar no Google Sheets: {e}")
+        return False
+
+
 def _serializar_persistencia(func):
     """Serializa operações de persistência no processo Streamlit."""
     def wrapper(*args, **kwargs):
@@ -264,7 +311,7 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.warning(f"O número de patrimônio `{numero}` já está cadastrado nesta unidade.")
         return False
     nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro()}
-    return salvar_no_excel(pd.concat([df, pd.DataFrame([nova])], ignore_index=True), unidade_limpa)
+    return _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)
 
 
 @_serializar_persistencia
@@ -291,7 +338,7 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         vistos.add(chave)
         novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro()})
     if erros: return False, erros
-    sucesso = salvar_no_excel(pd.concat([df, pd.DataFrame(novos, columns=COLUNAS_INVENTARIO)], ignore_index=True), unidade_limpa)
+    sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)
     return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
 
 
