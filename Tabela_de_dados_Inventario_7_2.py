@@ -69,6 +69,23 @@ def _eh_vazio(v) -> bool:
     return _valor_texto(v).casefold() in {"", "none", "nan", "null", "<na>"}
 
 
+def _numero_patrimonio_existe_na_planilha(planilha, numero_patrimonio: str) -> bool:
+    chave = _chave_texto(numero_patrimonio)
+    if not chave or planilha is None:
+        return False
+    try:
+        for aba in planilha.worksheets():
+            valores = aba.get_all_values()
+            if not valores:
+                continue
+            df = _normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])) if len(valores) > 1 else pd.DataFrame(columns=COLUNAS_INVENTARIO)
+            if not df.empty and df["Nº de Patrimônio"].map(_chave_texto).eq(chave).any():
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def validar_cadastro_patrimonio(tipo_patrimonio: str, setor: str, unidade: str, numero_patrimonio: str) -> Tuple[bool, str]:
     tipo = _normalizar_tipo(tipo_patrimonio)
     setor_limpo = _valor_texto(setor)
@@ -325,7 +342,11 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     df = _normalizar_legacy_dataframe(df)
     chave_numero = _chave_texto(numero)
     if (df["Nº de Patrimônio"].map(_chave_texto) == chave_numero).any():
-        st.warning(f"O número de patrimônio `{numero}` já está cadastrado nesta unidade.")
+        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado.")
+        return False
+    planilha_validacao = conectar_google_sheets()
+    if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
+        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
         return False
     nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro()}
     return _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)

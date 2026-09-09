@@ -420,3 +420,12 @@ def test_cadastro_repetido_apos_append_e_idempotente(monkeypatch, tmp_path):
     assert backend.registrar_patrimonio("REPETIDO-001", "CPU", "Farmacia", "UBS Teste", "Dell") is False
     rows = planilha.sheets["UBS Teste"].rows
     assert [r[2] for r in rows[1:]] == ["REPETIDO-001"]
+
+def test_identificador_nao_pode_repetir_em_outra_unidade(monkeypatch):
+    class Sheet:
+        def get_all_values(self): return [COLUNAS, ['Recepção','CPU','GLOBAL-001','Dell','']]
+    class Planilha:
+        def worksheets(self): return [Sheet()]
+    planilha=Planilha()
+    assert backend._numero_patrimonio_existe_na_planilha(planilha,' global-001 ')
+    assert not backend._numero_patrimonio_existe_na_planilha(planilha,'GLOBAL-002')
