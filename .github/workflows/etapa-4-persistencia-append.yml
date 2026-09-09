@@ -1,0 +1,61 @@
+name: Etapa 4 - persistencia append segura
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/etapa-4-persistencia-append.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  evolve:
+    if: ${{ !startsWith(github.event.head_commit.message, 'Etapa 4:') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Aplicar append transacional
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('Tabela_de_dados_Inventario_7_2.py')
+          s = p.read_text(encoding='utf-8')
+          marker = 'def _serializar_persistencia(func):\n'
+          insert = '''def _garantir_cabecalho_moderno(aba) -> bool:\n    """Garante que a aba de destino usa o schema canônico antes de anexar linhas."""\n    try:\n        valores = aba.get_all_values()\n        if not valores:\n            aba.update(values=[COLUNAS_INVENTARIO], range_name="A1")\n            return True\n        cabecalho = [str(v).strip() for v in valores[0][:len(COLUNAS_INVENTARIO)]]\n        if cabecalho == COLUNAS_INVENTARIO:\n            return True\n        return False\n    except Exception:\n        return False\n\n\ndef _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:\n    """Anexa registros sem limpar/regravar a aba inteira."""\n    df_novos = _normalizar_legacy_dataframe(df_novos).fillna("").astype(str)\n    if df_novos.empty:\n        return False\n    planilha = conectar_google_sheets()\n    if not planilha:\n        st.error("⚠️ Google Sheets indisponível: o cadastro NÃO foi considerado salvo na tabela online.")\n        return False\n    unidade = _normalizar_unidade_aba(unidade)\n    nome_aba = _nome_aba(unidade)\n    try:\n        aba = _obter_aba_gravacao(planilha, nome_aba, len(df_novos) + 1)\n        if not _garantir_cabecalho_moderno(aba):\n            existente, _ = carregar_dados_excel(unidade)\n            combinado = pd.concat([existente, df_novos], ignore_index=True)\n            return salvar_no_excel(combinado, unidade)\n        valores = df_novos[COLUNAS_INVENTARIO].values.tolist()\n        aba.append_rows(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS")\n        lidos = aba.get_all_values()\n        esperado = [list(map(str, linha)) for linha in valores]\n        existentes = [list(map(str, linha[:len(COLUNAS_INVENTARIO)])) for linha in lidos[1:]]\n        if len(lidos) < len(esperado) + 1 or sum(1 for linha in esperado if linha in existentes) != len(esperado):\n            st.error("⚠️ O Google Sheets não confirmou todas as linhas anexadas.")\n            return False\n        carregar_dados_excel.clear()\n        return True\n    except Exception as e:\n        st.error(f"⚠️ Erro ao anexar no Google Sheets: {e}")\n        return False\n\n\n'''
+          if 'def _anexar_no_google(' not in s:
+              s = s.replace(marker, insert + marker, 1)
+          s = s.replace('return salvar_no_excel(pd.concat([df, pd.DataFrame([nova])], ignore_index=True), unidade_limpa)', 'return _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)', 1)
+          s = s.replace('sucesso = salvar_no_excel(pd.concat([df, pd.DataFrame(novos, columns=COLUNAS_INVENTARIO)], ignore_index=True), unidade_limpa)', 'sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)', 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Atualizar testes do append
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tests/test_inventario_backend.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''    def update(self, values, range_name="A1"):\n        self.rows = [list(row) for row in values]\n'''
+          new = '''    def update(self, values, range_name="A1"):\n        self.rows = [list(row) for row in values]\n\n    def append_rows(self, values, value_input_option="RAW", insert_data_option=None):\n        self.rows.extend([list(row) for row in values])\n'''
+          if 'def append_rows(' not in s:
+              s = s.replace(old, new, 1)
+          tests = '''\n\ndef test_cadastro_normal_anexa_sem_limpar_aba(monkeypatch, tmp_path):\n    planilha = _FakeSpreadsheet()\n    aba = planilha.add_worksheet(title="UBS Teste", rows=100, cols=len(COLUNAS))\n    aba.update(values=[COLUNAS, ["Farmacia", "CPU", "EXISTENTE", "Dell", "2026-09-09 10:00:00"]], range_name="A1")\n    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: planilha)\n    monkeypatch.chdir(tmp_path)\n    monkeypatch.setattr(backend.st, "error", lambda mensagem: None)\n    monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)\n    backend.carregar_dados_excel.clear()\n    assert backend.registrar_patrimonio("NOVO-001", "Monitores", "Consultório", "UBS Teste", "HP") is True\n    rows = planilha.sheets["UBS Teste"].rows\n    assert len(rows) == 3\n    assert rows[1][2] == "EXISTENTE"\n    assert rows[2][2] == "NOVO-001"\n\n\ndef test_carga_em_lote_anexa_apenas_novas_linhas(monkeypatch, tmp_path):\n    planilha = _FakeSpreadsheet()\n    aba = planilha.add_worksheet(title="UBS Teste", rows=100, cols=len(COLUNAS))\n    aba.update(values=[COLUNAS, ["Farmacia", "CPU", "BASE-001", "Dell", "2026-09-09 10:00:00"]], range_name="A1")\n    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: planilha)\n    monkeypatch.chdir(tmp_path)\n    monkeypatch.setattr(backend.st, "error", lambda mensagem: None)\n    monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)\n    backend.carregar_dados_excel.clear()\n    registros = [\n        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": "LOTE-001", "fabricante": "Dell"},\n        {"tipo_patrimonio": "Mouse", "setor": "Farmacia", "numero_patrimonio": "LOTE-002", "fabricante": "HP"},\n    ]\n    ok, erros = backend.registrar_patrimonios_em_lote(registros, "UBS Teste")\n    assert ok and erros == []\n    rows = planilha.sheets["UBS Teste"].rows\n    assert [r[2] for r in rows[1:]] == ["BASE-001", "LOTE-001", "LOTE-002"]\n'''
+          if 'test_cadastro_normal_anexa_sem_limpar_aba' not in s:
+              s += tests
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Validar
+        run: |
+          python -m py_compile Tabela_de_dados_Inventario_7_2.py tests/test_inventario_backend.py
+          grep -q '_anexar_no_google' Tabela_de_dados_Inventario_7_2.py
+      - name: Commit etapa 4 e remover automação
+        run: |
+          rm .github/workflows/etapa-4-persistencia-append.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Tabela_de_dados_Inventario_7_2.py tests/test_inventario_backend.py .github/workflows/etapa-4-persistencia-append.yml
+          git commit -m 'Etapa 4: persistência por append sem sobrescrita'
+          git push
