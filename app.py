@@ -2,8 +2,7 @@ import streamlit as st
 
 # Importações dos módulos independentes
 from login import renderizar_login
-from sistema_inventario import renderizar_card_inventario
-from consultorio_setor_ui import renderizar_sistema_inventario
+from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 

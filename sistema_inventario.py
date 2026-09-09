@@ -1,4 +1,3 @@
-import os
 import re
 import pandas as pd
 import numpy as np
@@ -6,26 +5,19 @@ import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
 from Tabela_de_dados_Inventario_7_2 import (
-    ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
+    COLUNA_CHAVE, COLUNAS_OBSOLETAS, SETORES_PADRAO, TIPOS_PATRIMONIO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
     carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
 )
 
-# ==============================================================================
-# TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
-# ==============================================================================
-TIPOS_PATRIMONIO_PERMITIDOS = (
-    "CPU",
-    "Monitores",
-    "Teclado",
-    "Mouse",
-    "Imprenssoras",
-    "Outros Dispositivos",
-)
+# =============================================================================
+# CATÁLOGO OFICIAL DE TIPOS
+# =============================================================================
+TIPOS_PATRIMONIO_PERMITIDOS = TIPOS_PATRIMONIO
 
 
 def opcoes_tipo_patrimonio() -> List[str]:
-    """Retorna exclusivamente os seis tipos oficiais de patrimônio."""
+    """Retorna exclusivamente os tipos oficiais definidos no backend."""
     return list(TIPOS_PATRIMONIO_PERMITIDOS)
 
 
@@ -40,9 +32,9 @@ def validar_tipo_patrimonio(tipo: str) -> str:
     return tipo_limpo
 
 
-# ==============================================================================
+# ===============================================================================
 # LÓGICA DE CADASTRO COM SUPORTE A CABEÇALHOS ARTICULADOS DE FABRICANTE
-# ==============================================================================
+# ===============================================================================
 def adicionar_e_salvar_sem_sobrescrever(
     codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
 ) -> bool:
@@ -61,9 +53,9 @@ def adicionar_e_salvar_sem_sobrescrever(
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
 
-# ==============================================================================
+# ===============================================================================
 # VISÃO COMPUTACIONAL / LEITURA DE IMAGEM
-# ==============================================================================
+# ===============================================================================
 def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[str, str]]]:
     try:
         import cv2
@@ -170,19 +162,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
     # Não é montado a partir dos dados existentes na planilha.
-    opcoes_setor = [
-        "Consultório",
-        "Almoxarifado",
-        "Farmacia",
-        "Sala de Preparo",
-        "Sala de Vacina",
-        "Sala de curativo",
-        "Gerencia",
-        "Administração",
-        "Odontologia",
-        "Recepção",
-        "Outro Setor",
-    ]
+    opcoes_setor = list(SETORES_PADRAO)
 
     # IMPORTANTE: o menu de Tipo de patrimônio NÃO é montado a partir das colunas
     # existentes na planilha. Isso impede que opções antigas como Monitor,
@@ -480,33 +460,19 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     st.warning(
                         f"⚠️ Será removido o patrimônio **{coluna_patrimonio_del}** do setor **{setor_patrimonio_del}** e, quando existir, o fabricante correspondente."
                     )
-
-                if coluna_patrimonio_del and setor_patrimonio_del and st.button(
-                    f"🗑️ Confirmar Exclusão de '{coluna_patrimonio_del}'",
-                    type="secondary",
-                    use_container_width=True,
-                    key="btn_excluir_patrimonio",
-                ):
-                    sucesso = excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
-                    carregar_dados_excel.clear()
-                    if sucesso:
-                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' e seu fabricante foram excluídos do setor '{setor_patrimonio_del}'."
-                        st.session_state.gerenciador_exclusao_aberto = True
-                        st.session_state.reset_del_coluna_patrimonio = True
-                        st.session_state.del_setor_patrimonio = setor_patrimonio_del
-                    else:
-                        st.session_state.mensagem_sucesso = f"⚠️ Nenhum patrimônio foi excluído para o setor '{setor_patrimonio_del}'."
-                        st.session_state.gerenciador_exclusao_aberto = True
-                    st.rerun()
-
-
-
-if __name__ == "__main__":
-    st.set_page_config(page_title="Portal GTI-SESA / Inventários", layout="wide")
-    st.session_state.setdefault("pagina_atual", "portal")
-    st.session_state.setdefault("unidade_selecionada", "")
-
-    if st.session_state.pagina_atual in ["inventario", "inventario_unidade"] and st.session_state.unidade_selecionada:
-        renderizar_sistema_inventario()
-    else:
-        renderizar_card_inventario()
+                    if st.button(
+                        f"🔥 Confirmar Exclusão do Patrimônio '{coluna_patrimonio_del}'",
+                        type="primary",
+                        use_container_width=True,
+                        key="btn_excluir_patrimonio",
+                    ):
+                        sucesso = excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
+                        carregar_dados_excel.clear()
+                        if sucesso:
+                            st.session_state.mensagem_sucesso = f"🗑️ Patrimônio '{coluna_patrimonio_del}' excluído com sucesso."
+                            st.session_state.gerenciador_exclusao_aberto = True
+                            st.session_state.reset_del_coluna_patrimonio = True
+                        else:
+                            st.session_state.mensagem_sucesso = f"⚠️ Nenhum registro foi excluído para '{coluna_patrimonio_del}'."
+                            st.session_state.gerenciador_exclusao_aberto = True
+                        st.rerun()
