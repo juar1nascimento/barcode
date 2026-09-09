@@ -1,6 +1,6 @@
 import pandas as pd
 
-import movimentacao_inventario as mov
+import servicos.movimentacao as mov
 
 
 def test_excluir_patrimonio_exato_remove_somente_o_registro_escolhido(monkeypatch):
@@ -11,11 +11,9 @@ def test_excluir_patrimonio_exato_remove_somente_o_registro_escolhido(monkeypatc
         {"Setor": "Recepção", "Tipo de Patrimônio": "CPU", "Nº de Patrimônio": "CPU-003", "Código de Barras": "CB-004", "Fabricante": "Lenovo", "Data Cadastro": "", "Origem": "", "Status": "Ativo"},
     ])
     salvos = {}
-    monkeypatch.setattr(mov, "_carregar", lambda unidade: dados.copy())
-    monkeypatch.setattr(mov, "salvar_no_excel", lambda df, unidade: salvos.setdefault("df", df.copy()) is not None)
-
+    monkeypatch.setattr(mov, "_carregar", lambda unidade, *args: dados.copy())
+    monkeypatch.setattr(mov, "salvar_no_excel", lambda df, unidade, *args: salvos.setdefault("df", df.copy()) is not None)
     ok, _ = mov.excluir_patrimonio_exato("Farmacia", "CPU", "CPU-002", "UBS Teste")
-
     assert ok is True
     resultado = salvos["df"]
     assert len(resultado) == 3
@@ -31,11 +29,9 @@ def test_excluir_patrimonio_exato_nao_apaga_setor_diferente(monkeypatch):
         {"Setor": "Recepção", "Tipo de Patrimônio": "CPU", "Nº de Patrimônio": "CPU-001", "Código de Barras": "CB-009", "Fabricante": "Dell", "Data Cadastro": "", "Origem": "", "Status": "Ativo"},
     ])
     salvos = {}
-    monkeypatch.setattr(mov, "_carregar", lambda unidade: dados.copy())
-    monkeypatch.setattr(mov, "salvar_no_excel", lambda df, unidade: salvos.setdefault("df", df.copy()) is not None)
-
+    monkeypatch.setattr(mov, "_carregar", lambda unidade, *args: dados.copy())
+    monkeypatch.setattr(mov, "salvar_no_excel", lambda df, unidade, *args: salvos.setdefault("df", df.copy()) is not None)
     ok, _ = mov.excluir_patrimonio_exato("Farmácia", "CPU", "CPU-001", "UBS Teste")
-
     assert ok is True
     resultado = salvos["df"]
     assert len(resultado) == 1
