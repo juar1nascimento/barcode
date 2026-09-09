@@ -19,6 +19,7 @@ from inventario_regras import normalizar_fabricante, normalizar_setor, setores_m
 from servicos.movimentacao import excluir_patrimonio_exato
 
 TIPOS_PATRIMONIO_PERMITIDOS = tuple(tipos_patrimonio_menu())
+TIPOS_CONSULTORIO = ["Psicologia", "Psiquiatria"]
 
 
 def opcoes_tipo_patrimonio() -> List[str]:
@@ -34,6 +35,14 @@ def validar_tipo_patrimonio(tipo: str) -> str:
     if tipo_limpo not in TIPOS_PATRIMONIO_PERMITIDOS:
         raise ValueError(f"Tipo de patrimônio inválido: {tipo_limpo!r}. Permitidos: " + ", ".join(TIPOS_PATRIMONIO_PERMITIDOS))
     return tipo_limpo
+
+
+def montar_setor_consultorio(numero: str, tipo: str) -> str:
+    numero_limpo = str(numero or "").strip()
+    tipo_limpo = str(tipo or "").strip()
+    if not numero_limpo or not tipo_limpo:
+        return ""
+    return f"Consultório {numero_limpo} - {tipo_limpo}"
 
 
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "") -> bool:
@@ -63,9 +72,8 @@ def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str
     df = df.fillna("").astype(str)
     df[COLUNA_CHAVE] = df[COLUNA_CHAVE].map(normalizar_setor)
     mask_setor = df[COLUNA_CHAVE].str.strip().str.casefold() == setor_limpo.casefold()
-    indices_setor = df[mask_setor].index
     linha_destino_idx = None
-    for idx in indices_setor:
+    for idx in df[mask_setor].index:
         if str(df.at[idx, patrimonio_cabecalho]).strip().casefold() in {"", "nan", "none", "<na>", "null"}:
             linha_destino_idx = idx
             break
@@ -151,6 +159,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             st.session_state.pagina_atual = "portal"
             st.rerun()
     st.divider()
+
     opcoes_setor_menu = opcoes_setor()
     opcoes_patrimonio = opcoes_tipo_patrimonio()
     col_desc1, col_desc2, col_desc3, col_desc4 = st.columns([1, 1, 1, 1])
@@ -159,9 +168,22 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         setor_input = ""
         if setor_selecionado == "Outro Setor":
             setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...", key="outro_setor_nome_v5")
+        elif setor_selecionado == "Consultório":
+            st.markdown("**Detalhamento do Consultório**")
+            col_numero, col_tipo = st.columns([1, 1])
+            with col_numero:
+                numero_consultorio = st.text_input("Número do Consultório:", placeholder="Ex.: 1, 2, 3...", key="numero_consultorio_v1")
+            with col_tipo:
+                tipo_consultorio = st.selectbox("Tipo de Consultório:", TIPOS_CONSULTORIO, index=None, placeholder="Psicologia ou Psiquiatria...", key="tipo_consultorio_v1")
+            setor_input = montar_setor_consultorio(numero_consultorio, tipo_consultorio)
+            if numero_consultorio.strip() and tipo_consultorio:
+                st.caption(f"Setor a ser registrado: **{setor_input}**")
+            else:
+                st.info("Informe o número e o tipo do consultório para continuar.")
         elif setor_selecionado:
             setor_input = normalizar_setor(setor_selecionado)
         st.session_state.saved_setor = setor_input
+
     with col_desc2:
         opcao_selecionada = st.selectbox("Tipo de patrimônio:", opcoes_patrimonio, index=None, placeholder="Selecione o patrimônio...", key="tipo_patrimonio_oficial_v5")
     with col_desc3:
@@ -172,6 +194,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         if descricao_final:
             rotulo_fabricante = formatar_nome_fabricante(descricao_final)
             fabricante_input = st.text_input(f"{rotulo_fabricante}:", placeholder="Ex: Dell, HP, Samsung...", key="fabricante_input_v5")
+
     st.divider()
     if not descricao_final or not setor_input.strip():
         st.warning("⚠️ Preencha o **Setor** e o **Tipo de patrimônio** para habilitar o leitor.")
@@ -220,6 +243,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         if codigos_registrados:
                             st.session_state.mensagem_sucesso = f"✅ {len(codigos_registrados)} código(s) registrado(s) com sucesso na coluna `{header_patrimonio}`!"
                         st.rerun()
+
     st.divider()
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
     try:
@@ -257,7 +281,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 if setor_para_excluir and st.button(f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'", type="primary", use_container_width=True, key="btn_excluir_setor"):
                     sucesso = excluir_setor(setor_para_excluir, unidade)
                     carregar_dados_excel.clear()
-                    st.session_state.mensagem_sucesso = (f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso." if sucesso else f"⚠️ Nenhum registro foi excluído para o setor '{setor_para_excluir}'.")
+                    st.session_state.mensagem_sucesso = f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso." if sucesso else f"⚠️ Nenhum registro foi excluído para o setor '{setor_para_excluir}'."
                     st.session_state.gerenciador_exclusao_aberto = True
                     st.session_state.reset_del_setor = True
                     st.session_state.del_setor_patrimonio = None
@@ -268,9 +292,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 patrimonio_opcoes = []
                 if setor_patrimonio_del:
                     mascara_setor = df_atual[COLUNA_CHAVE].astype(str).map(normalizar_setor).str.casefold() == normalizar_setor(setor_patrimonio_del).casefold()
-                    linhas_setor = df_atual.loc[mascara_setor]
                     vistos = set()
-                    for _, linha in linhas_setor.iterrows():
+                    for _, linha in df_atual.loc[mascara_setor].iterrows():
                         for tipo in opcoes_tipo_patrimonio():
                             if tipo not in df_atual.columns:
                                 continue
@@ -282,7 +305,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                                     patrimonio_opcoes.append((tipo, valor))
                     patrimonio_opcoes.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
                 opcoes_exclusao = [f"{tipo} — {valor}" for tipo, valor in patrimonio_opcoes]
-                escolha_patrimonio = st.selectbox("Selecione o Patrimônio:", options=opcoes_exclusao, index=None, key="del_coluna_patrimonio", placeholder="Selecione o patrimônio...") if opcoes_exclusao else None
+                escolha_patrimonio = st.selectbox("Selecione o Patrimônio:", opcoes_exclusao, index=None, key="del_coluna_patrimonio", placeholder="Selecione o patrimônio...") if opcoes_exclusao else None
                 if setor_patrimonio_del and not opcoes_exclusao:
                     st.info("ℹ️ O setor selecionado não possui patrimônio preenchido para exclusão.")
                 elif escolha_patrimonio:
@@ -292,7 +315,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     tipo_escolhido, valor_escolhido = escolha_patrimonio.split(" — ", 1)
                     sucesso, detalhe = excluir_patrimonio_exato(setor_patrimonio_del, tipo_escolhido, valor_escolhido, unidade)
                     carregar_dados_excel.clear()
-                    st.session_state.mensagem_sucesso = (f"❌ Patrimônio '{tipo_escolhido} = {valor_escolhido}' excluído do setor '{setor_patrimonio_del}'." if sucesso else f"⚠️ {detalhe}")
+                    st.session_state.mensagem_sucesso = f"❌ Patrimônio '{tipo_escolhido} = {valor_escolhido}' excluído do setor '{setor_patrimonio_del}'." if sucesso else f"⚠️ {detalhe}"
                     st.session_state.gerenciador_exclusao_aberto = True
                     st.session_state.reset_del_coluna_patrimonio = True
                     st.session_state.del_setor_patrimonio = setor_patrimonio_del
