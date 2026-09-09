@@ -51,7 +51,7 @@ def renderizar_sistema_saida():
         elif motivo == "Transferência para outra Unidade" and not destino:
             st.warning("Selecione a unidade de destino antes de confirmar a transferência.")
         else:
-            sucesso, mensagem = registrar_saida(codigo_saida.strip(), unidade_atual, motivo, destino.strip(), observacoes.strip())
+            sucesso, mensagem = registrar_saida(codigo_saida.strip(), unidade_atual, motivo, destino.strip(), observacoes.strip(), st.secrets)
             if sucesso:
                 st.success(mensagem)
                 st.info("A alteração foi persistida no inventário da unidade.")
