@@ -6,9 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from Tabela_de_dados_Inventario_7_2 import (
-    ARQUIVO_EXCEL,
     COLUNA_CHAVE,
-    COLUNAS_PADRAO,
     LISTA_UBS_PADRAO,
     LISTA_URS_PADRAO,
     carregar_dados_excel,
