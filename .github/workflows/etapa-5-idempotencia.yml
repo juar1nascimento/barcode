@@ -1,0 +1,54 @@
+name: Etapa 5 - idempotencia de cadastro
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/etapa-5-idempotencia.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  evolve:
+    if: ${{ !startsWith(github.event.head_commit.message, 'Etapa 5:') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Aplicar idempotencia
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('Tabela_de_dados_Inventario_7_2.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''        valores = df_novos[COLUNAS_INVENTARIO].values.tolist()\n        aba.append_rows(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS")\n        lidos = aba.get_all_values()\n        esperado = [list(map(str, linha)) for linha in valores]\n        existentes = [list(map(str, linha[:len(COLUNAS_INVENTARIO)])) for linha in lidos[1:]]\n        if len(lidos) < len(esperado) + 1 or sum(1 for linha in esperado if linha in existentes) != len(esperado):\n            st.error("⚠️ O Google Sheets não confirmou todas as linhas anexadas.")\n            return False\n        carregar_dados_excel.clear()\n        return True\n'''
+          new = '''        # Releitura imediatamente antes do append: se uma tentativa anterior\n        # já chegou ao Sheets mas a resposta se perdeu, não duplicamos a linha.\n        atuais = aba.get_all_values()\n        existentes = {\n            _chave_texto(linha[2])\n            for linha in atuais[1:]\n            if len(linha) > 2 and not _eh_vazio(linha[2])\n        }\n        valores = []\n        for linha in df_novos[COLUNAS_INVENTARIO].values.tolist():\n            chave = _chave_texto(linha[2])\n            if chave and chave in existentes:\n                continue\n            valores.append([str(v) for v in linha])\n            if chave:\n                existentes.add(chave)\n        if not valores:\n            carregar_dados_excel.clear()\n            return True\n        aba.append_rows(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS")\n        lidos = aba.get_all_values()\n        existentes_pos = [list(map(str, linha[:len(COLUNAS_INVENTARIO)])) for linha in lidos[1:]]\n        if sum(1 for linha in valores if linha in existentes_pos) != len(valores):\n            st.error("⚠️ O Google Sheets não confirmou todas as linhas anexadas.")\n            return False\n        carregar_dados_excel.clear()\n        return True\n'''
+          if old not in s:
+              raise SystemExit('Bloco esperado não encontrado; nenhuma alteração aplicada.')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Adicionar teste de idempotencia
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tests/test_inventario_backend.py')
+          s = p.read_text(encoding='utf-8')
+          test = '''\n\ndef test_cadastro_repetido_apos_append_e_idempotente(monkeypatch, tmp_path):\n    planilha = _FakeSpreadsheet()\n    aba = planilha.add_worksheet(title="UBS Teste", rows=100, cols=len(COLUNAS))\n    aba.update(values=[COLUNAS, ["Farmacia", "CPU", "REPETIDO-001", "Dell", "2026-09-09 10:00:00"]], range_name="A1")\n    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: planilha)\n    monkeypatch.chdir(tmp_path)\n    monkeypatch.setattr(backend.st, "error", lambda mensagem: None)\n    monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)\n    backend.carregar_dados_excel.clear()\n    assert backend.registrar_patrimonio("REPETIDO-001", "CPU", "Farmacia", "UBS Teste", "Dell") is False\n    rows = planilha.sheets["UBS Teste"].rows\n    assert [r[2] for r in rows[1:]] == ["REPETIDO-001"]\n'''
+          if 'test_cadastro_repetido_apos_append_e_idempotente' not in s:
+              p.write_text(s + test, encoding='utf-8')
+          PY
+      - name: Validar etapa
+        run: |
+          python -m py_compile Tabela_de_dados_Inventario_7_2.py tests/test_inventario_backend.py
+          grep -q 'Releitura imediatamente antes do append' Tabela_de_dados_Inventario_7_2.py
+      - name: Finalizar e remover automação temporária
+        run: |
+          rm .github/workflows/etapa-5-idempotencia.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Tabela_de_dados_Inventario_7_2.py tests/test_inventario_backend.py .github/workflows/etapa-5-idempotencia.yml
+          git commit -m 'Etapa 5: idempotência de cadastro'
+          git push
