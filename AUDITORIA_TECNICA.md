@@ -2,17 +2,17 @@
 
 ## Escopo
 
-Auditoria do pacote `barcode-main.zip` e alinhamento com a branch `main` do projeto. O objetivo desta etapa é modernizar a engenharia sem alterar o layout original do site.
+Auditoria do pacote `barcode-main.zip` e alinhamento com a branch `main`. Objetivo: modernizar a engenharia sem alterar o layout original do site.
 
 ## Diagnóstico
 
 ### Crítico
-- A persistência do inventário depende do Google Sheets e reescreve o intervalo A:E. O código já faz confirmação por leitura posterior, mas ainda existe risco de concorrência entre sessões/processos.
+- A persistência do inventário depende do Google Sheets e reescreve o intervalo A:E. O código já confirma a gravação por leitura posterior, mas ainda existe risco de concorrência entre sessões/processos.
 - O cadastro de usuários usa SHA-256 simples e possui mecanismo legado de administrador. A migração para hash de senha com salt/iterações e a revisão do fluxo de autorização por URL são prioritárias.
 
 ### Alto
-- Havia duas fontes de verdade para os catálogos de tipos/setores: backend e interface. Isso aumenta risco de divergência.
-- A extensão `consultorio_setor_ui.py` interceptava `st.selectbox` e acrescentava campos à interface. Além de alterar o layout original, transformava `Consultório` em um texto composto, contrariando o catálogo canônico do inventário.
+- A interface e o backend possuem catálogos de tipos/setores que precisam permanecer sincronizados. A definição oficial deve ficar em uma única camada e ser consumida pela apresentação.
+- A extensão `consultorio_setor_ui.py` interceptava `st.selectbox` e acrescentava campos à interface. Isso alterava o layout original e transformava `Consultório` em um texto composto, contrariando o schema canônico. Sua ativação foi removida nesta etapa.
 - A interface de exclusão ainda carrega conceitos herdados do modelo antigo de colunas por tipo. A persistência atual já possui o schema canônico, mas essa área merece uma refatoração específica para exclusão por registro/patrimônio.
 
 ### Médio
@@ -22,22 +22,17 @@ Auditoria do pacote `barcode-main.zip` e alinhamento com a branch `main` do proj
 
 ## Evoluções aplicadas nesta etapa
 
-1. Catálogo oficial de tipos passou a ter uma única fonte no backend e a interface reutiliza essa definição.
-2. Catálogo oficial de setores passou a ser reutilizado diretamente pelo inventário, eliminando duplicação.
-3. A ativação da extensão específica de Consultório foi removida do roteamento. O setor `Consultório` volta a ser tratado pelo fluxo original, preservando a interface e o schema canônico.
-4. O arquivo auxiliar de interceptação de interface foi removido por ser código morto após a correção do roteamento.
-5. O diagnóstico foi registrado no repositório para orientar a próxima evolução.
+1. O roteamento voltou a usar diretamente o renderer original do inventário, removendo a interceptação específica de Consultório.
+2. O arquivo auxiliar `consultorio_setor_ui.py` foi removido por ser código de apresentação fora do fluxo original e por introduzir alteração de layout/schema.
+3. O diagnóstico técnico passou a ser versionado no repositório.
+4. Nenhum CSS, dimensão, cor, posicionamento ou estrutura visual foi alterado nesta etapa.
 
 ## Próxima arquitetura recomendada
 
-- **Camada de domínio:** regras e modelos do patrimônio.
-- **Camada de persistência:** adaptador Google Sheets com contrato explícito e testes mockados.
-- **Camada de apresentação:** Streamlit apenas para renderização e eventos.
+- **Domínio:** regras e modelos do patrimônio.
+- **Persistência:** adaptador Google Sheets com contrato explícito e testes mockados.
+- **Apresentação:** Streamlit somente para renderização e eventos.
 - **Observabilidade:** logs estruturados, métricas de falha de gravação e rastreabilidade por operação.
 - **Segurança:** PBKDF2/scrypt para senhas, tokens assinados/expiráveis para aprovação por e-mail e sessão com expiração.
 - **Qualidade:** CI com lint, testes, compilação, smoke test do Streamlit e análise de segurança.
-- **Dados:** rotina de saneamento/migração dos registros legados antes de qualquer expansão funcional.
-
-## Regra de preservação visual
-
-Nenhuma alteração de CSS, dimensões, cores, posicionamento ou estrutura visual do login/inventário é parte desta evolução. As mudanças desta etapa são de arquitetura, organização de código e governança técnica.
+- **Dados:** rotina de saneamento/migração dos registros legados antes de novas funcionalidades.
