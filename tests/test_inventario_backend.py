@@ -87,6 +87,111 @@ def test_registro_bloqueia_numero_de_patrimonio_duplicado(monkeypatch):
     assert avisos
 
 
+def test_todos_os_seis_tipos_podem_ser_cadastrados(monkeypatch):
+    estado = {"df": pd.DataFrame(columns=backend.COLUNAS_INVENTARIO)}
+    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))
+    monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
+
+    for indice, tipo in enumerate(backend.TIPOS_PATRIMONIO, start=1):
+        assert backend.registrar_patrimonio(f"PAT-{indice:03d}", tipo, "Consultório", "UBS Teste", f"Fabricante {indice}")
+
+    assert len(estado["df"]) == 6
+    assert set(estado["df"]["Tipo de Patrimônio"]) == set(backend.TIPOS_PATRIMONIO)
+    assert set(estado["df"]["Nº de Patrimônio"]) == {f"PAT-{i:03d}" for i in range(1, 7)}
+
+
+def test_registro_com_numero_explicito_sem_codigo(monkeypatch):
+    estado = {"df": pd.DataFrame(columns=backend.COLUNAS_INVENTARIO)}
+    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))
+    monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
+
+    assert backend.registrar_patrimonio("", "Mouse", "Recepção", "UBS Teste", "Dell", "PAT-EXPLICITO")
+    assert estado["df"].iloc[0]["Nº de Patrimônio"] == "PAT-EXPLICITO"
+
+
+def test_cadastro_legacy_da_tela_e_convertido_para_schema_atual(monkeypatch):
+    estado = {"df": pd.DataFrame(columns=backend.COLUNAS_INVENTARIO)}
+    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: None)
+    monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
+
+    # Simula exatamente o formato legado produzido pela função de cadastro da tela:
+    # Setor + coluna do tipo + coluna Fabricante do tipo.
+    legado = pd.DataFrame([{"Setor": "Farmacia", "CPU": "CPU-UI-001", "Fabricante CPU": "Dell"}])
+    assert backend._normalizar_legacy_dataframe(legado).to_dict("records") == [{
+        "Setor": "Farmacia",
+        "Tipo de Patrimônio": "CPU",
+        "Nº de Patrimônio": "CPU-UI-001",
+        "Fabricante": "Dell",
+        "Data Cadastro": "",
+    }]
+
+
+class _FakeWorksheet:
+    def __init__(self):
+        self.row_count = 100
+        self.rows = []
+
+    def get_all_values(self):
+        return [list(row) for row in self.rows]
+
+    def batch_clear(self, _ranges):
+        self.rows = []
+
+    def update(self, values, range_name="A1"):
+        self.rows = [list(row) for row in values]
+
+
+class _FakeSpreadsheet:
+    def __init__(self):
+        self.sheets = {}
+
+    def worksheet(self, name):
+        if name not in self.sheets:
+            import gspread
+            raise gspread.exceptions.WorksheetNotFound
+        return self.sheets[name]
+
+    def add_worksheet(self, title, rows, cols):
+        sheet = _FakeWorksheet()
+        self.sheets[title] = sheet
+        return sheet
+
+
+def test_salvar_no_google_confirma_leitura_de_volta(monkeypatch, tmp_path):
+    planilha = _FakeSpreadsheet()
+    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: planilha)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
+
+    df = pd.DataFrame([{
+        "Setor": "Farmacia",
+        "Tipo de Patrimônio": "Monitores",
+        "Nº de Patrimônio": "MON-001",
+        "Fabricante": "Samsung",
+        "Data Cadastro": "2026-09-09 12:00:00",
+    }], columns=backend.COLUNAS_INVENTARIO)
+
+    assert backend.salvar_no_excel(df, "UBS Teste") is True
+    assert planilha.sheets["UBS Teste"].rows == [backend.COLUNAS_INVENTARIO, ["Farmacia", "Monitores", "MON-001", "Samsung", "2026-09-09 12:00:00"]]
+
+
+def test_falha_google_nao_vira_falso_sucesso_por_backup_local(monkeypatch, tmp_path):
+    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: None)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
+
+    df = pd.DataFrame([{
+        "Setor": "Farmacia",
+        "Tipo de Patrimônio": "CPU",
+        "Nº de Patrimônio": "CPU-001",
+        "Fabricante": "Dell",
+        "Data Cadastro": "2026-09-09 12:00:00",
+    }], columns=backend.COLUNAS_INVENTARIO)
+
+    assert backend.salvar_no_excel(df, "UBS Falha") is False
+    assert (tmp_path / "Inventario_UBS_Falha.xlsx").exists()
+
+
 def test_exclusao_de_setor_remove_todas_as_linhas():
     df = pd.DataFrame(
         [
