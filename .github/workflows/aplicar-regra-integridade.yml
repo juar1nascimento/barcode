@@ -1,0 +1,123 @@
+name: Aplicar regra definitiva de integridade
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aplicar-regra-integridade.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  evolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Aplicar regra global de identificador
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('Tabela_de_dados_Inventario_7_2.py')
+          s = p.read_text(encoding='utf-8')
+          anchor = 'def validar_cadastro_patrimonio(tipo_patrimonio: str, setor: str, unidade: str, numero_patrimonio: str) -> Tuple[bool, str]:\n'
+          helper = '''def _numero_patrimonio_existe_na_planilha(planilha, numero_patrimonio: str) -> bool:\n    """Retorna True se o identificador já existir em qualquer aba/unidade.\n\n    O código lido pelo scanner é o identificador persistido em Nº de Patrimônio;\n    portanto um mesmo código não pode representar dois patrimônios.\n    """\n    chave = _chave_texto(numero_patrimonio)\n    if not chave or planilha is None:\n        return False\n    try:\n        for aba in planilha.worksheets():\n            valores = aba.get_all_values()\n            if not valores:\n                continue\n            df = _normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])) if len(valores) > 1 else pd.DataFrame(columns=COLUNAS_INVENTARIO)\n            if not df.empty and df["Nº de Patrimônio"].map(_chave_texto).eq(chave).any():\n                return True\n    except Exception:\n        return False\n    return False\n\n\n'''
+          if '_numero_patrimonio_existe_na_planilha' not in s:
+              if anchor not in s: raise SystemExit('âncora não encontrada')
+              s = s.replace(anchor, helper + anchor, 1)
+          old = '''    df, _ = carregar_dados_excel(unidade_limpa)\n    df = _normalizar_legacy_dataframe(df)\n    chave_numero = _chave_texto(numero)\n    if (df["Nº de Patrimônio"].map(_chave_texto) == chave_numero).any():\n        st.warning(f"O número de patrimônio `{numero}` já está cadastrado nesta unidade.")\n        return False\n'''
+          new = '''    df, _ = carregar_dados_excel(unidade_limpa)\n    df = _normalizar_legacy_dataframe(df)\n    chave_numero = _chave_texto(numero)\n    if (df["Nº de Patrimônio"].map(_chave_texto) == chave_numero).any():\n        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado.")\n        return False\n    planilha_validacao = conectar_google_sheets()\n    if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):\n        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")\n        return False\n'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif 'planilha_validacao = conectar_google_sheets()' not in s:
+              raise SystemExit('bloco de unicidade não encontrado')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          cat > auditoria_integridade.py <<'PY'
+          import pandas as pd
+          from Tabela_de_dados_Inventario_7_2 import COLUNAS_INVENTARIO, TIPOS_PATRIMONIO, _chave_texto, _normalizar_legacy_dataframe
+
+          def auditar_dataframe(df: pd.DataFrame) -> dict:
+              original = 0 if df is None else len(df)
+              normalizado = _normalizar_legacy_dataframe(df)
+              duplicados = int(normalizado.duplicated(subset=['Nº de Patrimônio'], keep=False).sum())
+              tipos_invalidos = int((~normalizado['Tipo de Patrimônio'].isin(TIPOS_PATRIMONIO)).sum()) if not normalizado.empty else 0
+              numeros_vazios = int(normalizado['Nº de Patrimônio'].map(lambda v: not _chave_texto(v)).sum()) if not normalizado.empty else 0
+              return {'linhas_originais': original, 'linhas_validas': len(normalizado), 'linhas_descartadas_na_normalizacao': original - len(normalizado), 'duplicidades_por_numero_patrimonio': duplicados, 'tipos_invalidos': tipos_invalidos, 'numeros_vazios': numeros_vazios, 'colunas_canonicas': list(normalizado.columns) == COLUNAS_INVENTARIO}
+          PY
+
+          cat >> tests/test_inventario_backend.py <<'PY'
+
+          class _FakeSheetCollection:
+              def __init__(self, sheets): self._sheets = sheets
+              def worksheets(self): return list(self._sheets)
+
+          def test_identificador_nao_pode_repetir_em_outra_unidade(monkeypatch):
+              class Sheet:
+                  def get_all_values(self):
+                      return [COLUNAS, ['Recepção', 'CPU', 'GLOBAL-001', 'Dell', '']]
+              planilha = _FakeSheetCollection([Sheet()])
+              monkeypatch.setattr(backend, 'conectar_google_sheets', lambda: planilha)
+              assert backend._numero_patrimonio_existe_na_planilha(planilha, ' global-001 ')
+              assert not backend._numero_patrimonio_existe_na_planilha(planilha, 'GLOBAL-002')
+
+          def test_mesmo_identificador_em_tipo_diferente_continua_bloqueado(monkeypatch):
+              estado = {'df': pd.DataFrame([{'Setor': 'Farmacia', 'Tipo de Patrimônio': 'CPU', 'Nº de Patrimônio': 'CB-UNICO', 'Fabricante': 'Dell', 'Data Cadastro': ''}], columns=COLUNAS)}
+              _mock_persistencia(monkeypatch, estado)
+              monkeypatch.setattr(backend, 'conectar_google_sheets', lambda: None)
+              monkeypatch.setattr(backend.st, 'warning', lambda mensagem: None)
+              assert not backend.registrar_patrimonio('CB-UNICO', 'Monitores', 'Recepção', 'UBS Teste', 'HP')
+              assert len(estado['df']) == 1
+          PY
+
+          cat > tests/test_auditoria_integridade.py <<'PY'
+          import pandas as pd
+          from auditoria_integridade import auditar_dataframe
+          from Tabela_de_dados_Inventario_7_2 import COLUNAS_INVENTARIO
+
+          def test_auditoria_identifica_incompleto():
+              df = pd.DataFrame([
+                  {'Setor': 'Consultório', 'Tipo de Patrimônio': 'CPU', 'Nº de Patrimônio': '1', 'Fabricante': 'Dell', 'Data Cadastro': ''},
+                  {'Setor': 'Consultório', 'Tipo de Patrimônio': '', 'Nº de Patrimônio': '', 'Fabricante': '', 'Data Cadastro': ''},
+              ])
+              r = auditar_dataframe(df)
+              assert r['linhas_validas'] == 1
+              assert r['linhas_descartadas_na_normalizacao'] == 1
+
+          def test_auditoria_detecta_duplicidade_de_identificador():
+              df = pd.DataFrame([
+                  {'Setor': 'Farmacia', 'Tipo de Patrimônio': 'CPU', 'Nº de Patrimônio': 'X', 'Fabricante': 'Dell', 'Data Cadastro': ''},
+                  {'Setor': 'Recepção', 'Tipo de Patrimônio': 'Monitores', 'Nº de Patrimônio': 'X', 'Fabricante': 'HP', 'Data Cadastro': ''},
+              ], columns=COLUNAS_INVENTARIO)
+              assert auditar_dataframe(df)['duplicidades_por_numero_patrimonio'] == 2
+          PY
+
+      - name: Simular e revisar alternativas
+        run: |
+          python - <<'PY'
+          registros = [('UBS A','Farmacia','CPU','CB-100'),('UBS A','Recepção','Monitores','CB-100'),('UBS B','Farmacia','CPU','CB-100'),('UBS A','Farmacia','CPU','CB-101')]
+          alternativas = {'setor+numero': lambda r:(r[0],r[1],r[3]), 'unidade+tipo+numero': lambda r:(r[0],r[2],r[3]), 'unidade+numero': lambda r:(r[0],r[3]), 'global+numero': lambda r:r[3]}
+          for nome, chave in alternativas.items():
+              vistos=set(); aceitos=[]
+              for r in registros:
+                  if chave(r) not in vistos: vistos.add(chave(r)); aceitos.append(r)
+              print(nome, len(aceitos), aceitos)
+          print('REGRA_DEFINITIVA=global+numero: um identificador/codigo de barras so pode representar um patrimonio em todo o inventario.')
+          PY
+
+      - name: Validar sem requirements incompatível
+        run: |
+          python -m pip install -q pytest pandas openpyxl streamlit gspread google-auth
+          pytest -q
+
+      - name: Commitar alterações de código
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Tabela_de_dados_Inventario_7_2.py auditoria_integridade.py tests/test_inventario_backend.py tests/test_auditoria_integridade.py
+          git commit -m 'fix: tornar identificador de patrimonio globalmente unico' || true
+          git push
