@@ -1,0 +1,21 @@
+name: Validar integridade final
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/validar-integridade-final.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Instalar dependências de teste
+        run: python -m pip install -q pytest pandas openpyxl streamlit gspread google-auth
+      - name: Rodar testes
+        env:
+          PYTHONPATH: .
+        run: pytest -q
