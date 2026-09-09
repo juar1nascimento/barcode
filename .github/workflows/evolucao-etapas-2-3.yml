@@ -25,14 +25,16 @@ jobs:
           from pathlib import Path
           p = Path('Tabela_de_dados_Inventario_7_2.py')
           s = p.read_text(encoding='utf-8')
-          s = s.replace('import re\\nfrom datetime', 'import re\\nimport threading\\nfrom datetime', 1)
-          needle = 'UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO\\nFUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")'
-          repl = needle + '\\n_PERSISTENCIA_LOCK = threading.RLock()'
+          nl = chr(10)
+          if 'import threading' not in s:
+              s = s.replace('import re' + nl, 'import re' + nl + 'import threading' + nl, 1)
           if '_PERSISTENCIA_LOCK = threading.RLock()' not in s:
-              s = s.replace(needle, repl, 1)
-          needle = 'def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:'
-          repl = '''def _serializar_persistencia(func):
-              """Serializa operações de leitura-modificação-gravação no processo Streamlit."""
+              marker = 'FUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")'
+              s = s.replace(marker, marker + nl + '_PERSISTENCIA_LOCK = threading.RLock()', 1)
+          if 'def _serializar_persistencia' not in s:
+              marker = 'def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:'
+              decorator = '''def _serializar_persistencia(func):
+              """Serializa operações de persistência no processo Streamlit."""
               def wrapper(*args, **kwargs):
                   with _PERSISTENCIA_LOCK:
                       return func(*args, **kwargs)
@@ -42,15 +44,14 @@ jobs:
 
 
           @_serializar_persistencia
-          def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:'''
-          if 'def _serializar_persistencia' not in s:
-              s = s.replace(needle, repl, 1)
-          if '@_serializar_persistencia\\ndef registrar_patrimonio' not in s:
-              s = s.replace('def registrar_patrimonio(codigo_barras:', '@_serializar_persistencia\\ndef registrar_patrimonio(codigo_barras:', 1)
-          if '@_serializar_persistencia\\ndef registrar_patrimonios_em_lote' not in s:
-              s = s.replace('def registrar_patrimonios_em_lote(registros, unidade: str):', '@_serializar_persistencia\\ndef registrar_patrimonios_em_lote(registros, unidade: str):', 1)
+          '''
+              s = s.replace(marker, decorator + marker, 1)
+          if '@_serializar_persistencia' + nl + 'def registrar_patrimonio' not in s:
+              s = s.replace('def registrar_patrimonio(codigo_barras:', '@_serializar_persistencia' + nl + 'def registrar_patrimonio(codigo_barras:', 1)
+          if '@_serializar_persistencia' + nl + 'def registrar_patrimonios_em_lote' not in s:
+              s = s.replace('def registrar_patrimonios_em_lote(registros, unidade: str):', '@_serializar_persistencia' + nl + 'def registrar_patrimonios_em_lote(registros, unidade: str):', 1)
           start = s.index('def _aplicar_exclusao_patrimonio(')
-          end = s.index('\\n\\ndef excluir_setor(', start)
+          end = s.index(nl + nl + 'def excluir_setor(', start)
           new = '''def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> Tuple[pd.DataFrame, bool]:
               """Exclui exatamente um patrimônio quando o alvo é um número.
 
@@ -112,5 +113,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add Tabela_de_dados_Inventario_7_2.py tests/test_evolucao_etapas.py
-          git commit -m 'Etapa 2-3: persistência e exclusão seguras' || exit 0
+          git commit -m 'Etapa 2-3: persistência e exclusão seguras'
           git push
