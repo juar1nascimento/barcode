@@ -1,6 +1,6 @@
 import pandas as pd
 
-import movimentacao_inventario as mi
+import servicos.movimentacao as mi
 
 
 def _df(rows):
