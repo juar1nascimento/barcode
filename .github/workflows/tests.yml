@@ -2,7 +2,7 @@ name: Python Tests
 
 on:
   push:
-    branches: [main, correcao-auditoria-funcional]
+    branches: [main, correcao-auditoria-funcional, reorganizacao-modulos-portal]
   pull_request:
     branches: [main]
 
