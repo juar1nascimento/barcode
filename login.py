@@ -120,35 +120,97 @@ def renderizar_login() -> bool:
         return True
 
     b64_logo = base64.b64encode(LOGO_SERRA_SVG.encode("utf-8")).decode("utf-8")
-    logo_html = f'<div style="text-align: center; margin-bottom: 25px;"><img src="data:image/svg+xml;base64,{b64_logo}" width="280" /></div>'
+    logo_html = f'<div style="text-align: center; margin: 0 auto 50px auto; line-height: 0;"><img src="data:image/svg+xml;base64,{b64_logo}" width="190" style="height:auto; display:inline-block;" /></div>'
 
     st.markdown("""
         <style>
-            .stApp { background-color: #f2f4f7 !important; }
-            header, footer, #MainMenu { visibility: hidden; }
+            html, body { background: #f5f7fb !important; }
+            .stApp { background-color: #f5f7fb !important; }
+            [data-testid="stAppViewContainer"], [data-testid="stAppViewContainer"] > .main {
+                background: #f5f7fb !important;
+            }
+            header, footer, #MainMenu { visibility: hidden !important; }
+            .main .block-container {
+                max-width: 1200px !important;
+                padding-top: 80px !important;
+                padding-bottom: 35px !important;
+            }
             div[data-testid="stForm"] {
+                width: 910px !important;
+                max-width: 910px !important;
                 background-color: #ffffff !important;
                 border: 1px solid #e1e4e8 !important;
-                border-radius: 4px !important;
-                padding: 35px 40px !important;
+                border-radius: 3px !important;
+                padding: 35px 294px !important;
+                min-height: 593px !important;
+                box-sizing: border-box !important;
+                margin: 0 auto !important;
                 box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
             }
-            .login-title { text-align: center; font-size: 20px; font-weight: 600; color: #24292e; margin-bottom: 25px; }
-            button[kind="tertiary"] { display: flex !important; justify-content: flex-end !important; width: 100% !important; margin-left: auto !important; font-size: 12px !important; color: #24292e !important; text-decoration: underline !important; margin-top: -10px !important; margin-bottom: 15px !important; padding: 0 !important; height: auto !important; background: transparent !important; border: none !important; }
+            .login-title {
+                text-align: center;
+                font-size: 20px;
+                line-height: 1.25;
+                font-weight: 600;
+                color: #24292e;
+                margin: 0 0 25px 0;
+                white-space: nowrap;
+            }
+            button[kind="tertiary"] {
+                display: flex !important;
+                justify-content: flex-end !important;
+                width: 100% !important;
+                margin-left: auto !important;
+                font-size: 12px !important;
+                color: #24292e !important;
+                text-decoration: underline !important;
+                margin-top: -10px !important;
+                margin-bottom: 15px !important;
+                padding: 0 !important;
+                height: auto !important;
+                background: transparent !important;
+                border: none !important;
+            }
             button[kind="tertiary"] div, button[kind="tertiary"] p { justify-content: flex-end !important; text-align: right !important; }
             div[data-baseweb="input"] { background-color: #f4f6f8 !important; border: 1px solid #d1d5da !important; border-radius: 4px !important; }
             div[data-baseweb="select"] > div { background-color: #ffffff !important; border: 1px solid #d1d5da !important; border-radius: 4px !important; }
             div[data-baseweb="select"] svg, div[data-baseweb="input"] button svg { transform: scale(0.65) !important; }
-            div[data-testid="stForm"] button[kind="secondaryFormSubmit"], div[data-testid="stForm"] button[kind="primaryFormSubmit"] { background-color: #555555 !important; color: #ffffff !important; border: none !important; border-radius: 4px !important; height: 42px !important; font-size: 14px !important; font-weight: 600 !important; margin-top: 15px !important; }
+            div[data-testid="stForm"] button[kind="secondaryFormSubmit"], div[data-testid="stForm"] button[kind="primaryFormSubmit"] {
+                background-color: #555555 !important; color: #ffffff !important; border: none !important; border-radius: 4px !important;
+                height: 42px !important; font-size: 14px !important; font-weight: 600 !important; margin-top: 15px !important;
+            }
             div[data-testid="stForm"] button[kind="secondaryFormSubmit"]:hover, div[data-testid="stForm"] button[kind="primaryFormSubmit"]:hover { background-color: #333333 !important; color: #ffffff !important; }
-            .error-box { background-color: #fdf2f2; border: 1px solid #f8b4b4; border-left: 4px solid #e02424; color: #9b1c1c; padding: 12px 16px; border-radius: 4px; font-size: 13px; margin-top: 15px; }
+            .error-box {
+                background-color: #ffffff;
+                border: 1px solid #e1e4e8;
+                border-left: 4px solid #e02424;
+                color: #374151;
+                padding: 12px 16px;
+                border-radius: 3px;
+                font-size: 13px;
+                margin: 30px 0 0 0;
+                box-sizing: border-box;
+                width: 100%;
+            }
+            @media (max-width: 1100px) {
+                .main .block-container { padding-top: 55px !important; }
+                div[data-testid="stForm"] { padding-left: 12vw !important; padding-right: 12vw !important; width: min(910px, 92vw) !important; max-width: 92vw !important; }
+            }
+            @media (max-width: 768px) {
+                .main .block-container { padding: 35px 12px 25px 12px !important; }
+                div[data-testid="stForm"] { min-height: 0 !important; padding: 28px 24px !important; width: 100% !important; max-width: 100% !important; }
+                .login-title { white-space: normal; }
+            }
         </style>
     """, unsafe_allow_html=True)
 
-    _, col_center, _ = st.columns([1, 1.8, 1])
+    _, col_center, _ = st.columns([0.5, 3.0, 0.5])
     with col_center:
         st.markdown(logo_html, unsafe_allow_html=True)
 
+        # -------------------------------------------------------------
+        # TELA 1: DIGITAR E-MAIL DE RECUPERAÇÃO
+        # -------------------------------------------------------------
         if st.session_state.tela_atual == "redefinicao_solicitar":
             with st.form(key="form_solicitar_email", clear_on_submit=False):
                 st.markdown('<div class="login-title">Redefinição de senha</div>', unsafe_allow_html=True)
@@ -215,6 +277,9 @@ def renderizar_login() -> bool:
                 st.session_state.tela_atual = "login"
                 st.rerun()
 
+        # -------------------------------------------------------------
+        # TELA PRINCIPAL DE LOGIN
+        # -------------------------------------------------------------
         else:
             with st.form(key="glpi_login_form", clear_on_submit=False):
                 st.markdown('<div class="login-title">Faça login na sua conta</div>', unsafe_allow_html=True)
@@ -247,11 +312,8 @@ def renderizar_login() -> bool:
                                 st.session_state.usuario_logado = user_clean
                                 st.session_state.erro_login_msg = None
                                 st.rerun()
-            if st.session_state.get("erro_login_msg"):
-                st.markdown(f"""
-                    <div class="error-box">
-                        {st.session_state.erro_login_msg}
-                    </div>
-                """, unsafe_allow_html=True)
+                if st.session_state.get("erro_login_msg"):
+                    erro_html = html.escape(str(st.session_state.erro_login_msg))
+                    st.markdown(f'<div class="error-box">{erro_html}</div>', unsafe_allow_html=True)
 
     return False
