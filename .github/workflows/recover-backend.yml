@@ -1,14 +1,17 @@
 name: Recover inventory backend after safe diagnostic edit
 on:
+  push:
+    branches: ["main"]
   workflow_dispatch:
 permissions:
   contents: write
 jobs:
   recover:
+    if: github.event.head_commit.message != 'Restaurar backend completo do inventário'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Restore backend and keep prior repairs
+      - name: Restore backend
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
