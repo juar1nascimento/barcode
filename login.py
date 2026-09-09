@@ -71,7 +71,7 @@ def renderizar_login() -> bool:
     st.markdown('''<style>
 html,body,[data-testid="stAppViewContainer"],[data-testid="stAppViewContainer"]>.main,.stApp{background:#f5f7fb!important}header,footer,#MainMenu{visibility:hidden!important}
 .main .block-container{max-width:940px!important;padding-top:15px!important;padding-bottom:20px!important;padding-left:14px!important;padding-right:14px!important}
-.login-logo{width:196px;max-width:70vw;height:auto;display:block;margin:0 auto 60px auto;object-fit:contain}
+.login-logo{width:196px;max-width:70vw;height:64px;display:block;margin:0 auto 60px auto;object-fit:contain;object-position:center}
 div[data-testid="stForm"]{width:912px!important;max-width:912px!important;box-sizing:border-box!important;background:#fff!important;border:1px solid #e1e4e8!important;border-radius:3px!important;padding:35px 292px!important;min-height:625px!important;margin:0 auto!important;box-shadow:0 1px 3px rgba(0,0,0,.04)!important}
 .login-title{text-align:center;font-size:20px;line-height:1.25;font-weight:600;color:#24292e;margin:0 0 0;white-space:nowrap}
 .login-divider{width:100%;height:1px;background:#e1e4e8;margin:25px 0 34px 0;display:block}
@@ -81,7 +81,7 @@ div[data-baseweb="input"]{background:#f4f6f8!important;border:1px solid #d1d5da!
 div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="stForm"] button[kind="primaryFormSubmit"]{background:#555!important;color:#fff!important;border:none!important;border-radius:4px!important;height:42px!important;font-size:14px!important;font-weight:600!important;margin-top:15px!important}
 .error-box{background:#fff;border:1px solid #e1e4e8;border-left:4px solid #e02424;color:#374151;padding:12px 16px;border-radius:3px;font-size:13px;margin:30px 0 0;box-sizing:border-box;width:100%}
 @media(max-width:940px){.main .block-container{max-width:100%!important;padding-top:15px!important;padding-left:14px!important;padding-right:14px!important}div[data-testid="stForm"]{width:100%!important;max-width:912px!important;padding-left:31vw!important;padding-right:31vw!important}}
-@media(max-width:768px){.main .block-container{padding:15px 12px 25px!important}.login-logo{width:196px;max-width:70vw;margin-bottom:35px}div[data-testid="stForm"]{min-height:0!important;padding:28px 24px!important;width:100%!important;max-width:100%!important}.login-title{white-space:normal}}
+@media(max-width:768px){.main .block-container{padding:15px 12px 25px!important}.login-logo{width:196px;max-width:70vw;height:58px;margin-bottom:35px}div[data-testid="stForm"]{min-height:0!important;padding:28px 24px!important;width:100%!important;max-width:100%!important}.login-title{white-space:normal}}
 </style>''', unsafe_allow_html=True)
     _, center, _ = st.columns([.015,1,.015])
     with center:
