@@ -1,5 +1,5 @@
 from sistema_inventario import opcoes_setor, opcoes_tipo_patrimonio
-from modulos.sistema_inventarios.sistema import TIPOS_CONSULTORIO, montar_setor_consultorio
+from modulos.sistema_inventarios.sistema import TIPOS_CONSULTORIO, montar_setor_consultorio, normalizar_especialidade_consultorio
 
 
 def test_menu_setor_usa_apenas_regras_centralizadas():
@@ -25,12 +25,19 @@ def test_menu_patrimonio_usa_apenas_tipos_oficiais():
     assert tipos == ["CPU", "Imprenssoras", "Monitores", "Mouse", "Outros Dispositivos", "Teclado"]
 
 
-def test_consultorio_oferece_tipos_clinicos():
+def test_consultorio_mantem_especialidades_de_referencia():
     assert TIPOS_CONSULTORIO == ["Psicologia", "Psiquiatria"]
+
+
+def test_especialidade_consultorio_e_digitavel_e_normalizada():
+    assert normalizar_especialidade_consultorio("  Psicologia   ") == "Psicologia"
+    assert normalizar_especialidade_consultorio("Fonoaudiologia  infantil") == "Fonoaudiologia infantil"
+    assert normalizar_especialidade_consultorio("") == ""
 
 
 def test_montar_setor_consultorio():
     assert montar_setor_consultorio("3", "Psicologia") == "Consultório 3 - Psicologia"
     assert montar_setor_consultorio("7", "Psiquiatria") == "Consultório 7 - Psiquiatria"
+    assert montar_setor_consultorio("12", "Fonoaudiologia infantil") == "Consultório 12 - Fonoaudiologia infantil"
     assert montar_setor_consultorio("", "Psicologia") == ""
     assert montar_setor_consultorio("3", "") == ""
