@@ -25,7 +25,7 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Repair cadastro timestamp and audit tests
+      - name: Unify cadastro entry point and audit tests
         shell: bash
         run: |
           python - <<'PY'
@@ -35,8 +35,6 @@ jobs:
           backend = Path('Tabela_de_dados_Inventario_7_2.py')
           text = backend.read_text(encoding='utf-8')
 
-          # Mantém somente uma importação de ZoneInfo. O reparo anterior
-          # adicionava a mesma linha a cada execução do workflow.
           text = re.sub(r'(from zoneinfo import ZoneInfo\n)+', 'from zoneinfo import ZoneInfo\n', text)
           if 'from zoneinfo import ZoneInfo\n' not in text:
               text = text.replace('from datetime import datetime\n', 'from datetime import datetime\nfrom zoneinfo import ZoneInfo\n', 1)
@@ -46,14 +44,27 @@ jobs:
           if 'FUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")' not in text:
               text = text.replace(marker, helper, 1)
           text = text.replace('"Data Cadastro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),', '"Data Cadastro": _data_hora_cadastro(),')
+
+          bulk_marker = '\n\ndef adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:\n'
+          bulk_code = '''\n\ndef registrar_patrimonios_em_lote(registros, unidade: str):\n    """Valida e grava vários patrimônios de uma vez, sem gravação parcial.\n\n    Cada item deve conter: tipo_patrimonio, setor e numero_patrimonio ou\n    codigo_barras; fabricante é opcional. O lote inteiro é validado antes\n    de qualquer alteração no Google Sheets. Retorna (sucesso, erros).\n    """\n    registros = list(registros or [])\n    erros = []\n    if not registros:\n        return False, ["O lote está vazio."]\n    if len(registros) > 1000:\n        return False, ["O lote excede o limite de 1000 patrimônios por operação."]\n\n    unidade_limpa = _normalizar_unidade_aba(unidade)\n    df, _ = carregar_dados_excel(unidade_limpa)\n    df = _normalizar_legacy_dataframe(df)\n    existentes = set(df["Nº de Patrimônio"].map(_chave_texto))\n    vistos = set()\n    novos = []\n\n    for posicao, item in enumerate(registros, start=1):\n        item = item or {}\n        codigo = _valor_texto(item.get("codigo_barras", ""))\n        numero = _valor_texto(item.get("numero_patrimonio", "")) or codigo\n        tipo = _normalizar_tipo(item.get("tipo_patrimonio", ""))\n        setor = _valor_texto(item.get("setor", ""))\n        fabricante = _valor_texto(item.get("fabricante", ""))\n        ok, mensagem = validar_cadastro_patrimonio(tipo, setor, unidade_limpa, numero)\n        if not ok:\n            erros.append(f"Registro {posicao}: {mensagem}")\n            continue\n        chave = _chave_texto(numero)\n        if chave in existentes:\n            erros.append(f"Registro {posicao}: o patrimônio `{numero}` já existe na unidade.")\n            continue\n        if chave in vistos:\n            erros.append(f"Registro {posicao}: o patrimônio `{numero}` está duplicado no próprio lote.")\n            continue\n        vistos.add(chave)\n        novos.append({\n            "Setor": setor,\n            "Tipo de Patrimônio": tipo,\n            "Nº de Patrimônio": numero,\n            "Fabricante": fabricante,\n            "Data Cadastro": _data_hora_cadastro(),\n        })\n\n    if erros:\n        return False, erros\n\n    df_final = pd.concat([df, pd.DataFrame(novos, columns=COLUNAS_INVENTARIO)], ignore_index=True)\n    sucesso = salvar_no_excel(df_final, unidade_limpa)\n    return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]\n'''
+          if 'def registrar_patrimonios_em_lote(' not in text and bulk_marker in text:
+              text = text.replace(bulk_marker, bulk_code + bulk_marker, 1)
           backend.write_text(text, encoding='utf-8')
+
+          ui = Path('sistema_inventario.py')
+          ui_text = ui.read_text(encoding='utf-8')
+          ui_text = ui_text.replace('carregar_dados_excel, salvar_no_excel, excluir_setor, excluir_patrimonio', 'carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio', 1)
+          pattern = r'def adicionar_e_salvar_sem_sobrescrever\(\n.*?\n\n\nadicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever'
+          replacement = '''def adicionar_e_salvar_sem_sobrescrever(\n    codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""\n) -> bool:\n    """Ponto único de entrada do cadastro da interface.\n\n    A tela preserva seu layout e seus controles, mas toda validação,\n    normalização, prevenção de duplicidade e persistência ficam no backend.\n    """\n    try:\n        validar_tipo_patrimonio(patrimonio)\n    except ValueError as e:\n        st.error(str(e))\n        return False\n    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante)\n\n\nadicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever'''
+          novo_ui, ocorrencias = re.subn(pattern, replacement, ui_text, count=1, flags=re.S)
+          if ocorrencias != 1:
+              raise SystemExit('Não foi possível localizar a rotina duplicada de cadastro em sistema_inventario.py')
+          ui.write_text(novo_ui, encoding='utf-8')
 
           tests = Path('tests/test_inventario_backend.py')
           test_text = tests.read_text(encoding='utf-8')
-          if 'sys.path.insert(0' not in test_text:
-              test_text = test_text.replace('import pandas as pd\n\n', 'import sys\nfrom pathlib import Path\n\nimport pandas as pd\n\nROOT = Path(__file__).resolve().parents[1]\nsys.path.insert(0, str(ROOT))\n\n', 1)
-          test_text = test_text.replace('''assert backend.COLUNAS_INVENTARIO == [\n        "Setor",\n        "Tipo de Patrimônio",\n        "Nº de Patrimônio",\n        "Código de Barras",\n        "Fabricante",\n        "Data Cadastro",\n        "Origem",\n        "Status",\n    ]''', '''assert backend.COLUNAS_INVENTARIO == [\n        "Setor",\n        "Tipo de Patrimônio",\n        "Nº de Patrimônio",\n        "Fabricante",\n        "Data Cadastro",\n    ]\n    assert not any(c in backend.COLUNAS_INVENTARIO for c in ("Código de Barras", "Origem", "Status"))''')
-          test_text = re.sub(r'\n\ndef test_registro_bloqueia_codigo_de_barras_duplicado.*?(?=\n\ndef test_exclusao_de_setor)', '\n', test_text, flags=re.S)
+          if 'test_carga_em_massa_sem_gravacao_parcial' not in test_text:
+              test_text += '''\n\n\ndef test_carga_em_massa_sem_gravacao_parcial(monkeypatch):\n    estado = _estado_vazio()\n    _mock_persistencia(monkeypatch, estado)\n    registros = [\n        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": f"LOTE-{i:03d}", "fabricante": "Dell"}\n        for i in range(1, 101)\n    ]\n    ok, erros = backend.registrar_patrimonios_em_lote(registros, "UBS Teste")\n    assert ok and erros == []\n    assert len(estado["df"]) == 100\n    assert list(estado["df"]["Nº de Patrimônio"])[0] == "LOTE-001"\n    assert list(estado["df"]["Nº de Patrimônio"])[-1] == "LOTE-100"\n\n\ndef test_carga_em_massa_com_duplicidade_nao_grava_parcialmente(monkeypatch):\n    estado = _estado_vazio()\n    _mock_persistencia(monkeypatch, estado)\n    registros = [\n        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": "LOTE-001"},\n        {"tipo_patrimonio": "Monitor", "setor": "Farmacia", "numero_patrimonio": "LOTE-002"},\n        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": " lote-001 "},\n    ]\n    ok, erros = backend.registrar_patrimonios_em_lote(registros, "UBS Teste")\n    assert not ok\n    assert erros\n    assert estado["df"].empty\n\n\ndef test_carga_em_massa_rejeita_lote_maior_que_limite(monkeypatch):\n    estado = _estado_vazio()\n    _mock_persistencia(monkeypatch, estado)\n    registros = [\n        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": f"MAX-{i}"}\n        for i in range(1001)\n    ]\n    ok, erros = backend.registrar_patrimonios_em_lote(registros, "UBS Teste")\n    assert not ok and erros\n    assert estado["df"].empty\n\n\ndef test_interface_delega_cadastro_ao_backend(monkeypatch):\n    import sistema_inventario as ui\n    chamadas = []\n    monkeypatch.setattr(ui, "registrar_patrimonio", lambda *args: chamadas.append(args) or True)\n    assert ui.adicionar_e_salvar("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")\n    assert chamadas == [("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")]\n'''
           tests.write_text(test_text, encoding='utf-8')
           PY
 
@@ -91,10 +102,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Tabela_de_dados_Inventario_7_2.py tests/test_inventario_backend.py
+          git add Tabela_de_dados_Inventario_7_2.py sistema_inventario.py tests/test_inventario_backend.py
           if git diff --cached --quiet; then
             echo "Nenhuma correção pendente."
           else
-            git commit -m "Normalizar reparo automático do backend"
+            git commit -m "Unificar entrada de cadastro e validar carga em massa"
             git push
           fi
