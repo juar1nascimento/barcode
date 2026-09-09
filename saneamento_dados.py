@@ -38,6 +38,8 @@ def preparar_saneamento(df: pd.DataFrame, unidade: str) -> tuple[pd.DataFrame, R
     bruto = pd.DataFrame(df).copy() if df is not None else pd.DataFrame()
     linhas_lidas = len(bruto)
     normalizado = backend._normalizar_legacy_dataframe(bruto).copy()
+    if "Tipo de Patrimônio" in normalizado.columns:
+        normalizado["Tipo de Patrimônio"] = normalizado["Tipo de Patrimônio"].map(backend._normalizar_tipo)
     linhas_validas = len(normalizado)
     removidas_incompletas = max(0, linhas_lidas - linhas_validas)
 

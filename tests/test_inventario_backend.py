@@ -19,6 +19,7 @@ def _estado_vazio():
 def _mock_persistencia(monkeypatch, estado):
     monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))
     monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
+    monkeypatch.setattr(backend, "_anexar_no_google", lambda df, unidade: estado.__setitem__("df", pd.concat([estado["df"], df], ignore_index=True)) or True)
 
 
 def test_schema_e_tipo_patrimonio():
@@ -96,13 +97,17 @@ def test_mesmo_numero_e_bloqueado_em_outro_setor_da_mesma_unidade(monkeypatch):
     assert len(estado["df"]) == 1
 
 
-def test_mesmo_numero_pode_existir_em_unidades_diferentes(monkeypatch):
+def test_mesmo_numero_nao_pode_existir_em_unidades_diferentes(monkeypatch):
     estados = {"UBS A": pd.DataFrame(columns=COLUNAS), "UBS B": pd.DataFrame(columns=COLUNAS)}
     monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estados[unidade].copy(), "teste"))
     monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estados.__setitem__(unidade, df.copy()) or True)
+    planilha = type("Planilha", (), {"worksheets": lambda self: []})()
+    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: planilha)
     assert backend.registrar_patrimonio("PAT-001", "CPU", "Farmacia", "UBS A", "Dell")
-    assert backend.registrar_patrimonio("PAT-001", "CPU", "Farmacia", "UBS B", "Dell")
-    assert len(estados["UBS A"]) == 1 and len(estados["UBS B"]) == 1
+    class Sheet:
+        def get_all_values(self): return [COLUNAS, ["Farmacia", "CPU", "PAT-001", "Dell", ""]]
+    monkeypatch.setattr(planilha, "worksheets", lambda: [Sheet()])
+    assert not backend.registrar_patrimonio("PAT-001", "CPU", "Farmacia", "UBS B", "Dell")
 
 
 def test_todos_os_seis_tipos_podem_ser_cadastrados(monkeypatch):
@@ -299,7 +304,7 @@ def test_exclusao_por_numero_eh_especifica_do_setor():
         {"Setor": "Farmacia", "Tipo de Patrimônio": "Monitores", "Nº de Patrimônio": "ABC"},
         {"Setor": "Recepção", "Tipo de Patrimônio": "Monitores", "Nº de Patrimônio": "ABC"},
     ])
-    novo, alterado = backend._aplicar_exclusao_patrimonio(df, "Farmacia", "Nº de Patrimônio")
+    novo, alterado = backend._aplicar_exclusao_patrimonio(df, "Farmacia", "ABC")
     assert alterado is True
     assert len(novo) == 1
     assert novo.iloc[0]["Setor"] == "Recepção"
