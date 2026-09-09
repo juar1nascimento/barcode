@@ -1,6 +1,8 @@
 name: Etapa 8 - Data e hora do inventario
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -8,6 +10,7 @@ permissions:
 
 jobs:
   aplicar:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +20,8 @@ jobs:
           from pathlib import Path
           p = Path("Tabela_de_dados_Inventario_7_2.py")
           s = p.read_text(encoding="utf-8")
-          s = s.replace('from datetime import datetime', 'from datetime import datetime\n\nfrom auditoria_integridade_google import normalizar_data_hora')
+          if 'from auditoria_integridade_google import normalizar_data_hora' not in s:
+              s = s.replace('from datetime import datetime', 'from datetime import datetime\n\nfrom auditoria_integridade_google import normalizar_data_hora')
           s = s.replace('return _agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")', 'return _agora_brasilia().strftime("%d-%m-%Y %H:%M:%S")')
           alvo = '            normalizado[coluna] = normalizado[coluna].map(_valor_texto)\n'
           novo = '            normalizado[coluna] = normalizado[coluna].map(_valor_texto)\n        normalizado["Data Cadastro"] = normalizado["Data Cadastro"].map(normalizar_data_hora)\n'
