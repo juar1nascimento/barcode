@@ -1,0 +1,148 @@
+name: Etapa 7 - regra de unicidade e auditoria
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/etapa-7-regra-integridade.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  evolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Aplicar regra revisada e auditoria
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('Tabela_de_dados_Inventario_7_2.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''    df, _ = carregar_dados_excel(unidade_limpa)\n    df = _normalizar_legacy_dataframe(df)\n    chave_numero = _chave_texto(numero)\n    if (df["Nº de Patrimônio"].map(_chave_texto) == chave_numero).any():\n        st.warning(f"O número de patrimônio `{numero}` já está cadastrado nesta unidade.")\n        return False\n'''
+          new = '''    df, _ = carregar_dados_excel(unidade_limpa)\n    df = _normalizar_legacy_dataframe(df)\n    chave_numero = _chave_texto(numero)\n    if (df["Nº de Patrimônio"].map(_chave_texto) == chave_numero).any():\n        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado nesta unidade, independentemente do setor ou tipo.")\n        return False\n'''
+          if old not in s:
+              raise SystemExit('bloco de unicidade esperado não encontrado')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          cat > auditoria_integridade.py <<'PY'
+          import pandas as pd
+          from Tabela_de_dados_Inventario_7_2 import COLUNAS_INVENTARIO, TIPOS_PATRIMONIO, _chave_texto, _normalizar_legacy_dataframe
+
+          def auditar_dataframe(df: pd.DataFrame) -> dict:
+              original = 0 if df is None else len(df)
+              normalizado = _normalizar_legacy_dataframe(df)
+              duplicados = int(normalizado.duplicated(subset=['Nº de Patrimônio'], keep=False).sum())
+              tipos_invalidos = int((~normalizado['Tipo de Patrimônio'].isin(TIPOS_PATRIMONIO)).sum()) if not normalizado.empty else 0
+              numeros_vazios = int(normalizado['Nº de Patrimônio'].map(lambda v: not _chave_texto(v)).sum()) if not normalizado.empty else 0
+              return {
+                  'linhas_originais': original,
+                  'linhas_validas': len(normalizado),
+                  'linhas_descartadas_na_normalizacao': original - len(normalizado),
+                  'duplicidades_por_numero_patrimonio': duplicados,
+                  'tipos_invalidos': tipos_invalidos,
+                  'numeros_vazios': numeros_vazios,
+                  'colunas_canonicas': list(normalizado.columns) == COLUNAS_INVENTARIO,
+              }
+          PY
+
+          cat >> tests/test_inventario_backend.py <<'PY'
+
+          def test_regra_revisada_bloqueia_mesmo_numero_em_outro_setor_e_tipo(monkeypatch):
+              estado = {"df": pd.DataFrame([{
+                  "Setor": "Farmacia", "Tipo de Patrimônio": "CPU", "Nº de Patrimônio": "PAT-GLOBAL-001",
+                  "Fabricante": "Dell", "Data Cadastro": "",
+              }], columns=COLUNAS)}
+              avisos = []
+              _mock_persistencia(monkeypatch, estado)
+              monkeypatch.setattr(backend.st, "warning", lambda mensagem: avisos.append(mensagem))
+              assert not backend.registrar_patrimonio("PAT-GLOBAL-001", "Monitores", "Recepção", "UBS Teste", "HP")
+              assert len(estado["df"]) == 1
+              assert avisos
+
+          def test_regra_revisada_permite_numeros_diferentes_no_mesmo_tipo(monkeypatch):
+              estado = _estado_vazio()
+              _mock_persistencia(monkeypatch, estado)
+              assert backend.registrar_patrimonio("CB-CPU-001", "CPU", "Farmacia", "UBS Teste", "Dell")
+              assert backend.registrar_patrimonio("CB-CPU-002", "CPU", "Farmacia", "UBS Teste", "Dell")
+              assert len(estado["df"]) == 2
+
+          def test_regra_revisada_normaliza_codigo_de_barras_como_identificador_unico(monkeypatch):
+              estado = _estado_vazio()
+              avisos = []
+              _mock_persistencia(monkeypatch, estado)
+              monkeypatch.setattr(backend.st, "warning", lambda mensagem: avisos.append(mensagem))
+              assert backend.registrar_patrimonio("  CB-001  ", "Mouse", "Farmacia", "UBS Teste", "Logitech")
+              assert not backend.registrar_patrimonio("CB-001", "Teclado", "Recepção", "UBS Teste", "Dell")
+              assert len(estado["df"]) == 1
+              assert avisos
+          PY
+
+          cat > tests/test_auditoria_integridade.py <<'PY'
+          import pandas as pd
+          from auditoria_integridade import auditar_dataframe
+          from Tabela_de_dados_Inventario_7_2 import COLUNAS_INVENTARIO
+
+          def test_auditoria_identifica_linha_incompleta_e_colunas_canonicas():
+              df = pd.DataFrame([
+                  {'Setor': 'Consultório', 'Tipo de Patrimônio': 'CPU', 'Nº de Patrimônio': '1', 'Fabricante': 'Dell', 'Data Cadastro': ''},
+                  {'Setor': 'Consultório', 'Tipo de Patrimônio': '', 'Nº de Patrimônio': '', 'Fabricante': '', 'Data Cadastro': ''},
+              ])
+              r = auditar_dataframe(df)
+              assert r['linhas_originais'] == 2
+              assert r['linhas_validas'] == 1
+              assert r['linhas_descartadas_na_normalizacao'] == 1
+              assert r['colunas_canonicas']
+
+          def test_auditoria_detecta_numero_duplicado():
+              df = pd.DataFrame([
+                  {'Setor': 'Farmacia', 'Tipo de Patrimônio': 'CPU', 'Nº de Patrimônio': 'X', 'Fabricante': 'Dell', 'Data Cadastro': ''},
+                  {'Setor': 'Recepção', 'Tipo de Patrimônio': 'Monitores', 'Nº de Patrimônio': 'X', 'Fabricante': 'HP', 'Data Cadastro': ''},
+              ], columns=COLUNAS_INVENTARIO)
+              assert auditar_dataframe(df)['duplicidades_por_numero_patrimonio'] == 2
+          PY
+
+      - name: Simular alternativas da regra
+        run: |
+          python - <<'PY'
+          casos = [
+              ('global_numero', lambda r: r[2]),
+              ('tipo_numero', lambda r: (r[1], r[2])),
+              ('setor_numero', lambda r: (r[0], r[2])),
+          ]
+          registros = [
+              ('Farmacia', 'CPU', 'CB-100'),
+              ('Recepção', 'Monitores', 'CB-100'),
+              ('Recepção', 'CPU', 'CB-100'),
+              ('Farmacia', 'CPU', 'CB-101'),
+          ]
+          for nome, chave in casos:
+              vistos = set(); aceitos = []
+              for r in registros:
+                  k = chave(r)
+                  if k not in vistos:
+                      vistos.add(k); aceitos.append(r)
+              print(nome, '=>', len(aceitos), aceitos)
+          print('REGRA_ESCOLHIDA=global_numero: bloqueia CB-100 em qualquer setor/tipo da unidade; permite CB-101.')
+          PY
+
+      - name: Validar testes
+        run: |
+          python -m pip install -q -r requirements.txt pytest
+          pytest -q
+
+      - name: Finalizar e remover automação temporária
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Tabela_de_dados_Inventario_7_2.py auditoria_integridade.py tests/test_inventario_backend.py tests/test_auditoria_integridade.py
+          git commit -m 'fix: consolidar unicidade do patrimonio e etapa 7' || true
+          rm -f .github/workflows/etapa-7-regra-integridade.yml
+          git add -A
+          git commit -m 'chore: remover automacao temporaria da etapa 7' || true
+          git push
