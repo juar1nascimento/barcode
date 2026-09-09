@@ -2,6 +2,8 @@ import os
 import re
 import threading
 from datetime import datetime
+
+from auditoria_integridade_google import normalizar_data_hora
 from zoneinfo import ZoneInfo
 from typing import Optional, Tuple
 
@@ -29,7 +31,7 @@ def _agora_brasilia() -> datetime:
 
 
 def _data_hora_cadastro() -> str:
-    return _agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
+    return _agora_brasilia().strftime("%d-%m-%Y %H:%M:%S")
 
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
@@ -127,6 +129,7 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         normalizado = df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
         for coluna in COLUNAS_INVENTARIO:
             normalizado[coluna] = normalizado[coluna].map(_valor_texto)
+        normalizado["Data Cadastro"] = normalizado["Data Cadastro"].map(normalizar_data_hora)
         obrigatorias = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"]
         mask_validos = normalizado[obrigatorias].apply(lambda coluna: coluna.map(lambda valor: not _eh_vazio(valor))).all(axis=1)
         return normalizado.loc[mask_validos].reset_index(drop=True)
