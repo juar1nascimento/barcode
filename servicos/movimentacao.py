@@ -1,11 +1,34 @@
 import pandas as pd
 from datetime import date, datetime
 
-from Tabela_de_dados_Inventario_7_2 import carregar_dados_excel, salvar_no_excel, _normalizar_tipo, _valor_texto, COLUNAS_INVENTARIO
 from inventario_regras import normalizar_setor, normalizar_fabricante
 
 
+COLUNAS_INVENTARIO = [
+    "Setor",
+    "Tipo de Patrimônio",
+    "Nº de Patrimônio",
+    "Código de Barras",
+    "Fabricante",
+    "Data Cadastro",
+    "Origem",
+    "Status",
+]
+
+
+def _backend():
+    """Carrega a camada legada de persistência somente quando necessário."""
+    from Tabela_de_dados_Inventario_7_2 import (
+        carregar_dados_excel,
+        salvar_no_excel,
+        _normalizar_tipo,
+        _valor_texto,
+    )
+    return carregar_dados_excel, salvar_no_excel, _normalizar_tipo, _valor_texto
+
+
 def _carregar(unidade: str) -> pd.DataFrame:
+    carregar_dados_excel, _, _, _ = _backend()
     df, _ = carregar_dados_excel(unidade)
     if df is None or df.empty:
         return pd.DataFrame(columns=COLUNAS_INVENTARIO)
@@ -15,6 +38,7 @@ def _carregar(unidade: str) -> pd.DataFrame:
 def registrar_entrada(codigo_barras: str, tipo_equipamento: str, unidade: str, setor: str,
                       numero_patrimonio: str = "", fabricante: str = "", setor_origem: str = "",
                       data_recebimento: date | datetime | None = None) -> tuple[bool, str]:
+    _, salvar_no_excel, _normalizar_tipo, _valor_texto = _backend()
     codigo = _valor_texto(codigo_barras)
     unidade = _valor_texto(unidade)
     setor = normalizar_setor(_valor_texto(setor))
@@ -67,6 +91,7 @@ def _remover_transferencia_do_destino(df: pd.DataFrame, equipamento: pd.Series) 
 
 
 def registrar_saida(codigo_barras: str, unidade: str, motivo: str, destino: str = "", observacoes: str = "") -> tuple[bool, str]:
+    _, salvar_no_excel, _, _valor_texto = _backend()
     codigo = _valor_texto(codigo_barras)
     unidade = _valor_texto(unidade)
     motivo = _valor_texto(motivo)
@@ -134,6 +159,7 @@ def registrar_saida(codigo_barras: str, unidade: str, motivo: str, destino: str 
 
 
 def excluir_patrimonio_exato(setor: str, tipo_patrimonio: str, valor_patrimonio: str, unidade: str) -> tuple[bool, str]:
+    _, _, _normalizar_tipo, _valor_texto = _backend()
     setor_alvo = normalizar_setor(_valor_texto(setor))
     tipo_alvo = _normalizar_tipo(_valor_texto(tipo_patrimonio))
     valor_alvo = _valor_texto(valor_patrimonio)
