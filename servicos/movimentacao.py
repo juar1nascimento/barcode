@@ -2,6 +2,12 @@ import pandas as pd
 from datetime import date, datetime
 
 from inventario_regras import normalizar_setor, normalizar_fabricante
+from persistencia_inventario import (
+    _valor_texto,
+    carregar_dados,
+    normalizar_tipo,
+    salvar_dados,
+)
 
 
 COLUNAS_INVENTARIO = [
@@ -16,20 +22,8 @@ COLUNAS_INVENTARIO = [
 ]
 
 
-def _backend():
-    """Carrega a camada legada de persistência somente quando necessário."""
-    from Tabela_de_dados_Inventario_7_2 import (
-        carregar_dados_excel,
-        salvar_no_excel,
-        _normalizar_tipo,
-        _valor_texto,
-    )
-    return carregar_dados_excel, salvar_no_excel, _normalizar_tipo, _valor_texto
-
-
 def _carregar(unidade: str) -> pd.DataFrame:
-    carregar_dados_excel, _, _, _ = _backend()
-    df, _ = carregar_dados_excel(unidade)
+    df, _ = carregar_dados(unidade)
     if df is None or df.empty:
         return pd.DataFrame(columns=COLUNAS_INVENTARIO)
     return df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
@@ -38,13 +32,12 @@ def _carregar(unidade: str) -> pd.DataFrame:
 def registrar_entrada(codigo_barras: str, tipo_equipamento: str, unidade: str, setor: str,
                       numero_patrimonio: str = "", fabricante: str = "", setor_origem: str = "",
                       data_recebimento: date | datetime | None = None) -> tuple[bool, str]:
-    _, salvar_no_excel, _normalizar_tipo, _valor_texto = _backend()
     codigo = _valor_texto(codigo_barras)
     unidade = _valor_texto(unidade)
     setor = normalizar_setor(_valor_texto(setor))
     numero = _valor_texto(numero_patrimonio)
     fabricante = normalizar_fabricante(_valor_texto(fabricante))
-    tipo = _normalizar_tipo(tipo_equipamento)
+    tipo = normalizar_tipo(tipo_equipamento)
 
     if not unidade:
         return False, "Selecione a unidade de destino."
@@ -76,7 +69,7 @@ def registrar_entrada(codigo_barras: str, tipo_equipamento: str, unidade: str, s
         "Status": "Ativo",
     }
     novo_df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
-    return (True, "Entrada registrada com sucesso.") if salvar_no_excel(novo_df, unidade) else (False, "Não foi possível persistir a entrada no armazenamento.")
+    return (True, "Entrada registrada com sucesso.") if salvar_dados(novo_df, unidade) else (False, "Não foi possível persistir a entrada no armazenamento.")
 
 
 def _remover_transferencia_do_destino(df: pd.DataFrame, equipamento: pd.Series) -> pd.DataFrame:
@@ -91,7 +84,6 @@ def _remover_transferencia_do_destino(df: pd.DataFrame, equipamento: pd.Series) 
 
 
 def registrar_saida(codigo_barras: str, unidade: str, motivo: str, destino: str = "", observacoes: str = "") -> tuple[bool, str]:
-    _, salvar_no_excel, _, _valor_texto = _backend()
     codigo = _valor_texto(codigo_barras)
     unidade = _valor_texto(unidade)
     motivo = _valor_texto(motivo)
@@ -132,17 +124,17 @@ def registrar_saida(codigo_barras: str, unidade: str, motivo: str, destino: str 
         nova_linha["Origem"] = f"Transferência recebida de {unidade}"
         df_destino_novo = pd.concat([df_destino, pd.DataFrame([nova_linha])], ignore_index=True)
 
-        if not salvar_no_excel(df_destino_novo, destino_limpo):
+        if not salvar_dados(df_destino_novo, destino_limpo):
             return False, "Não foi possível persistir o equipamento na unidade de destino. A unidade de origem não foi alterada."
 
         df_origem_novo = df_origem.copy()
         df_origem_novo.at[idx, "Status"] = "Transferido"
         df_origem_novo.at[idx, "Origem"] = f"Transferido para {destino_limpo}" + (f" | Observação: {observacoes.strip()}" if observacoes.strip() else "")
-        if salvar_no_excel(df_origem_novo, unidade):
+        if salvar_dados(df_origem_novo, unidade):
             return True, f"Transferência registrada: **{unidade}** → **{destino_limpo}**."
 
         rollback_df = _remover_transferencia_do_destino(df_destino_novo, equipamento)
-        if salvar_no_excel(rollback_df, destino_limpo):
+        if salvar_dados(rollback_df, destino_limpo):
             return False, "A transferência não foi concluída: a atualização da origem falhou e a entrada criada no destino foi revertida. Nenhuma unidade deve ser repetida sem nova conferência."
         return False, "Falha crítica na transferência: a origem não foi atualizada e o rollback do destino também falhou. Não repita a operação; confira as duas unidades antes de qualquer nova tentativa."
 
@@ -152,16 +144,15 @@ def registrar_saida(codigo_barras: str, unidade: str, motivo: str, destino: str 
         detalhe += f" | Observação: {observacoes.strip()}"
     df_origem.at[idx, "Status"] = status
     df_origem.at[idx, "Origem"] = detalhe
-    ok = salvar_no_excel(df_origem, unidade)
+    ok = salvar_dados(df_origem, unidade)
     if not ok:
         return False, "A movimentação não pôde ser persistida."
     return True, f"Saída registrada. Status do equipamento: **{status}**."
 
 
 def excluir_patrimonio_exato(setor: str, tipo_patrimonio: str, valor_patrimonio: str, unidade: str) -> tuple[bool, str]:
-    _, _, _normalizar_tipo, _valor_texto = _backend()
     setor_alvo = normalizar_setor(_valor_texto(setor))
-    tipo_alvo = _normalizar_tipo(_valor_texto(tipo_patrimonio))
+    tipo_alvo = normalizar_tipo(_valor_texto(tipo_patrimonio))
     valor_alvo = _valor_texto(valor_patrimonio)
     if not unidade or not setor_alvo or not tipo_alvo or not valor_alvo:
         return False, "Os dados do patrimônio selecionado estão incompletos."
@@ -183,6 +174,6 @@ def excluir_patrimonio_exato(setor: str, tipo_patrimonio: str, valor_patrimonio:
         return False, f"O patrimônio `{valor_alvo}` não foi encontrado no setor `{setor_alvo}`."
     indice = df.index[mascara][0]
     novo_df = df.drop(index=indice).reset_index(drop=True)
-    if not salvar_no_excel(novo_df, unidade):
+    if not salvar_dados(novo_df, unidade):
         return False, "Não foi possível persistir a exclusão do patrimônio."
     return True, "Patrimônio excluído com sucesso."
