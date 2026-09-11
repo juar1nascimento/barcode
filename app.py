@@ -4,6 +4,7 @@ import streamlit as st
 from login import renderizar_login
 from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
 from consultorio_contexto import ativar as ativar_contexto_consultorio, desativar as desativar_contexto_consultorio
+from persistencia_dupla import ativar as ativar_persistencia_dupla, desativar as desativar_persistencia_dupla
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 
@@ -93,9 +94,11 @@ elif st.session_state.pagina_atual == "inventario":
     # Ativa somente durante a renderização do inventário para restaurar
     # Número + Especialidade quando o setor selecionado for Consultório.
     ativar_contexto_consultorio()
+    ativar_persistencia_dupla()
     try:
         renderizar_sistema_inventario()
     finally:
+        desativar_persistencia_dupla()
         desativar_contexto_consultorio()
 
 elif st.session_state.pagina_atual == "entrada":
