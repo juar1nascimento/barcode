@@ -101,16 +101,42 @@ def _criar_token_aprovacao(acao: str, usuario: str) -> str:
 def _validar_token_aprovacao(token: str) -> tuple[str, str] | None:
     segredo = _segredo_aprovacao()
     try:
-        nonce, payload_encoded, assinatura = str(token).split(".", 2)
-        if not nonce or not segredo:
+        token = str(token).strip()
+
+        # O payload contém o e-mail do usuário e pode conter pontos.
+        # Por isso, o token deve ser separado apenas no primeiro e no último ponto.
+        nonce, restante = token.split(".", 1)
+        payload_encoded, assinatura = restante.rsplit(".", 1)
+
+        if not nonce or not payload_encoded or not assinatura or not segredo:
             return None
+
         payload = urllib.parse.unquote(payload_encoded)
-        esperado = hmac.new(segredo.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        esperado = hmac.new(
+            segredo.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
         if not hmac.compare_digest(assinatura, esperado):
             return None
-        acao, usuario, expira = payload.split("|", 2)
-        if acao not in {"aprovar", "recusar"} or int(expira) < int(time.time()):
+
+        partes = payload.split("|", 2)
+        if len(partes) != 3:
             return None
+
+        acao, usuario, expira = partes
+        if acao not in {"aprovar", "recusar"}:
+            return None
+
+        try:
+            expira = int(expira)
+        except (ValueError, TypeError):
+            return None
+
+        if int(time.time()) > expira:
+            return None
+
         return acao, usuario.strip().lower()
     except (ValueError, TypeError):
         return None
@@ -143,14 +169,20 @@ def processar_acao_via_url():
     token = st.query_params.get("token")
     if not token:
         return
-    st.query_params.clear()
+
     dados = _validar_token_aprovacao(str(token))
+
     if not dados:
+        st.query_params.clear()
         st.error("Link de autorização inválido ou expirado.")
         return
+
+    st.query_params.clear()
+
     acao, user = dados
     db = carregar_usuarios()
     if user not in db:
+        st.error("Usuário da solicitação não encontrado.")
         return
     db[user]["aprovado"] = acao == "aprovar"
     salvar_usuarios(db)
