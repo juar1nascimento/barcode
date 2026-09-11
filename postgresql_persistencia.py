@@ -18,7 +18,13 @@ TIPOS_PATRIMONIO = (
 
 def _conexao_configurada() -> bool:
     try:
-        return "postgresql" in st.secrets
+        sec = st.secrets.get("postgresql")
+        if not sec:
+            return False
+        if sec.get("url"):
+            return True
+        obrigatorios = ("host", "dbname", "user", "password")
+        return all(sec.get(k) for k in obrigatorios)
     except Exception:
         return False
 
@@ -40,13 +46,18 @@ def conectar() -> Optional[object]:
         return None
     try:
         import psycopg
+        sec = st.secrets["postgresql"]
+        url = str(sec.get("url") or "").strip()
+        if url:
+            return psycopg.connect(url)
+
         cfg = _config()
         obrigatorios = ("host", "dbname", "user", "password")
         if any(not cfg.get(k) for k in obrigatorios):
             return None
         return psycopg.connect(**cfg)
-    except Exception as exc:
-        st.warning(f"PostgreSQL indisponível: {exc}")
+    except Exception:
+        st.warning("PostgreSQL indisponível. Verifique a Secret [postgresql].")
         return None
 
 
