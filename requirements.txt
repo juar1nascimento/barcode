@@ -50,7 +50,7 @@ sqlglot==30.17.0
 st-gsheets-connection==0.1.0
 starlette==1.6.0
 streamlit==1.63.0
-streamlit-webrtc==0.47.1
+streamlit-webrtc==0.77.0
 toml==0.10.2
 tornado==6.1
 typing_extensions==4.16.0
