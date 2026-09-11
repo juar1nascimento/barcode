@@ -1,55 +1,63 @@
 import re
 import streamlit as st
 
+_original_selectbox = None
 
-def _normalizar_texto(valor: str) -> str:
+
+def _normalizar(valor):
     return re.sub(r"\s+", " ", str(valor or "").strip())
 
 
-def _formatar_setor_consultorio(numero: str, especialidade: str) -> str:
-    numero = _normalizar_texto(numero)
-    especialidade = _normalizar_texto(especialidade)
-    if not numero or not especialidade:
-        return ""
-    if not numero.isdigit() or int(numero) < 1:
+def _formatar(numero, especialidade):
+    numero = _normalizar(numero)
+    especialidade = _normalizar(especialidade)
+    if not numero or not especialidade or not numero.isdigit() or int(numero) < 1:
         return ""
     return f"Consultório {int(numero)} - {especialidade}"
 
 
-def renderizar_com_contexto_consultorio(render_func):
-    """Adiciona identificação do consultório sem alterar o núcleo do inventário.
+def ativar():
+    """Ativa temporariamente o contexto número/especialidade do Consultório."""
+    global _original_selectbox
+    if _original_selectbox is not None:
+        return
 
-    O sistema legado já utiliza o setor no formato "Consultório N - Especialidade".
-    Esta camada restaura essa regra apenas quando o setor selecionado é Consultório.
-    """
-    original_selectbox = st.selectbox
+    _original_selectbox = st.selectbox
 
-    def selectbox_com_contexto(label, options, *args, **kwargs):
-        valor = original_selectbox(label, options, *args, **kwargs)
+    def wrapper(label, options, *args, **kwargs):
+        valor = _original_selectbox(label, options, *args, **kwargs)
         if label != "Setor:" or valor != "Consultório":
             return valor
 
         st.markdown("##### 🩺 Identificação do Consultório")
-        col_num, col_esp = st.columns(2)
-        with col_num:
+        c1, c2 = st.columns(2)
+        with c1:
             numero = st.text_input(
                 "Número do Consultório:",
                 placeholder="Ex.: 5",
                 key="consultorio_numero",
             )
-        with col_esp:
+        with c2:
             especialidade = st.text_input(
                 "Especialidade do Consultório:",
-                placeholder="Ex.: Enfermaria, Odontologia, Clínico...",
+                placeholder="Ex.: Odontologia, Clínico, Enfermagem...",
                 key="consultorio_especialidade",
             )
 
-        setor_formatado = _formatar_setor_consultorio(numero, especialidade)
-        numero_limpo = _normalizar_texto(numero)
+        numero_limpo = _normalizar(numero)
         if numero_limpo and (not numero_limpo.isdigit() or int(numero_limpo) < 1):
             st.warning("Informe somente um número de consultório maior que zero (ex.: 5).")
 
-        if not setor_formatado:
+        resultado = _formatar(numero, especialidade)
+        if not resultado:
             st.info("Informe o número e a especialidade para identificar o consultório.")
-            return ""
-        return setor_formatado
+        return resultado
+
+    st.selectbox = wrapper
+
+
+def desativar():
+    global _original_selectbox
+    if _original_selectbox is not None:
+        st.selectbox = _original_selectbox
+        _original_selectbox = None
