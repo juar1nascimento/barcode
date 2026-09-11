@@ -3,6 +3,7 @@ import streamlit as st
 # Importações dos módulos independentes
 from login import renderizar_login
 from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
+from consultorio_contexto import renderizar_com_contexto_consultorio
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 
@@ -43,7 +44,7 @@ if "pagina_atual" not in st.session_state:
 # ==========================================
 with st.sidebar:
     st.markdown("### 👤 Usuário Autenticado")
-    
+
     if st.session_state.pagina_atual != "portal":
         if st.button("🏠 Voltar ao Portal"):
             st.session_state.pagina_atual = "portal"
@@ -58,19 +59,19 @@ with st.sidebar:
 # ROTEAMENTO DAS PÁGINAS
 # ==========================================
 lista_urs = [
-    "Selecione uma URS...", "URS Boa Vista", "URS Feu Rosa", 
+    "Selecione uma URS...", "URS Boa Vista", "URS Feu Rosa",
     "URS Jacaraípe", "URS Novo Horizonte", "URS Serra Sede", "URS Serra Dourada"
 ]
 
 lista_ubs = [
-    "Selecione uma UBS...", "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", 
-    "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", 
-    "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", 
-    "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", 
-    "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", 
-    "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)", 
-    "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos", 
-    "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra", 
+    "Selecione uma UBS...", "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa",
+    "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus",
+    "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado",
+    "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha",
+    "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I",
+    "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)",
+    "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos",
+    "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra",
     "UBS Itinerante (atendimento na área rural)"
 ]
 
@@ -94,7 +95,8 @@ if st.session_state.pagina_atual == "portal":
         renderizar_card_saida(lista_urs, lista_ubs)
 
 elif st.session_state.pagina_atual == "inventario":
-    renderizar_sistema_inventario()
+    # A camada de contexto restaura número + especialidade somente para Consultório.
+    renderizar_com_contexto_consultorio(renderizar_sistema_inventario)
 
 elif st.session_state.pagina_atual == "entrada":
     renderizar_sistema_entrada()
