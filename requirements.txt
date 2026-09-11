@@ -14,7 +14,7 @@ google-auth-oauthlib==1.4.1
 gspread==5.12.4
 gspread-dataframe==4.0.0
 gspread-formatting==1.2.1
-gspread-pandas==3.3.0
+gspread-pandas==4.2.1
 h11==0.16.0
 httptools==0.8.0
 idna==3.19
