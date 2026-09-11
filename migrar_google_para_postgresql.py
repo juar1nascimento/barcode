@@ -5,9 +5,8 @@ A rotina é idempotente: registros já existentes no PostgreSQL são ignorados.
 Não apaga nem modifica o Google Sheets.
 """
 
+from datetime import datetime
 from typing import Iterable
-
-import pandas as pd
 
 from Tabela_de_dados_Inventario_7_2 import (
     COLUNAS_INVENTARIO,
@@ -16,6 +15,18 @@ from Tabela_de_dados_Inventario_7_2 import (
     carregar_dados_excel,
 )
 from postgresql_persistencia import conectar, garantir_unidade, garantir_setor
+
+
+def _converter_data(valor: str):
+    texto = str(valor or "").strip()
+    if not texto:
+        return None
+    for formato in ("%d-%m-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(texto, formato)
+        except ValueError:
+            continue
+    return None
 
 
 def migrar_unidade(unidade: str) -> tuple[int, int, list[str]]:
@@ -38,7 +49,7 @@ def migrar_unidade(unidade: str) -> tuple[int, int, list[str]]:
                 tipo = str(row.get("Tipo de Patrimônio", "") or "").strip()
                 setor = str(row.get("Setor", "") or "").strip()
                 fabricante = str(row.get("Fabricante", "") or "").strip() or None
-                data_cadastro = str(row.get("Data Cadastro", "") or "").strip()
+                data_cadastro = _converter_data(row.get("Data Cadastro", ""))
 
                 if not numero or not tipo or not setor:
                     erros.append(f"{unidade}: linha ignorada por dados obrigatórios ausentes.")
@@ -56,8 +67,7 @@ def migrar_unidade(unidade: str) -> tuple[int, int, list[str]]:
                     """INSERT INTO patrimonios
                          (unidade_id, setor_id, tipo, numero_patrimonio, fabricante,
                           data_cadastro, atualizado_em)
-                       VALUES (%s, %s, %s, %s, %s,
-                               COALESCE(NULLIF(%s, '')::timestamptz, NOW()), NOW())""",
+                       VALUES (%s, %s, %s, %s, %s, COALESCE(%s, NOW()), NOW())""",
                     (unidade_id, setor_id, tipo, numero, fabricante, data_cadastro),
                 )
                 inseridos += 1
