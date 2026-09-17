@@ -14,8 +14,8 @@ from Tabela_de_dados_Inventario_7_2 import (
     COLUNAS_INVENTARIO,
     LISTA_UBS_PADRAO,
     LISTA_URS_PADRAO,
-    carregar_dados_excel,
 )
+from google_sheets_lote import carregar_dados_excel_lote
 from postgresql_persistencia import conectar, garantir_unidade, garantir_setor
 
 
@@ -35,9 +35,11 @@ def _normalizar_texto(valor) -> str:
     return " ".join(str(valor or "").strip().split())
 
 
-def migrar_unidade(unidade: str, dry_run: bool = False) -> dict:
+def migrar_unidade(unidade: str, dry_run: bool = False, dados_lote=None) -> dict:
     """Audita/simula ou migra uma unidade sem sobrescrever conflitos."""
-    df, origem = carregar_dados_excel(unidade)
+    if dados_lote is None:
+        dados_lote = carregar_dados_excel_lote([unidade])
+    df, origem = dados_lote.get(unidade, (None, f"Google Sheets ({unidade})"))
     resultado = {
         "unidade": unidade,
         "origem": origem,
@@ -51,7 +53,6 @@ def migrar_unidade(unidade: str, dry_run: bool = False) -> dict:
     }
 
     if df is None or df.empty:
-        resultado["erros"].append(f"{unidade}: nenhuma linha encontrada em {origem}.")
         return resultado
 
     resultado["lidos"] = len(df)
@@ -137,7 +138,11 @@ def migrar_todas_as_unidades(
 ) -> dict:
     """Executa a simulação ou migração controlada para as unidades informadas."""
     unidades = list(unidades or (LISTA_URS_PADRAO + LISTA_UBS_PADRAO))
-    resultados = [migrar_unidade(u, dry_run=dry_run) for u in unidades]
+    dados_lote = carregar_dados_excel_lote(unidades)
+    resultados = [
+        migrar_unidade(u, dry_run=dry_run, dados_lote=dados_lote)
+        for u in unidades
+    ]
     return {
         "simulacao": dry_run,
         "unidades": len(resultados),
