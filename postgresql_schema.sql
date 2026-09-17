@@ -1,6 +1,7 @@
 -- GTI-SESA / Sistema de Inventários
--- Schema relacional para armazenamento principal no PostgreSQL.
+-- Schema definitivo para PostgreSQL em nuvem (Supabase).
 -- O Google Sheets permanece como tabela operacional/espelho.
+-- Este arquivo cria apenas a estrutura; NÃO migra dados históricos.
 
 CREATE TABLE IF NOT EXISTS unidades (
     id BIGSERIAL PRIMARY KEY,
@@ -21,10 +22,23 @@ CREATE TABLE IF NOT EXISTS setores (
     CONSTRAINT ck_setor_consultorio_numero CHECK (
         numero_consultorio IS NULL OR numero_consultorio > 0
     ),
-    CONSTRAINT uq_setor_unidade_descricao UNIQUE (
-        unidade_id, nome, numero_consultorio, especialidade
+    CONSTRAINT ck_setor_consultorio_dados CHECK (
+        (nome = 'Consultório' AND numero_consultorio IS NOT NULL AND especialidade IS NOT NULL)
+        OR
+        (nome <> 'Consultório' AND numero_consultorio IS NULL AND especialidade IS NULL)
     )
 );
+
+-- Regras de unicidade sem depender da semântica de NULL do PostgreSQL:
+-- 1) setor normal: uma ocorrência por unidade/nome;
+-- 2) consultório: uma ocorrência por unidade/número/especialidade.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_setor_normal
+    ON setores (unidade_id, nome)
+    WHERE nome <> 'Consultório' AND numero_consultorio IS NULL AND especialidade IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_setor_consultorio
+    ON setores (unidade_id, numero_consultorio, especialidade)
+    WHERE nome = 'Consultório' AND numero_consultorio IS NOT NULL AND especialidade IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS patrimonios (
     id BIGSERIAL PRIMARY KEY,
