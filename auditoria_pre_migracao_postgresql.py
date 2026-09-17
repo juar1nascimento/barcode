@@ -16,8 +16,8 @@ from Tabela_de_dados_Inventario_7_2 import (
     COLUNAS_INVENTARIO,
     TIPOS_PATRIMONIO,
     UNIDADES_PADRAO,
-    carregar_dados_excel,
 )
+from google_sheets_lote import carregar_dados_excel_lote
 
 TIPOS_LEGADOS = {
     "computador": "CPU", "cpu": "CPU", "monitor": "Monitores",
@@ -61,8 +61,7 @@ def _data_valida(valor: Any) -> bool:
     return False
 
 
-def auditar_unidade(unidade: str) -> dict[str, Any]:
-    df, origem = carregar_dados_excel(unidade)
+def _auditar_dataframe(df: pd.DataFrame, unidade: str, origem: str) -> dict[str, Any]:
     if df is None:
         df = pd.DataFrame(columns=COLUNAS_INVENTARIO)
     df = df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
@@ -129,9 +128,22 @@ def auditar_unidade(unidade: str) -> dict[str, Any]:
     }
 
 
+def auditar_unidade(unidade: str) -> dict[str, Any]:
+    dados = carregar_dados_excel_lote([unidade])
+    df, origem = dados.get(unidade, (pd.DataFrame(columns=COLUNAS_INVENTARIO), "Google Sheets"))
+    return _auditar_dataframe(df, unidade, origem)
+
+
 def auditar_todas_as_unidades(unidades=None) -> dict[str, Any]:
     unidades = list(unidades or UNIDADES_PADRAO)
-    resultados = [auditar_unidade(u) for u in unidades]
+    dados = carregar_dados_excel_lote(unidades)
+    resultados = []
+    for unidade in unidades:
+        df, origem = dados.get(
+            unidade,
+            (pd.DataFrame(columns=COLUNAS_INVENTARIO), f"Google Sheets ({unidade})"),
+        )
+        resultados.append(_auditar_dataframe(df, unidade, origem))
     return {
         "unidades": resultados,
         "totais": {
