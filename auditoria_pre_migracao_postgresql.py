@@ -1,11 +1,12 @@
 """Auditoria somente leitura para preparar a migração Google Sheets -> PostgreSQL.
 
-Esta rotina NÃO grava, altera ou exclui dados. Ela usa o carregamento já existente
- do projeto e classifica os registros antes da migração histórica.
+A auditoria NÃO grava, altera ou exclui dados. Ela classifica os registros
+carregados do Google Sheets em bloqueadores e alertas antes da migração.
 """
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -19,16 +20,10 @@ from Tabela_de_dados_Inventario_7_2 import (
 )
 
 TIPOS_LEGADOS = {
-    "computador": "CPU",
-    "cpu": "CPU",
-    "monitor": "Monitores",
-    "monitores": "Monitores",
-    "teclado": "Teclado",
-    "mouse": "Mouse",
-    "impressora": "Imprenssoras",
-    "impressoras": "Imprenssoras",
-    "imprenssoras": "Imprenssoras",
-    "outros dispositivos": "Outros Dispositivos",
+    "computador": "CPU", "cpu": "CPU", "monitor": "Monitores",
+    "monitores": "Monitores", "teclado": "Teclado", "mouse": "Mouse",
+    "impressora": "Imprenssoras", "impressoras": "Imprenssoras",
+    "imprenssoras": "Imprenssoras", "outros dispositivos": "Outros Dispositivos",
 }
 
 
@@ -57,16 +52,13 @@ def _data_valida(valor: Any) -> bool:
     if not texto:
         return True
     formatos = ("%d-%m-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S")
-    return any(_tenta_data(texto, formato) for formato in formatos)
-
-
-def _tenta_data(texto: str, formato: str) -> bool:
-    from datetime import datetime
-    try:
-        datetime.strptime(texto, formato)
-        return True
-    except ValueError:
-        return False
+    for formato in formatos:
+        try:
+            datetime.strptime(texto, formato)
+            return True
+        except ValueError:
+            pass
+    return False
 
 
 def auditar_unidade(unidade: str) -> dict[str, Any]:
@@ -75,9 +67,11 @@ def auditar_unidade(unidade: str) -> dict[str, Any]:
         df = pd.DataFrame(columns=COLUNAS_INVENTARIO)
     df = df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
 
-    problemas: list[dict[str, str]] = []
+    bloqueadores: list[dict[str, str]] = []
+    alertas: list[dict[str, str]] = []
     prontos = 0
     normalizaveis = 0
+
     for idx, row in df.iterrows():
         linha = idx + 2
         setor = _texto(row["Setor"])
@@ -87,7 +81,9 @@ def auditar_unidade(unidade: str) -> dict[str, Any]:
         data_cadastro = _texto(row["Data Cadastro"])
         tipo, tipo_legado = _tipo_normalizado(tipo_original)
         _, consultorio_ok_numero, consultorio_ok_especialidade = _consultorio(setor)
-        erros = []
+        erros: list[str] = []
+        avisos: list[str] = []
+
         if not numero:
             erros.append("número de patrimônio vazio")
         if not setor:
@@ -104,28 +100,32 @@ def auditar_unidade(unidade: str) -> dict[str, Any]:
         if data_cadastro and not _data_valida(data_cadastro):
             erros.append("Data Cadastro em formato não reconhecido")
         if not fabricante:
-            erros.append("fabricante vazio")
+            avisos.append("fabricante vazio (campo aceito pelo PostgreSQL)")
+
+        base = {"unidade": unidade, "linha": str(linha), "numero": numero}
         if erros:
-            problemas.append({"unidade": unidade, "linha": str(linha), "numero": numero, "problemas": "; ".join(erros)})
+            bloqueadores.append({**base, "problemas": "; ".join(erros)})
+        elif avisos:
+            alertas.append({**base, "alertas": "; ".join(avisos)})
+            if tipo_legado:
+                normalizaveis += 1
+            else:
+                prontos += 1
         elif tipo_legado:
             normalizaveis += 1
         else:
             prontos += 1
 
-    duplicados = 0
-    if not df.empty:
-        numeros = df["Nº de Patrimônio"].map(_texto)
-        duplicados = int(numeros[numeros != ""].duplicated(keep=False).sum())
+    numeros = df["Nº de Patrimônio"].map(_texto) if not df.empty else pd.Series(dtype=str)
+    duplicados_linhas = int(numeros[numeros != ""].duplicated(keep=False).sum())
+    duplicados_grupos = int(numeros[numeros != ""].value_counts().gt(1).sum())
 
     return {
-        "unidade": unidade,
-        "origem": origem,
-        "linhas": len(df),
-        "prontos": prontos,
-        "normalizaveis": normalizaveis,
-        "com_problemas": len(problemas),
-        "duplicidades": duplicados,
-        "problemas": problemas,
+        "unidade": unidade, "origem": origem, "linhas": len(df),
+        "prontos": prontos, "normalizaveis": normalizaveis,
+        "bloqueadores": len(bloqueadores), "alertas": len(alertas),
+        "duplicidades": duplicados_linhas, "grupos_duplicados": duplicados_grupos,
+        "problemas": bloqueadores, "avisos": alertas,
     }
 
 
@@ -139,21 +139,23 @@ def auditar_todas_as_unidades(unidades=None) -> dict[str, Any]:
             "linhas": sum(r["linhas"] for r in resultados),
             "prontos": sum(r["prontos"] for r in resultados),
             "normalizaveis": sum(r["normalizaveis"] for r in resultados),
-            "com_problemas": sum(r["com_problemas"] for r in resultados),
+            "bloqueadores": sum(r["bloqueadores"] for r in resultados),
+            "alertas": sum(r["alertas"] for r in resultados),
             "duplicidades": sum(r["duplicidades"] for r in resultados),
+            "grupos_duplicados": sum(r["grupos_duplicados"] for r in resultados),
         },
     }
 
 
 def renderizar_auditoria_pre_migracao() -> None:
-    """Exibe a auditoria em modo somente leitura."""
     st.title("🔎 Auditoria pré-migração PostgreSQL")
-    st.caption("Leitura do Google Sheets para classificação dos dados. Nenhuma alteração é executada.")
+    st.caption("Leitura do Google Sheets. Nenhuma alteração é executada nesta auditoria.")
 
     if st.button("▶ Executar auditoria agora", type="primary"):
         with st.spinner("Lendo as unidades e classificando os registros..."):
             resultado = auditar_todas_as_unidades()
         st.session_state["resultado_auditoria_pre_pg"] = resultado
+        st.session_state.pop("resultado_simulacao_pg", None)
 
     resultado = st.session_state.get("resultado_auditoria_pre_pg")
     if not resultado:
@@ -166,29 +168,56 @@ def renderizar_auditoria_pre_migracao() -> None:
     c2.metric("Linhas", totais["linhas"])
     c3.metric("Prontos", totais["prontos"])
     c4.metric("Normalizáveis", totais["normalizaveis"])
-    c5.metric("Com problemas", totais["com_problemas"])
+    c5.metric("Bloqueadores", totais["bloqueadores"])
 
     st.subheader("Resumo por unidade")
     resumo = pd.DataFrame([
-        {
-            "Unidade": r["unidade"],
-            "Origem": r["origem"],
-            "Linhas": r["linhas"],
-            "Prontos": r["prontos"],
-            "Normalizáveis": r["normalizaveis"],
-            "Com problemas": r["com_problemas"],
-            "Duplicidades": r["duplicidades"],
-        }
+        {"Unidade": r["unidade"], "Origem": r["origem"], "Linhas": r["linhas"],
+         "Prontos": r["prontos"], "Normalizáveis": r["normalizaveis"],
+         "Bloqueadores": r["bloqueadores"], "Alertas": r["alertas"],
+         "Linhas duplicadas": r["duplicidades"], "Grupos duplicados": r["grupos_duplicados"]}
         for r in resultado["unidades"]
     ])
     st.dataframe(resumo, use_container_width=True, hide_index=True)
 
     problemas = [p for r in resultado["unidades"] for p in r["problemas"]]
+    avisos = [p for r in resultado["unidades"] for p in r["avisos"]]
     if problemas:
-        st.subheader("Registros que exigem atenção")
+        st.subheader("⛔ Bloqueadores")
         st.dataframe(pd.DataFrame(problemas), use_container_width=True, hide_index=True)
     else:
-        st.success("Nenhum problema foi encontrado nas linhas carregadas.")
+        st.success("Nenhum bloqueador encontrado nas linhas carregadas.")
+    if avisos:
+        st.subheader("⚠️ Alertas")
+        st.dataframe(pd.DataFrame(avisos), use_container_width=True, hide_index=True)
 
     st.divider()
-    st.warning("Esta tela não executa migração, não grava no PostgreSQL e não altera o Google Sheets.")
+    st.subheader("Simulação da migração")
+    st.caption("A simulação consulta o PostgreSQL e o Google Sheets, mas não confirma nenhuma gravação no banco.")
+    if totais["bloqueadores"] > 0:
+        st.warning("A simulação está liberada para análise, mas a migração efetiva deverá aguardar a resolução dos bloqueadores.")
+
+    if st.button("🧪 Executar simulação (sem gravar)"):
+        from migrar_google_para_postgresql import migrar_todas_as_unidades
+        with st.spinner("Comparando os dados do Google Sheets com o PostgreSQL..."):
+            simulacao = migrar_todas_as_unidades(dry_run=True)
+        st.session_state["resultado_simulacao_pg"] = simulacao
+
+    simulacao = st.session_state.get("resultado_simulacao_pg")
+    if simulacao:
+        s1, s2, s3, s4, s5 = st.columns(5)
+        s1.metric("Linhas lidas", simulacao["linhas_lidas"])
+        s2.metric("Candidatos", simulacao["candidatos"])
+        s3.metric("Já existentes", simulacao["ja_existentes"])
+        s4.metric("Conflitos", simulacao["conflitos"])
+        s5.metric("Erros", simulacao["erros"])
+        if simulacao["conflitos"]:
+            conflitos = [c for r in simulacao["detalhes"] for c in r["conflitos"]]
+            st.error("Foram encontrados conflitos que não serão sobrescritos automaticamente.")
+            st.dataframe(pd.DataFrame(conflitos), use_container_width=True, hide_index=True)
+        elif simulacao["erros"]:
+            st.warning("A simulação encontrou erros que precisam ser analisados antes da migração efetiva.")
+        else:
+            st.success("Simulação concluída sem conflitos ou erros. Nenhum dado foi gravado.")
+
+    st.warning("A migração efetiva ainda não é executada por esta tela. O Google Sheets permanece intacto.")
