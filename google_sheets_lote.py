@@ -24,6 +24,15 @@ def _escapar_nome_aba(nome: str) -> str:
     return str(nome).replace("'", "''")
 
 
+def _remover_colunas_duplicadas(df: pd.DataFrame) -> pd.DataFrame:
+    """Mantém a primeira ocorrência de cada cabeçalho para evitar reindex inválido."""
+    if df is None or df.empty:
+        return df
+    if not df.columns.duplicated().any():
+        return df
+    return df.loc[:, ~df.columns.duplicated(keep="first")].copy()
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def _carregar_lote_cache(unidades: tuple[str, ...]) -> dict[str, tuple[pd.DataFrame, str]]:
     """Carrega as abas informadas em uma única chamada values.batchGet."""
@@ -66,6 +75,7 @@ def _carregar_lote_cache(unidades: tuple[str, ...]) -> dict[str, tuple[pd.DataFr
         cabecalho = valores[0]
         linhas = valores[1:]
         df_bruto = pd.DataFrame(linhas, columns=cabecalho) if cabecalho else pd.DataFrame()
+        df_bruto = _remover_colunas_duplicadas(df_bruto)
         df = _normalizar_legacy_dataframe(df_bruto)
         acumulados.setdefault(unidade, []).append(df)
         nomes_fontes.setdefault(unidade, []).append(nome_aba)
