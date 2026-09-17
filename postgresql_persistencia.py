@@ -87,17 +87,58 @@ def garantir_unidade(cur, unidade: str) -> int:
 
 
 def garantir_setor(cur, unidade_id: int, setor: str) -> int:
+    """Obtém/cria o setor respeitando as regras do schema definitivo.
+
+    A busca usa IS NOT DISTINCT FROM para comparar corretamente os campos
+    opcionais dos setores normais. A inserção usa ON CONFLICT DO NOTHING,
+    seguida de nova busca, permitindo que a restrição única do banco seja a
+    autoridade final em caso de concorrência.
+    """
     nome, numero, especialidade = _dividir_setor(setor)
+
+    cur.execute(
+        """SELECT id
+             FROM setores
+            WHERE unidade_id = %s
+              AND nome = %s
+              AND numero_consultorio IS NOT DISTINCT FROM %s
+              AND especialidade IS NOT DISTINCT FROM %s
+            LIMIT 1""",
+        (unidade_id, nome, numero, especialidade),
+    )
+    existente = cur.fetchone()
+    if existente:
+        cur.execute("UPDATE setores SET ativo = TRUE WHERE id = %s", (existente[0],))
+        return existente[0]
+
     cur.execute(
         """INSERT INTO setores
              (unidade_id, nome, numero_consultorio, especialidade)
            VALUES (%s, %s, %s, %s)
-           ON CONFLICT (unidade_id, nome, numero_consultorio, especialidade)
-           DO UPDATE SET ativo = TRUE
+           ON CONFLICT DO NOTHING
            RETURNING id""",
         (unidade_id, nome, numero, especialidade),
     )
-    return cur.fetchone()[0]
+    criado = cur.fetchone()
+    if criado:
+        return criado[0]
+
+    # Outra transação pode ter criado o mesmo setor entre a busca e o INSERT.
+    cur.execute(
+        """SELECT id
+             FROM setores
+            WHERE unidade_id = %s
+              AND nome = %s
+              AND numero_consultorio IS NOT DISTINCT FROM %s
+              AND especialidade IS NOT DISTINCT FROM %s
+            LIMIT 1""",
+        (unidade_id, nome, numero, especialidade),
+    )
+    existente = cur.fetchone()
+    if not existente:
+        raise RuntimeError("Não foi possível obter o setor após a inserção.")
+    cur.execute("UPDATE setores SET ativo = TRUE WHERE id = %s", (existente[0],))
+    return existente[0]
 
 
 def salvar_patrimonio(
