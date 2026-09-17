@@ -5,6 +5,7 @@ from login import renderizar_login
 from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
 from consultorio_contexto import ativar as ativar_contexto_consultorio, desativar as desativar_contexto_consultorio
 from persistencia_dupla import ativar as ativar_persistencia_dupla, desativar as desativar_persistencia_dupla
+from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 
@@ -40,6 +41,10 @@ if not renderizar_login():
 if "pagina_atual" not in st.session_state:
     st.session_state.pagina_atual = "portal"
 
+usuario_logado = str(st.session_state.get("usuario_logado", "")).strip().lower()
+admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
+is_admin = bool(usuario_logado and admin_configurado and usuario_logado == admin_configurado)
+
 # ==========================================
 # BARRA LATERAL (MENU E LOGOUT)
 # ==========================================
@@ -51,8 +56,16 @@ with st.sidebar:
             st.session_state.pagina_atual = "portal"
             st.rerun()
 
+    if is_admin:
+        st.divider()
+        st.markdown("### 🔐 Administração")
+        if st.button("🔎 Auditoria pré-migração"):
+            st.session_state.pagina_atual = "auditoria_pre_migracao"
+            st.rerun()
+
     if st.button("🚪 Sair do Sistema"):
         st.session_state.autenticado = False
+        st.session_state.usuario_logado = ""
         st.session_state.pagina_atual = "portal"
         st.rerun()
 
@@ -100,6 +113,13 @@ elif st.session_state.pagina_atual == "inventario":
     finally:
         desativar_persistencia_dupla()
         desativar_contexto_consultorio()
+
+elif st.session_state.pagina_atual == "auditoria_pre_migracao":
+    if not is_admin:
+        st.error("Acesso não autorizado.")
+        st.session_state.pagina_atual = "portal"
+        st.stop()
+    renderizar_auditoria_pre_migracao()
 
 elif st.session_state.pagina_atual == "entrada":
     renderizar_sistema_entrada()
