@@ -362,7 +362,7 @@ def test_carga_em_massa_rejeita_lote_maior_que_limite(monkeypatch):
 def test_interface_delega_cadastro_ao_backend(monkeypatch):
     import sistema_inventario as ui
     chamadas = []
-    monkeypatch.setattr(ui, "registrar_patrimonio", lambda *args: chamadas.append(args) or True)
+    monkeypatch.setattr(ui, "registrar_patrimonio", lambda *args, **kwargs: chamadas.append((args, kwargs)) or True)
     assert ui.adicionar_e_salvar("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")
     assert chamadas == [("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")]
 
