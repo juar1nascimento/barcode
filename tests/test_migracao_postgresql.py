@@ -56,3 +56,21 @@ def test_migracao_dry_run_nao_cria_unidade_ou_setor(monkeypatch):
     assert resultado["candidatos"] == 1
     assert resultado["inseridos"] == 1
     assert resultado["erros"] == []
+
+
+def test_busca_setor_dry_run_preserva_consultorio_e_especialidade(monkeypatch):
+    import migrar_google_para_postgresql as mig
+
+    class Cursor:
+        def __init__(self):
+            self.params = None
+        def execute(self, sql, params=()):
+            self.params = params
+        def fetchone(self):
+            return (77,)
+
+    cur = Cursor()
+    setor_id = mig._buscar_setor_existente(cur, 12, "Consultório 4 - Odontologia")
+
+    assert setor_id == 77
+    assert cur.params == (12, "Consultório", 4, "Odontologia")
