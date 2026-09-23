@@ -424,6 +424,128 @@ def test_identificador_nao_pode_repetir_em_outra_unidade(monkeypatch):
     assert not backend._numero_patrimonio_existe_na_planilha(planilha,'GLOBAL-002')
 
 
+
+def test_salvar_patrimonio_envia_foto_bytes_ao_postgresql(monkeypatch):
+    class Cursor:
+        def __init__(self):
+            self.params = None
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, sql, params):
+            self.params = params
+            if sql.strip().upper().startswith("INSERT INTO PATRIMONIOS"):
+                self.params = params
+        def fetchone(self):
+            return (10,)
+
+    class Conn:
+        def __init__(self):
+            self.cur = Cursor()
+            self.committed = False
+        def cursor(self):
+            return self.cur
+        def commit(self):
+            self.committed = True
+        def rollback(self):
+            raise AssertionError("rollback inesperado")
+        def close(self):
+            pass
+
+    conn = Conn()
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: conn)
+    monkeypatch.setattr(backend.postgresql_persistencia, "garantir_unidade", lambda cur, unidade: 1)
+    monkeypatch.setattr(backend.postgresql_persistencia, "garantir_setor", lambda cur, unidade_id, setor: 2)
+
+    foto = b"\xff\xd8imagem\xff\xd9"
+    ok, mensagem = backend.postgresql_persistencia.salvar_patrimonio(
+        "COD-001", "CPU", "Farmacia", "UBS Teste", "Dell", "PAT-001", foto
+    )
+
+    assert ok
+    assert conn.committed is True
+    assert conn.cur.params[-1] == foto
+
+
+def test_edicao_por_identificacao_preserva_foto_existente(monkeypatch):
+    class Cursor:
+        rowcount = 1
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, sql, params):
+            self.sql = sql
+            self.params = params
+        def fetchone(self):
+            return (42,)
+
+    class Conn:
+        def __init__(self):
+            self.cur = Cursor()
+            self.committed = False
+        def cursor(self):
+            return self.cur
+        def commit(self):
+            self.committed = True
+        def rollback(self):
+            raise AssertionError("rollback inesperado")
+        def close(self):
+            pass
+
+    conn = Conn()
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: conn)
+    monkeypatch.setattr(backend.postgresql_persistencia, "garantir_unidade", lambda cur, unidade: 1)
+    monkeypatch.setattr(backend.postgresql_persistencia, "garantir_setor", lambda cur, unidade_id, setor: 2)
+
+    ok, mensagem = backend.postgresql_persistencia.atualizar_patrimonio_por_identificacao(
+        "UBS Teste", "Farmacia", "PAT-001", "CPU", "Recepção", "PAT-002", "Dell"
+    )
+
+    assert ok
+    assert conn.committed is True
+    assert "foto=" not in conn.cur.sql.lower()
+
+
+def test_exclusao_por_identificacao_remove_a_linha_que_contem_a_foto(monkeypatch):
+    class Cursor:
+        rowcount = 1
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, sql, params):
+            self.sql = sql
+            self.params = params
+        def fetchone(self):
+            return (77,)
+
+    class Conn:
+        def __init__(self):
+            self.cur = Cursor()
+            self.committed = False
+        def cursor(self):
+            return self.cur
+        def commit(self):
+            self.committed = True
+        def rollback(self):
+            raise AssertionError("rollback inesperado")
+        def close(self):
+            pass
+
+    conn = Conn()
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: conn)
+
+    ok, mensagem = backend.postgresql_persistencia.excluir_patrimonio_por_identificacao(
+        "Almoxarifado Central SESA", "Farmacia", "ALM-001"
+    )
+
+    assert ok
+    assert conn.committed is True
+    assert conn.cur.sql.strip().upper().startswith("DELETE FROM PATRIMONIOS")
+
 def test_obter_foto_patrimonio_recupera_bytes_sob_demanda(monkeypatch):
     class Cursor:
         def __enter__(self): return self
