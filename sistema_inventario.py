@@ -140,9 +140,10 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
 # ==============================================================================
 # CARD DE INVENTÁRIO E PORTAL DE NAVEGAÇÃO
 # ==============================================================================
-def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, *args, **kwargs) -> None:
+def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
     urs_opcoes = [u for u in (lista_urs if lista_urs is not None else LISTA_URS_PADRAO) if not str(u).startswith("Selecione")]
     ubs_opcoes = [u for u in (lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO) if not str(u).startswith("Selecione")]
+    almox_opcoes = [u for u in (lista_almoxarifado if lista_almoxarifado is not None else ["Almoxarifado Central SESA"]) if not str(u).startswith("Selecione")]
 
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
@@ -150,11 +151,12 @@ def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs:
 
         urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", urs_opcoes, index=None, placeholder="Selecione uma URS...", key="sel_urs_card_inventario")
         ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", ubs_opcoes, index=None, placeholder="Selecione uma UBS...", key="sel_ubs_card_inventario")
-        unidade_escolhida = urs_selecionada if urs_selecionada else (ubs_selecionada if ubs_selecionada else "")
+        almox_selecionado = st.selectbox("Almoxarifado", almox_opcoes, index=None, placeholder="Selecione o Almoxarifado...", key="sel_almox_card_inventario")
+        unidade_escolhida = urs_selecionada if urs_selecionada else (ubs_selecionada if ubs_selecionada else (almox_selecionado if almox_selecionado else ""))
 
         if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
             if not unidade_escolhida:
-                st.warning("⚠️ Selecione uma URS ou UBS válida para continuar.")
+                st.warning("⚠️ Selecione uma URS, UBS ou Almoxarifado válido para continuar.")
             else:
                 st.session_state.unidade_selecionada = unidade_escolhida
                 st.session_state.pagina_atual = "inventario"
