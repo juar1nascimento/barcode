@@ -10,6 +10,7 @@ from Tabela_de_dados_Inventario_7_2 import (
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
     carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
 )
+import postgresql_persistencia
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
@@ -347,6 +348,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     codigo_input = st.text_input("Código Lido / Bipado:", autocomplete="off", placeholder="Aguardando bipagem...")
                     if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
                         if adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade, fabricante_input.strip()):
+                            if unidade.casefold() == "almoxarifado central sesa".casefold():
+                                st.session_state.patrimonio_foto_pendente = codigo_input.strip()
                             st.session_state.mensagem_sucesso = f"✅ Código `{codigo_input.strip()}` registrado na coluna `{header_patrimonio}` no setor `{setor_input}` ({unidade})."
                         st.rerun()
 
@@ -362,10 +365,40 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if codigos_encontrados:
                         codigos_registrados = [item["codigo"] for item in codigos_encontrados if adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade, fabricante_input.strip())]
                         if codigos_registrados:
+                            if unidade.casefold() == "almoxarifado central sesa".casefold():
+                                st.session_state.patrimonio_foto_pendente = codigos_registrados[0]
                             st.session_state.mensagem_sucesso = f"✅ {len(codigos_registrados)} código(s) registrado(s) com sucesso na coluna `{header_patrimonio}`!"
                         st.rerun()
 
     st.divider()
+    # Foto do patrimônio: habilitada no Almoxarifado Central SESA.
+    # A imagem é redimensionada/comprimida antes do envio para evitar picos de memória.
+    if unidade.casefold() == "almoxarifado central sesa".casefold():
+        numero_foto_pendente = st.session_state.get("patrimonio_foto_pendente")
+        if numero_foto_pendente:
+            st.markdown("### 📸 Foto do patrimônio")
+            st.caption(f"Registre a foto do patrimônio **{numero_foto_pendente}**. A imagem será otimizada antes do armazenamento.")
+            foto_capturada = st.camera_input(
+                "Tire a foto do patrimônio",
+                key=f"camera_patrimonio_{numero_foto_pendente}",
+                resolution="720p",
+            )
+            if foto_capturada is not None and st.button(
+                "💾 Enviar e armazenar foto", type="primary", use_container_width=True,
+                key=f"salvar_foto_{numero_foto_pendente}",
+            ):
+                ok_foto, msg_foto = postgresql_persistencia.salvar_foto_patrimonio(
+                    numero_patrimonio=numero_foto_pendente,
+                    unidade=unidade,
+                    image_file=foto_capturada,
+                )
+                if ok_foto:
+                    st.success(f"✅ {msg_foto}")
+                    st.session_state.pop("patrimonio_foto_pendente", None)
+                    st.rerun()
+                else:
+                    st.error(f"❌ {msg_foto}")
+
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
 
     try:
