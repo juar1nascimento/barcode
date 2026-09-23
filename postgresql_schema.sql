@@ -1,12 +1,11 @@
 -- GTI-SESA / Sistema de Inventários
--- Schema definitivo para PostgreSQL em nuvem (Supabase).
--- O Google Sheets permanece como tabela operacional/espelho.
--- Este arquivo cria apenas a estrutura; NÃO migra dados históricos.
+-- Modelo PostgreSQL para UBS, URS e Almoxarifado Central SESA.
+-- Esta migração altera apenas a estrutura; não migra dados históricos.
 
 CREATE TABLE IF NOT EXISTS unidades (
     id BIGSERIAL PRIMARY KEY,
     nome VARCHAR(150) NOT NULL UNIQUE,
-    tipo VARCHAR(10) NOT NULL CHECK (tipo IN ('UBS', 'URS')),
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('UBS', 'URS', 'ALMOXARIFADO')),
     ativo BOOLEAN NOT NULL DEFAULT TRUE,
     criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -29,9 +28,6 @@ CREATE TABLE IF NOT EXISTS setores (
     )
 );
 
--- Regras de unicidade sem depender da semântica de NULL do PostgreSQL:
--- 1) setor normal: uma ocorrência por unidade/nome;
--- 2) consultório: uma ocorrência por unidade/número/especialidade.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_setor_normal
     ON setores (unidade_id, nome)
     WHERE nome <> 'Consultório' AND numero_consultorio IS NULL AND especialidade IS NULL;
@@ -52,6 +48,7 @@ CREATE TABLE IF NOT EXISTS patrimonios (
     fabricante VARCHAR(150),
     data_cadastro TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    foto BYTEA,
     CONSTRAINT uq_patrimonio_numero UNIQUE (numero_patrimonio),
     CONSTRAINT uq_patrimonio_codigo_barras UNIQUE (codigo_barras)
 );
@@ -60,7 +57,3 @@ CREATE INDEX IF NOT EXISTS idx_setores_unidade ON setores(unidade_id);
 CREATE INDEX IF NOT EXISTS idx_patrimonios_unidade ON patrimonios(unidade_id);
 CREATE INDEX IF NOT EXISTS idx_patrimonios_setor ON patrimonios(setor_id);
 CREATE INDEX IF NOT EXISTS idx_patrimonios_tipo ON patrimonios(tipo);
-
--- Compatibilidade operacional: a coluna Setor do Google Sheets pode continuar
--- exibindo "Consultório 5 - Odontologia", enquanto o PostgreSQL mantém os
--- componentes estruturados em nome/numero_consultorio/especialidade.

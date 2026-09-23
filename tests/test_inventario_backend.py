@@ -21,10 +21,11 @@ def _mock_persistencia(monkeypatch, estado):
     monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
     monkeypatch.setattr(backend, "_anexar_no_google", lambda df, unidade: estado.__setitem__("df", pd.concat([estado["df"], df], ignore_index=True)) or True)
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: None)
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: False)
 
 
 def test_schema_e_tipo_patrimonio():
-    assert COLUNAS == ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
+    assert COLUNAS == ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro", "Foto"]
     assert "Código de Barras" not in COLUNAS
     assert "Origem" not in COLUNAS
     assert "Status" not in COLUNAS
@@ -194,7 +195,7 @@ def test_cadastro_legacy_da_tela_e_convertido_para_schema_atual():
     legado = pd.DataFrame([{"Setor": "Farmacia", "CPU": "CPU-UI-001", "Fabricante CPU": "Dell"}])
     assert backend._normalizar_legacy_dataframe(legado).to_dict("records") == [{
         "Setor": "Farmacia", "Tipo de Patrimônio": "CPU", "Nº de Patrimônio": "CPU-UI-001",
-        "Fabricante": "Dell", "Data Cadastro": "",
+        "Fabricante": "Dell", "Data Cadastro": "", "Foto": "",
     }]
 
 
@@ -254,7 +255,7 @@ def test_salvar_no_google_confirma_leitura_de_volta(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     assert backend.salvar_no_excel(_df_exemplo(), "UBS Teste") is True
-    assert planilha.sheets["UBS Teste"].rows == [COLUNAS, ["Farmacia", "Monitores", "MON-001", "Samsung", "2026-09-09 12:00:00"]]
+    assert planilha.sheets["UBS Teste"].rows == [COLUNAS, ["Farmacia", "Monitores", "MON-001", "Samsung", "2026-09-09 12:00:00", ""]]
 
 
 def test_google_com_leitura_de_confirmacao_diferente_eh_falha(monkeypatch, tmp_path):
@@ -317,7 +318,6 @@ def test_cadastro_nao_reintroduz_colunas_removidas(monkeypatch):
     assert not any(c in estado["df"].columns for c in ("Código de Barras", "Origem", "Status"))
 
 
-
 def test_carga_em_massa_sem_gravacao_parcial(monkeypatch):
     estado = _estado_vazio()
     _mock_persistencia(monkeypatch, estado)
@@ -361,9 +361,9 @@ def test_carga_em_massa_rejeita_lote_maior_que_limite(monkeypatch):
 def test_interface_delega_cadastro_ao_backend(monkeypatch):
     import sistema_inventario as ui
     chamadas = []
-    monkeypatch.setattr(ui, "registrar_patrimonio", lambda *args: chamadas.append(args) or True)
+    monkeypatch.setattr(ui, "registrar_patrimonio", lambda *args, **kwargs: chamadas.append((args, kwargs)) or True)
     assert ui.adicionar_e_salvar("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")
-    assert chamadas == [("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")]
+    assert chamadas == [(("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell"), {"foto_data_url": "", "foto_bytes": None})]
 
 
 def test_cadastro_normal_anexa_sem_limpar_aba(monkeypatch, tmp_path):
@@ -404,7 +404,7 @@ def test_carga_em_lote_anexa_apenas_novas_linhas(monkeypatch, tmp_path):
 def test_cadastro_repetido_apos_append_e_idempotente(monkeypatch, tmp_path):
     planilha = _FakeSpreadsheet()
     aba = planilha.add_worksheet(title="UBS Teste", rows=100, cols=len(COLUNAS))
-    aba.update(values=[COLUNAS, ["Farmacia", "CPU", "REPETIDO-001", "Dell", "2026-09-09 10:00:00"]], range_name="A1")
+    aba.update(values=[COLUNAS, ["Farmacia", "CPU", "REPETIDO-001", "Dell", "2026-09-09 10:00:00", ""]], range_name="A1")
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: planilha)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
@@ -422,3 +422,237 @@ def test_identificador_nao_pode_repetir_em_outra_unidade(monkeypatch):
     planilha=Planilha()
     assert backend._numero_patrimonio_existe_na_planilha(planilha,' global-001 ')
     assert not backend._numero_patrimonio_existe_na_planilha(planilha,'GLOBAL-002')
+
+
+
+def test_salvar_patrimonio_envia_foto_bytes_ao_postgresql(monkeypatch):
+    class Cursor:
+        def __init__(self):
+            self.params = None
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, sql, params):
+            self.params = params
+            if sql.strip().upper().startswith("INSERT INTO PATRIMONIOS"):
+                self.params = params
+        def fetchone(self):
+            return (10,)
+
+    class Conn:
+        def __init__(self):
+            self.cur = Cursor()
+            self.committed = False
+        def cursor(self):
+            return self.cur
+        def commit(self):
+            self.committed = True
+        def rollback(self):
+            raise AssertionError("rollback inesperado")
+        def close(self):
+            pass
+
+    conn = Conn()
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: conn)
+    monkeypatch.setattr(backend.postgresql_persistencia, "garantir_unidade", lambda cur, unidade: 1)
+    monkeypatch.setattr(backend.postgresql_persistencia, "garantir_setor", lambda cur, unidade_id, setor: 2)
+
+    foto = b"\xff\xd8imagem\xff\xd9"
+    ok, mensagem = backend.postgresql_persistencia.salvar_patrimonio(
+        "COD-001", "CPU", "Farmacia", "UBS Teste", "Dell", "PAT-001", foto
+    )
+
+    assert ok
+    assert conn.committed is True
+    assert conn.cur.params[-1] == foto
+
+
+def test_edicao_por_identificacao_preserva_foto_existente(monkeypatch):
+    class Cursor:
+        rowcount = 1
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, sql, params):
+            self.sql = sql
+            self.params = params
+        def fetchone(self):
+            return (42,)
+
+    class Conn:
+        def __init__(self):
+            self.cur = Cursor()
+            self.committed = False
+        def cursor(self):
+            return self.cur
+        def commit(self):
+            self.committed = True
+        def rollback(self):
+            raise AssertionError("rollback inesperado")
+        def close(self):
+            pass
+
+    conn = Conn()
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: conn)
+    monkeypatch.setattr(backend.postgresql_persistencia, "garantir_unidade", lambda cur, unidade: 1)
+    monkeypatch.setattr(backend.postgresql_persistencia, "garantir_setor", lambda cur, unidade_id, setor: 2)
+
+    ok, mensagem = backend.postgresql_persistencia.atualizar_patrimonio_por_identificacao(
+        "UBS Teste", "Farmacia", "PAT-001", "CPU", "Recepção", "PAT-002", "Dell"
+    )
+
+    assert ok
+    assert conn.committed is True
+    assert "foto=" not in conn.cur.sql.lower()
+
+
+def test_exclusao_por_identificacao_remove_a_linha_que_contem_a_foto(monkeypatch):
+    class Cursor:
+        rowcount = 1
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, sql, params):
+            self.sql = sql
+            self.params = params
+        def fetchone(self):
+            return (77,)
+
+    class Conn:
+        def __init__(self):
+            self.cur = Cursor()
+            self.committed = False
+        def cursor(self):
+            return self.cur
+        def commit(self):
+            self.committed = True
+        def rollback(self):
+            raise AssertionError("rollback inesperado")
+        def close(self):
+            pass
+
+    conn = Conn()
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: conn)
+
+    ok, mensagem = backend.postgresql_persistencia.excluir_patrimonio_por_identificacao(
+        "Almoxarifado Central SESA", "Farmacia", "ALM-001"
+    )
+
+    assert ok
+    assert conn.committed is True
+    assert conn.cur.sql.strip().upper().startswith("DELETE FROM PATRIMONIOS")
+
+
+def test_cadastro_pg_confirmado_nao_falha_se_espelho_sheets_indisponivel(monkeypatch):
+    import Tabela_de_dados_Inventario_7_2 as backend
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(
+        backend.postgresql_persistencia,
+        "salvar_patrimonio",
+        lambda **kwargs: (True, "PostgreSQL OK"),
+    )
+    monkeypatch.setattr(backend, "_anexar_no_google", lambda *args, **kwargs: False)
+    assert backend.registrar_patrimonio(
+        "COD-001", "CPU", "Farmacia", "UBS Teste", "Dell", "PAT-PG-001"
+    )
+
+
+def test_edicao_pg_confirmada_nao_desfaz_se_espelho_sheets_falhar(monkeypatch):
+    import Tabela_de_dados_Inventario_7_2 as backend
+    df = backend.pd.DataFrame([{
+        "Setor": "Farmacia",
+        "Tipo de Patrimônio": "CPU",
+        "Nº de Patrimônio": "PAT-001",
+        "Fabricante": "Dell",
+        "Data Cadastro": "2026-09-23 10:00:00",
+        "Foto": "📷 Foto armazenada",
+    }])
+    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (df, None))
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(
+        backend.postgresql_persistencia,
+        "atualizar_patrimonio_por_identificacao",
+        lambda *args, **kwargs: (True, "PostgreSQL OK"),
+    )
+    monkeypatch.setattr(backend, "salvar_no_excel", lambda *args, **kwargs: False)
+    assert backend.editar_patrimonio(
+        "Farmacia", "PAT-001", "Recepção", "CPU", "PAT-002", "Dell", "UBS Teste"
+    )
+
+
+def test_exclusao_pg_confirmada_nao_desfaz_se_espelho_sheets_falhar(monkeypatch):
+    import Tabela_de_dados_Inventario_7_2 as backend
+    df = backend.pd.DataFrame([{
+        "Setor": "Farmacia",
+        "Tipo de Patrimônio": "CPU",
+        "Nº de Patrimônio": "PAT-001",
+        "Fabricante": "Dell",
+        "Data Cadastro": "2026-09-23 10:00:00",
+        "Foto": "📷 Foto armazenada",
+    }])
+    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (df, None))
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(
+        backend.postgresql_persistencia,
+        "excluir_patrimonio_por_identificacao",
+        lambda *args, **kwargs: (True, "PostgreSQL OK"),
+    )
+    monkeypatch.setattr(backend, "salvar_no_excel", lambda *args, **kwargs: False)
+    assert backend.excluir_patrimonio("Farmacia", "PAT-001", "UBS Teste")
+
+def test_obter_foto_patrimonio_recupera_bytes_sob_demanda(monkeypatch):
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def execute(self, sql, params):
+            self.params = params
+            self.sql = sql
+        def fetchone(self):
+            return (b"\xff\xd8foto\xff\xd9",)
+
+    class Conn:
+        def cursor(self): return Cursor()
+        def close(self): pass
+
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: Conn())
+    foto = backend.postgresql_persistencia.obter_foto_patrimonio(
+        "Almoxarifado Central SESA", "Farmacia", "ALM-001"
+    )
+    assert foto == b"\xff\xd8foto\xff\xd9"
+
+
+def test_obter_foto_patrimonio_sem_foto_retorna_none(monkeypatch):
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def execute(self, sql, params): pass
+        def fetchone(self): return (None,)
+
+    class Conn:
+        def cursor(self): return Cursor()
+        def close(self): pass
+
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: Conn())
+    assert backend.postgresql_persistencia.obter_foto_patrimonio(
+        "UBS Teste", "Farmacia", "SEM-FOTO-001"
+    ) is None
+
+
+def test_leitura_nao_faz_fallback_para_sheets_se_postgresql_estiver_configurado_e_indisponivel(monkeypatch):
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(backend, "_carregar_dados_postgresql", lambda unidade: None)
+    sheets_chamado = []
+    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: sheets_chamado.append(True) or None)
+    monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
+    backend.carregar_dados_excel.clear()
+
+    df, fonte = backend.carregar_dados_excel("UBS Teste")
+
+    assert df.empty
+    assert list(df.columns) == COLUNAS
+    assert fonte == "PostgreSQL indisponível"
+    assert sheets_chamado == []

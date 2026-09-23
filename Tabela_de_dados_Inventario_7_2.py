@@ -10,18 +10,21 @@ from typing import Optional, Tuple
 import gspread
 import pandas as pd
 import streamlit as st
+
+import postgresql_persistencia
 from google.oauth2.service_account import Credentials
 
 ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Código de Barras", "Origem", "Status"]
 TIPOS_PATRIMONIO = ("CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos")
-COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
+COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro", "Foto"]
 COLUNAS_PADRAO = COLUNAS_INVENTARIO.copy()
 SETORES_PADRAO = ["Consultório", "Almoxarifado", "Farmacia", "Sala de Preparo", "Sala de Vacina", "Sala de curativo", "Gerencia", "Administração", "Odontologia", "Recepção", "Outro Setor"]
 LISTA_URS_PADRAO = ["URS Novo Horizonte", "URS Jacaraípe", "URS Boa Vista", "URS Feu Rosa", "URS Serra Sede", "URS Serra Dourada"]
+LISTA_ALMOXARIFADO_PADRAO = ["Almoxarifado Central SESA"]
 LISTA_UBS_PADRAO = ["UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)", "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos", "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra", "UBS Itinerante (atendimento na UBS)"]
-UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO
+UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO + LISTA_ALMOXARIFADO_PADRAO
 FUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")
 _PERSISTENCIA_LOCK = threading.RLock()
 
@@ -31,7 +34,7 @@ def _agora_brasilia() -> datetime:
 
 
 def _data_hora_cadastro() -> str:
-    return _agora_brasilia().strftime("%d-%m-%Y %H:%M:%S")
+    return _agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
@@ -72,15 +75,22 @@ def _eh_vazio(v) -> bool:
 
 
 def _numero_patrimonio_existe_na_planilha(planilha, numero_patrimonio: str) -> bool:
+    """Procura um número em todas as abas, tolerando linhas legadas incompletas."""
     chave = _chave_texto(numero_patrimonio)
     if not chave or planilha is None:
         return False
     try:
         for aba in planilha.worksheets():
             valores = aba.get_all_values()
-            if not valores:
+            if not valores or len(valores) < 2:
                 continue
-            df = _normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])) if len(valores) > 1 else pd.DataFrame(columns=COLUNAS_INVENTARIO)
+            cabecalho = [str(v).strip() for v in valores[0]]
+            largura = len(cabecalho)
+            linhas = [
+                list(linha[:largura]) + [""] * max(0, largura - len(linha))
+                for linha in valores[1:]
+            ]
+            df = _normalizar_legacy_dataframe(pd.DataFrame(linhas, columns=cabecalho))
             if not df.empty and df["Nº de Patrimônio"].map(_chave_texto).eq(chave).any():
                 return True
     except Exception:
@@ -179,10 +189,68 @@ def conectar_google_sheets():
 def _nome_aba(unidade: str) -> str:
     return _normalizar_unidade_aba(unidade)[:90].strip()
 
+def _carregar_dados_postgresql(unidade: str) -> Optional[pd.DataFrame]:
+    """Lê o inventário do PostgreSQL quando a conexão estiver configurada.
+
+    Retorna None quando o PostgreSQL não estiver configurado ou estiver indisponível,
+    permitindo o fallback controlado para o Google Sheets durante a migração.
+    """
+    if not postgresql_persistencia._conexao_configurada():
+        return None
+    teste = postgresql_persistencia.conectar()
+    if teste is None:
+        return None
+    try:
+        teste.close()
+    except Exception:
+        pass
+    try:
+        registros = postgresql_persistencia.listar_patrimonios(unidade=unidade)
+        linhas = []
+        for row in registros:
+            # id, unidade, setor, numero_consultorio, especialidade, tipo,
+            # numero_patrimonio, codigo_barras, fabricante, data_cadastro,
+            # atualizado_em, possui_foto
+            _, _, nome_setor, numero_consultorio, especialidade, tipo, numero,
+            codigo, fabricante, data_cadastro, _, possui_foto = row
+            setor = nome_setor or ""
+            if numero_consultorio is not None and str(nome_setor).strip().casefold() == "consultório":
+                setor = f"Consultório {numero_consultorio}"
+                if especialidade:
+                    setor += f" - {especialidade}"
+            linhas.append({
+                "Setor": setor,
+                "Tipo de Patrimônio": _normalizar_tipo(tipo),
+                "Nº de Patrimônio": _valor_texto(numero),
+                "Fabricante": _valor_texto(fabricante),
+                "Data Cadastro": normalizar_data_hora(data_cadastro),
+                # A imagem permanece no PostgreSQL; a tabela mantém a indicação
+                # de foto sem transportar bytes para a interface.
+                "Foto": "📷 Foto armazenada" if possui_foto else "",
+            })
+        return pd.DataFrame(linhas, columns=COLUNAS_INVENTARIO).fillna("").astype(str)
+    except Exception as exc:
+        st.warning(f"PostgreSQL indisponível para leitura; usando o espelho legado. Detalhes: {exc}")
+        return None
+
 
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     unidade = _normalizar_unidade_aba(unidade)
+
+    # PostgreSQL é a fonte oficial quando estiver configurado.
+    # Se estiver configurado mas indisponível, NÃO usamos um espelho potencialmente
+    # desatualizado como fonte de leitura: interrompemos a leitura e informamos o erro.
+    # O fallback para Google Sheets fica restrito ao modo legado, quando PostgreSQL
+    # ainda não foi configurado.
+    postgresql_configurado = postgresql_persistencia._conexao_configurada()
+    dados_postgresql = _carregar_dados_postgresql(unidade)
+    if dados_postgresql is not None:
+        return dados_postgresql.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), "PostgreSQL"
+    if postgresql_configurado:
+        st.error("⚠️ PostgreSQL está configurado, mas indisponível. A leitura do inventário foi interrompida para evitar usar dados potencialmente desatualizados do Google Sheets.")
+        return pd.DataFrame(columns=COLUNAS_INVENTARIO), "PostgreSQL indisponível"
+
     planilha = conectar_google_sheets()
     nome_aba = _nome_aba(unidade)
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
@@ -314,7 +382,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
         try:
             aba = _obter_aba_gravacao(planilha, nome_aba, len(df_salvar) + 1)
             linhas_limpeza = max(aba.row_count, len(valores), 100)
-            aba.batch_clear([f"A1:E{linhas_limpeza}"])
+            aba.batch_clear([f"A1:F{linhas_limpeza}"])
             aba.update(values=valores, range_name="A1")
             sucesso_sheets = _verificar_gravacao_google(aba, valores)
             if not sucesso_sheets:
@@ -330,7 +398,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
 
 
 @_serializar_persistencia
-def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
+def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "", foto_data_url: str = "", foto_bytes: Optional[bytes] = None) -> bool:
     codigo = _valor_texto(codigo_barras)
     setor_limpo = _valor_texto(setor)
     unidade_limpa = _normalizar_unidade_aba(unidade)
@@ -341,53 +409,253 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     if not valido:
         if mensagem: st.warning(mensagem)
         return False
-    df, _ = carregar_dados_excel(unidade_limpa)
-    df = _normalizar_legacy_dataframe(df)
-    chave_numero = _chave_texto(numero)
-    if (df["Nº de Patrimônio"].map(_chave_texto) == chave_numero).any():
-        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado.")
-        return False
-    planilha_validacao = conectar_google_sheets()
-    if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
-        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
-        return False
-    nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro()}
-    return _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)
+    pg_configurado = postgresql_persistencia._conexao_configurada()
+
+    # PostgreSQL é a fonte oficial de verdade quando configurado.
+    # O Sheets só participa da prevenção de duplicidade no modo legado, sem PostgreSQL.
+    if not pg_configurado:
+        dados_atuais, _ = carregar_dados_excel(unidade_limpa)
+        dados_atuais = _normalizar_legacy_dataframe(dados_atuais)
+        numeros_existentes = {
+            _chave_texto(valor) for valor in dados_atuais["Nº de Patrimônio"]
+            if not _eh_vazio(valor)
+        }
+        if _chave_texto(numero) in numeros_existentes:
+            st.warning("O número de patrimônio/código de barras já está cadastrado na unidade.")
+            return False
+        planilha_validacao = conectar_google_sheets()
+        if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
+            st.warning("O número de patrimônio/código de barras já está cadastrado no Google Sheets.")
+            return False
+
+    if pg_configurado:
+        ok_pg, msg_pg = postgresql_persistencia.salvar_patrimonio(
+            codigo_barras=codigo,
+            tipo=tipo,
+            setor=setor_limpo,
+            unidade=unidade_limpa,
+            fabricante=fabricante_limpo,
+            numero_patrimonio=numero,
+            foto_bytes=foto_bytes,
+        )
+        if not ok_pg:
+            st.warning(msg_pg)
+            return False
+
+    nova = {
+        "Setor": setor_limpo,
+        "Tipo de Patrimônio": tipo,
+        "Nº de Patrimônio": numero,
+        "Fabricante": fabricante_limpo,
+        "Data Cadastro": _data_hora_cadastro(),
+        "Foto": _valor_texto(foto_data_url)[:45000],
+    }
+    sucesso_sheets = _anexar_no_google(
+        pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa
+    )
+
+    # Com PostgreSQL ativo, a gravação principal já foi confirmada no banco.
+    # O Sheets é espelho durante a migração; sua falha não desfaz a transação.
+    if pg_configurado:
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ PostgreSQL confirmou o patrimônio, mas o espelho Google Sheets "
+                "não foi confirmado. O registro permanece salvo no PostgreSQL."
+            )
+        return True
+    return sucesso_sheets
 
 
 @_serializar_persistencia
 def registrar_patrimonios_em_lote(registros, unidade: str):
+    """Registra um lote com PostgreSQL como fonte primária e Sheets como espelho."""
     registros = list(registros or [])
-    if not registros: return False, ["O lote está vazio."]
-    if len(registros) > 1000: return False, ["O lote excede o limite de 1000 patrimônios por operação."]
+    if not registros:
+        return False, ["O lote está vazio."]
+    if len(registros) > 1000:
+        return False, ["O lote excede o limite de 1000 patrimônios por operação."]
+
     unidade_limpa = _normalizar_unidade_aba(unidade)
     df, _ = carregar_dados_excel(unidade_limpa)
     df = _normalizar_legacy_dataframe(df)
+
     existentes = set(df["Nº de Patrimônio"].map(_chave_texto))
     vistos, novos, erros = set(), [], []
+
     for posicao, item in enumerate(registros, start=1):
         item = item or {}
         numero = _valor_texto(item.get("numero_patrimonio", "")) or _valor_texto(item.get("codigo_barras", ""))
-        tipo = _normalizar_tipo(item.get("tipo_patrimonio", ""))
+        tipo = _normalizar_tipo(item.get("tipo_patrimonio", "") or item.get("tipo", ""))
         setor = _valor_texto(item.get("setor", ""))
         fabricante = _valor_texto(item.get("fabricante", ""))
+        foto_data_url = _valor_texto(item.get("foto_data_url", ""))[:45000]
+        foto_bytes = item.get("foto_bytes")
+
         ok, mensagem = validar_cadastro_patrimonio(tipo, setor, unidade_limpa, numero)
-        if not ok: erros.append(f"Registro {posicao}: {mensagem}"); continue
+        if not ok:
+            erros.append(f"Registro {posicao}: {mensagem}")
+            continue
+
         chave = _chave_texto(numero)
-        if chave in existentes: erros.append(f"Registro {posicao}: o patrimônio `{numero}` já existe na unidade."); continue
-        if chave in vistos: erros.append(f"Registro {posicao}: o patrimônio `{numero}` está duplicado no próprio lote."); continue
+        if chave in existentes:
+            erros.append(f"Registro {posicao}: o patrimônio {numero} já existe na unidade.")
+            continue
+        if chave in vistos:
+            erros.append(f"Registro {posicao}: o patrimônio {numero} está duplicado no próprio lote.")
+            continue
+
         vistos.add(chave)
-        novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro()})
-    if erros: return False, erros
-    sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)
+        novos.append({
+            "Setor": setor,
+            "Tipo de Patrimônio": tipo,
+            "Nº de Patrimônio": numero,
+            "Fabricante": fabricante,
+            "Data Cadastro": _data_hora_cadastro(),
+            "Foto": foto_data_url,
+            "_foto_bytes": foto_bytes,
+            "_codigo_barras": _valor_texto(item.get("codigo_barras", "")),
+        })
+
+    if erros:
+        return False, erros
+
+    if postgresql_persistencia._conexao_configurada():
+        registros_pg = [
+            {
+                "numero_patrimonio": item["Nº de Patrimônio"],
+                "codigo_barras": item["_codigo_barras"],
+                "tipo": item["Tipo de Patrimônio"],
+                "setor": item["Setor"],
+                "fabricante": item["Fabricante"],
+                "data_cadastro": item["Data Cadastro"],
+                "foto_bytes": item["_foto_bytes"],
+            }
+            for item in novos
+        ]
+        ok_pg, msg_pg = postgresql_persistencia.salvar_patrimonios_em_lote(
+            registros_pg, unidade_limpa
+        )
+        if not ok_pg:
+            return False, [msg_pg]
+
+        df_espelho = pd.DataFrame(novos, columns=COLUNAS_INVENTARIO + ["_foto_bytes", "_codigo_barras"])
+        df_espelho = df_espelho[COLUNAS_INVENTARIO]
+        sucesso_sheets = _anexar_no_google(df_espelho, unidade_limpa)
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ O lote foi confirmado no PostgreSQL, mas o espelho Google Sheets "
+                "não confirmou a gravação."
+            )
+        return True, []
+
+    df_espelho = pd.DataFrame(novos, columns=COLUNAS_INVENTARIO + ["_foto_bytes", "_codigo_barras"])
+    df_espelho = df_espelho[COLUNAS_INVENTARIO]
+    sucesso = _anexar_no_google(df_espelho, unidade_limpa)
     return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
 
-
-def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
-    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio)
+def adicionar_e_salvar_sem_sobrescrever(
+    codigo: str,
+    patrimonio: str,
+    setor: str,
+    unidade: str,
+    fabricante: str = "",
+    numero_patrimonio: str = "",
+    foto_data_url: str = "",
+    foto_bytes: Optional[bytes] = None,
+) -> bool:
+    return registrar_patrimonio(
+        codigo,
+        patrimonio,
+        setor,
+        unidade,
+        fabricante,
+        numero_patrimonio,
+        foto_data_url,
+        foto_bytes,
+    )
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
+
+
+
+def _aplicar_edicao_patrimonio(
+    df: pd.DataFrame,
+    setor_atual: str,
+    numero_atual: str,
+    novo_setor: str,
+    novo_tipo: str,
+    novo_numero: str,
+    novo_fabricante: str,
+) -> Tuple[pd.DataFrame, bool]:
+    """Aplica uma edição local ao espelho sem depender de posição da linha."""
+    df = _normalizar_legacy_dataframe(df)
+    if df.empty:
+        return df.copy(), False
+
+    mask = (
+        df["Setor"].map(_chave_texto).eq(_chave_texto(setor_atual))
+        & df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(numero_atual))
+    )
+    if not mask.any():
+        return df.copy(), False
+
+    novo = df.copy()
+    idx = novo.index[mask][0]
+    novo.at[idx, "Setor"] = novo_setor
+    novo.at[idx, "Tipo de Patrimônio"] = novo_tipo
+    novo.at[idx, "Nº de Patrimônio"] = novo_numero
+    novo.at[idx, "Fabricante"] = novo_fabricante
+    return novo, True
+
+
+def editar_patrimonio(
+    setor_atual: str,
+    numero_atual: str,
+    novo_setor: str,
+    novo_tipo: str,
+    novo_numero: str,
+    novo_fabricante: str,
+    unidade: str,
+) -> bool:
+    df, _ = carregar_dados_excel(unidade)
+    novo, alterado = _aplicar_edicao_patrimonio(
+        df, setor_atual, numero_atual, novo_setor, novo_tipo, novo_numero, novo_fabricante
+    )
+    if not alterado:
+        st.warning("⚠️ Patrimônio não encontrado para edição.")
+        return False
+
+    ok_validacao, msg_validacao = validar_cadastro_patrimonio(
+        novo_tipo, novo_setor, unidade, novo_numero
+    )
+    if not ok_validacao:
+        st.warning(f"⚠️ Edição cancelada: {msg_validacao}")
+        return False
+
+    if postgresql_persistencia._conexao_configurada():
+        ok_pg, msg_pg = postgresql_persistencia.atualizar_patrimonio_por_identificacao(
+            unidade,
+            setor_atual,
+            numero_atual,
+            novo_tipo,
+            novo_setor,
+            novo_numero,
+            novo_fabricante,
+        )
+        if not ok_pg:
+            st.warning(f"⚠️ Edição cancelada: {msg_pg}")
+            return False
+
+        sucesso_sheets = salvar_no_excel(novo, unidade)
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ O patrimônio foi atualizado no PostgreSQL, mas o espelho Google Sheets "
+                "não confirmou a atualização."
+            )
+        return True
+
+    return salvar_no_excel(novo, unidade)
 
 
 def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> Tuple[pd.DataFrame, bool]:
@@ -425,10 +693,70 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
 def excluir_setor(setor: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_setor(df, setor)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    if not alterado:
+        return False
+
+    if postgresql_persistencia._conexao_configurada():
+        ok_pg, msg_pg = postgresql_persistencia.excluir_setor_postgresql(unidade, setor)
+        if not ok_pg:
+            st.warning(f"⚠️ Exclusão cancelada: {msg_pg}")
+            return False
+
+        sucesso_sheets = salvar_no_excel(novo, unidade)
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ O setor foi excluído do PostgreSQL, mas o espelho Google Sheets "
+                "não confirmou a atualização."
+            )
+        return True
+
+    return salvar_no_excel(novo, unidade)
 
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    if not alterado:
+        return False
+
+    alvo_numero = None
+    setor_mask = df["Setor"].map(_chave_texto) == _chave_texto(setor)
+    candidatos = df.loc[setor_mask]
+    if not candidatos.empty:
+        alvo = _valor_texto(coluna)
+        por_numero = candidatos[
+            candidatos["Nº de Patrimônio"].map(_chave_texto) == _chave_texto(alvo)
+        ]
+        if not por_numero.empty:
+            alvo_numero = _valor_texto(por_numero.iloc[0]["Nº de Patrimônio"])
+        else:
+            tipo = _normalizar_tipo(
+                re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", alvo, flags=re.I)
+            )
+            por_tipo = candidatos[
+                candidatos["Tipo de Patrimônio"].astype(str).map(_normalizar_tipo) == tipo
+            ] if tipo else pd.DataFrame()
+            if len(por_tipo) == 1:
+                alvo_numero = _valor_texto(por_tipo.iloc[0]["Nº de Patrimônio"])
+
+    if postgresql_persistencia._conexao_configurada():
+        if not alvo_numero:
+            st.warning("⚠️ Não foi possível identificar com segurança o número do patrimônio para excluir.")
+            return False
+
+        ok_pg, msg_pg = postgresql_persistencia.excluir_patrimonio_por_identificacao(
+            unidade, setor, alvo_numero
+        )
+        if not ok_pg:
+            st.warning(f"⚠️ Exclusão cancelada: {msg_pg}")
+            return False
+
+        sucesso_sheets = salvar_no_excel(novo, unidade)
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ O patrimônio foi excluído do PostgreSQL, mas o espelho Google Sheets "
+                "não confirmou a atualização."
+            )
+        return True
+
+    return salvar_no_excel(novo, unidade)

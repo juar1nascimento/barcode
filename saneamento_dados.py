@@ -80,6 +80,12 @@ def sanear_unidade(unidade: str, aplicar: bool = False) -> RelatorioSaneamento:
     resultado, relatorio = preparar_saneamento(df, unidade_limpa)
 
     if aplicar and relatorio.alterado:
+        if backend.postgresql_persistencia._conexao_configurada():
+            raise RuntimeError(
+                "Saneamento com gravação direta no Google Sheets foi bloqueado: "
+                "o PostgreSQL está configurado como fonte oficial. "
+                "A rotina precisa de uma operação de saneamento específica para PostgreSQL."
+            )
         if not backend.salvar_no_excel(resultado, unidade_limpa):
             raise RuntimeError(
                 f"Falha ao confirmar o saneamento da unidade {unidade_limpa!r} no Google Sheets."

@@ -1,14 +1,18 @@
 import os
 import re
+import base64
+import io
 import pandas as pd
 import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
+import postgresql_persistencia
+
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
-    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
+    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
+    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, editar_patrimonio, excluir_setor, excluir_patrimonio
 )
 
 # ==============================================================================
@@ -44,7 +48,8 @@ def validar_tipo_patrimonio(tipo: str) -> str:
 # LÓGICA DE CADASTRO COM SUPORTE A CABEÇALHOS ARTICULADOS DE FABRICANTE
 # ==============================================================================
 def adicionar_e_salvar_sem_sobrescrever(
-    codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
+    codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "",
+    foto_data_url: str = "", foto_bytes: Optional[bytes] = None
 ) -> bool:
     """Ponto único de entrada do cadastro da interface.
 
@@ -56,10 +61,39 @@ def adicionar_e_salvar_sem_sobrescrever(
     except ValueError as e:
         st.error(str(e))
         return False
-    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante)
+    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, foto_data_url=foto_data_url, foto_bytes=foto_bytes)
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
+
+# ==============================================================================
+# CAPTURA E COMPACTAÇÃO DA FOTO DO PATRIMÔNIO
+# ==============================================================================
+def preparar_foto(image_file: Any) -> Tuple[str, bytes]:
+    """Prepara uma miniatura para a coluna Foto e preserva os bytes originais."""
+    if image_file is None:
+        return "", b""
+    try:
+        original = image_file.getvalue() if hasattr(image_file, "getvalue") else bytes(image_file)
+        from PIL import Image
+        img = Image.open(io.BytesIO(original)).convert("RGB")
+        melhor = b""
+        for dimensao in (1280, 1024, 800, 640, 512, 384, 256):
+            copia = img.copy()
+            copia.thumbnail((dimensao, dimensao), Image.Resampling.LANCZOS)
+            for qualidade in (72, 62, 52, 42, 34, 28, 22):
+                buffer = io.BytesIO()
+                copia.save(buffer, format="JPEG", quality=qualidade, optimize=True)
+                dados = buffer.getvalue()
+                melhor = dados
+                if len(dados) <= 30000:
+                    encoded = base64.b64encode(dados).decode("ascii")
+                    return f"data:image/jpeg;base64,{encoded}", original
+        encoded = base64.b64encode(melhor).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}", original
+    except Exception as exc:
+        st.warning(f"Não foi possível preparar a foto do patrimônio: {exc}")
+        return "", b""
 
 # ==============================================================================
 # VISÃO COMPUTACIONAL / LEITURA DE IMAGEM
@@ -108,9 +142,10 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
 # ==============================================================================
 # CARD DE INVENTÁRIO E PORTAL DE NAVEGAÇÃO
 # ==============================================================================
-def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, *args, **kwargs) -> None:
+def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
     urs_opcoes = [u for u in (lista_urs if lista_urs is not None else LISTA_URS_PADRAO) if not str(u).startswith("Selecione")]
     ubs_opcoes = [u for u in (lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO) if not str(u).startswith("Selecione")]
+    almox_opcoes = [u for u in (lista_almoxarifado if lista_almoxarifado is not None else LISTA_ALMOXARIFADO_PADRAO) if not str(u).startswith("Selecione")]
 
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
@@ -118,11 +153,12 @@ def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs:
 
         urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", urs_opcoes, index=None, placeholder="Selecione uma URS...", key="sel_urs_card_inventario")
         ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", ubs_opcoes, index=None, placeholder="Selecione uma UBS...", key="sel_ubs_card_inventario")
-        unidade_escolhida = urs_selecionada if urs_selecionada else (ubs_selecionada if ubs_selecionada else "")
+        almox_selecionado = st.selectbox("Almoxarifado", almox_opcoes, index=None, placeholder="Selecione o Almoxarifado...", key="sel_almox_card_inventario")
+        unidade_escolhida = urs_selecionada if urs_selecionada else (ubs_selecionada if ubs_selecionada else (almox_selecionado if almox_selecionado else ""))
 
         if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
             if not unidade_escolhida:
-                st.warning("⚠️ Selecione uma URS ou UBS válida para continuar.")
+                st.warning("⚠️ Selecione uma URS, UBS ou Almoxarifado válido para continuar.")
             else:
                 st.session_state.unidade_selecionada = unidade_escolhida
                 st.session_state.pagina_atual = "inventario"
@@ -225,7 +261,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     if not descricao_final or not setor_input.strip():
         st.warning("⚠️ Preencha o **Setor** e o **Tipo de patrimônio** para habilitar o leitor.")
     else:
-        tab_unificada, tab_upload = st.tabs(["⚡ Câmera / Scanner USB", "📁 Upload de Imagem"])
+        tab_unificada, tab_upload = st.tabs(["⚡ Câmera / Scanner USB", "📷 Foto do Patrimônio"])
         header_patrimonio = formatar_nome_patrimonio(descricao_final)
         header_fabricante = formatar_nome_fabricante(descricao_final)
 
@@ -314,19 +350,108 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         st.rerun()
 
         with tab_upload:
-            uploaded_file = st.file_uploader("Envie uma imagem do código de barras", type=["jpg", "png", "jpeg"])
-            if uploaded_file is not None:
-                img_processada, codigos_encontrados = processar_imagem(uploaded_file)
-                col_img1, col_img2 = st.columns(2)
-                with col_img1:
-                    if img_processada is not None:
-                        st.image(img_processada, caption="Imagem Analisada", use_container_width=True)
-                with col_img2:
-                    if codigos_encontrados:
-                        codigos_registrados = [item["codigo"] for item in codigos_encontrados if adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade, fabricante_input.strip())]
-                        if codigos_registrados:
-                            st.session_state.mensagem_sucesso = f"✅ {len(codigos_registrados)} código(s) registrado(s) com sucesso na coluna `{header_patrimonio}`!"
+            st.markdown("### 📷 Fotografar patrimônio")
+            st.caption("Tire uma foto do patrimônio. A imagem ficará vinculada ao registro criado para esta unidade, setor e tipo de patrimônio.")
+            foto_capturada = st.camera_input("Tirar foto do patrimônio", key="camera_foto_patrimonio", resolution="720p")
+            if foto_capturada is not None:
+                foto_data_url, foto_bytes = preparar_foto(foto_capturada)
+                st.image(foto_capturada, caption="Foto capturada", use_container_width=True)
+                st.info("Informe/leia o número de patrimônio e salve. A foto será gravada na mesma linha.")
+                codigo_foto = st.text_input("Nº de Patrimônio / Código:", key="codigo_com_foto", autocomplete="off", placeholder="Informe ou leia o número...")
+                if st.button("📸 Salvar Patrimônio com Foto", type="primary", use_container_width=True, key="btn_salvar_foto") and codigo_foto.strip():
+                    if adicionar_e_salvar(codigo_foto.strip(), descricao_final, setor_input, unidade, fabricante_input.strip(), foto_data_url=foto_data_url, foto_bytes=foto_bytes):
+                        st.session_state.mensagem_sucesso = f"✅ Patrimônio `{codigo_foto.strip()}` registrado com a foto na coluna `Foto`."
                         st.rerun()
+
+    st.divider()
+    st.header("✏️ Editar Patrimônio")
+
+    with st.expander("Abrir editor de patrimônio", expanded=False):
+        patrimonios_edicao = []
+        info_edicao = {}
+        for _, linha in df_inicial.iterrows():
+            numero = str(linha.get("Nº de Patrimônio", "")).strip()
+            if not numero or numero.casefold() in {"nan", "none", "null"}:
+                continue
+            patrimonios_edicao.append(numero)
+            info_edicao[numero] = {
+                "setor": str(linha.get("Setor", "")).strip(),
+                "tipo": str(linha.get("Tipo de Patrimônio", "")).strip(),
+                "fabricante": str(linha.get("Fabricante", "")).strip(),
+            }
+
+        patrimonios_edicao = sorted(dict.fromkeys(patrimonios_edicao), key=str.casefold)
+        if not patrimonios_edicao:
+            st.info("ℹ️ Não existem patrimônios disponíveis para edição nesta unidade.")
+        else:
+            numero_edicao = st.selectbox(
+                "Selecione o Nº de Patrimônio:",
+                patrimonios_edicao,
+                index=None,
+                key="editar_numero_patrimonio",
+                placeholder="Selecione um patrimônio...",
+                format_func=lambda n: f"{n} — {info_edicao[n]['tipo']} — {info_edicao[n]['setor']}",
+            )
+
+            if numero_edicao:
+                atual = info_edicao[numero_edicao]
+                setores_existentes = sorted(
+                    {str(v).strip() for v in df_inicial["Setor"].tolist()
+                     if str(v).strip() and str(v).strip().casefold() not in {"nan", "none", "null"}},
+                    key=str.casefold,
+                )
+                setores_edicao = sorted(dict.fromkeys(setores_existentes + opcoes_setor), key=str.casefold)
+
+                tipo_edicao = st.selectbox(
+                    "Tipo de patrimônio:",
+                    opcoes_patrimonio,
+                    index=opcoes_patrimonio.index(atual["tipo"]) if atual["tipo"] in opcoes_patrimonio else None,
+                    key="editar_tipo_patrimonio",
+                )
+                setor_edicao = st.selectbox(
+                    "Setor:",
+                    setores_edicao,
+                    index=setores_edicao.index(atual["setor"]) if atual["setor"] in setores_edicao else None,
+                    key="editar_setor_patrimonio",
+                )
+
+                setor_final_edicao = setor_edicao or ""
+                numero_cons_edicao = 1
+                especialidade_edicao = ""
+                if setor_edicao == "Consultório":
+                    col_cons1, col_cons2 = st.columns(2)
+                    with col_cons1:
+                        numero_cons_edicao = st.number_input("Nº do Consultório:", min_value=1, step=1, value=1, key="editar_num_consultorio")
+                    with col_cons2:
+                        especialidade_edicao = st.text_input("Especialidade:", value="", key="editar_especialidade_consultorio")
+                    import re as _re_edicao
+                    m = _re_edicao.fullmatch(r"Consultório\s+(\d+)\s*-\s*(.+)", atual["setor"], flags=_re_edicao.I)
+                    if m:
+                        numero_cons_edicao = int(m.group(1))
+                        especialidade_edicao = m.group(2).strip()
+                    setor_final_edicao = f"Consultório {int(numero_cons_edicao)} - {especialidade_edicao.strip()}" if especialidade_edicao.strip() else ""
+                elif setor_edicao == "Outro Setor":
+                    setor_final_edicao = st.text_input("Nome do novo setor:", value=atual["setor"] if atual["setor"] not in opcoes_setor else "", key="editar_outro_setor").strip()
+
+                novo_numero_edicao = st.text_input("Novo Nº de Patrimônio:", value=numero_edicao, key="editar_novo_numero").strip()
+                novo_fabricante_edicao = st.text_input("Fabricante:", value=atual["fabricante"], key="editar_fabricante").strip()
+
+                if st.button("💾 Salvar alterações", type="primary", use_container_width=True, key="btn_salvar_edicao_patrimonio"):
+                    if not setor_final_edicao:
+                        st.warning("⚠️ Informe um setor válido.")
+                    elif not novo_numero_edicao:
+                        st.warning("⚠️ Informe o novo número de patrimônio.")
+                    elif setor_edicao == "Consultório" and not especialidade_edicao.strip():
+                        st.warning("⚠️ Informe a especialidade do consultório.")
+                    else:
+                        sucesso_edicao = editar_patrimonio(
+                            atual["setor"], numero_edicao, setor_final_edicao,
+                            tipo_edicao, novo_numero_edicao, novo_fabricante_edicao, unidade
+                        )
+                        carregar_dados_excel.clear()
+                        if sucesso_edicao:
+                            st.success(f"✅ Patrimônio `{numero_edicao}` atualizado para `{novo_numero_edicao}`.")
+                            st.rerun()
 
     st.divider()
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
@@ -362,7 +487,44 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             {'selector': 'td:first-child', 'props': [('font-weight', '700'), ('background-color', '#F1F5F9'), ('color', '#0F172A'), ('border-right', '2px solid #CBD5E1')]}
         ])
 
-        st.dataframe(df_styled, use_container_width=True)
+        if "Foto" in df_atual.columns:
+            st.dataframe(df_atual, use_container_width=True, hide_index=True, column_config={"Foto": st.column_config.ImageColumn("Foto", width="medium", help="Foto do patrimônio registrada pela câmera.")})
+        else:
+            st.dataframe(df_styled, use_container_width=True)
+
+        # A foto original fica no PostgreSQL como BYTEA e é carregada somente quando solicitada.
+        if "Foto" in df_atual.columns:
+            numeros_com_foto = sorted(
+                [
+                    str(linha["Nº de Patrimônio"]).strip()
+                    for _, linha in df_atual.iterrows()
+                    if str(linha.get("Nº de Patrimônio", "")).strip()
+                    and str(linha.get("Foto", "")).strip()
+                ],
+                key=str.casefold,
+            )
+            if numeros_com_foto:
+                st.markdown("#### 📷 Visualizar foto armazenada")
+                numero_foto = st.selectbox(
+                    "Selecione o patrimônio com foto:",
+                    numeros_com_foto,
+                    index=None,
+                    placeholder="Selecione um patrimônio...",
+                    key="visualizar_foto_patrimonio",
+                )
+                if numero_foto and st.button("👁️ Carregar foto", use_container_width=True, key="btn_carregar_foto_patrimonio"):
+                    linha_foto = df_atual[
+                        df_atual["Nº de Patrimônio"].astype(str).str.strip().str.casefold() == numero_foto.casefold()
+                    ].iloc[0]
+                    bytes_foto = postgresql_persistencia.obter_foto_patrimonio(
+                        unidade,
+                        str(linha_foto.get("Setor", "")).strip(),
+                        numero_foto,
+                    )
+                    if bytes_foto:
+                        st.image(bytes_foto, caption=f"Patrimônio {numero_foto}", use_container_width=True)
+                    else:
+                        st.warning("⚠️ A foto não foi encontrada no PostgreSQL ou o banco não está disponível.")
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
@@ -449,36 +611,39 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     placeholder="Selecione um setor...",
                 )
 
-                colunas_com_dados, valores_map = [], {}
+                patrimonios_do_setor = []
+                tipos_por_numero = {}
                 if setor_patrimonio_del:
-                    linha_setor_df = df_atual[
+                    linhas_setor = df_atual[
                         df_atual[COLUNA_CHAVE].astype(str).str.strip().str.casefold()
                         == str(setor_patrimonio_del).strip().casefold()
                     ]
-                    if not linha_setor_df.empty:
-                        for col in df_atual.columns:
-                            if col == COLUNA_CHAVE or col in COLUNAS_OBSOLETAS or str(col).startswith("Fabricante "):
-                                continue
-                            val = str(linha_setor_df.iloc[0][col]).strip()
-                            if val and val.lower() not in {"nan", "none", "null", "<na>"}:
-                                colunas_com_dados.append(col)
-                                valores_map[col] = val
+                    for _, linha in linhas_setor.iterrows():
+                        numero = str(linha.get("Nº de Patrimônio", "")).strip()
+                        if not numero or numero.casefold() in {"nan", "none", "null", "<na>"}:
+                            continue
+                        patrimonios_do_setor.append(numero)
+                        tipos_por_numero[numero] = str(linha.get("Tipo de Patrimônio", "")).strip()
 
-                colunas_com_dados = sorted(colunas_com_dados, key=str.casefold)
+                patrimonios_do_setor = sorted(dict.fromkeys(patrimonios_do_setor), key=str.casefold)
                 coluna_patrimonio_del = st.selectbox(
                     "Selecione o Patrimônio:",
-                    options=colunas_com_dados,
+                    options=patrimonios_do_setor,
                     index=None,
                     key="del_coluna_patrimonio",
-                    placeholder="Selecione o patrimônio...",
-                    format_func=lambda c: f"{c} (Código: {valores_map.get(c, '')})",
-                ) if colunas_com_dados else None
+                    placeholder="Selecione um patrimônio...",
+                    format_func=lambda numero: (
+                        f"{tipos_por_numero.get(numero, 'Patrimônio')} "
+                        f"(Código: {numero})"
+                    ),
+                ) if patrimonios_do_setor else None
 
-                if setor_patrimonio_del and not colunas_com_dados:
+                if setor_patrimonio_del and not patrimonios_do_setor:
                     st.info("ℹ️ O setor selecionado não possui patrimônio preenchido para exclusão.")
                 elif coluna_patrimonio_del:
                     st.warning(
-                        f"⚠️ Será removido o patrimônio **{coluna_patrimonio_del}** do setor **{setor_patrimonio_del}** e, quando existir, o fabricante correspondente."
+                        f"⚠️ Será removido o patrimônio **{coluna_patrimonio_del}** "
+                        f"do setor **{setor_patrimonio_del}** e, quando existir, o fabricante correspondente."
                     )
 
                 if coluna_patrimonio_del and setor_patrimonio_del and st.button(
