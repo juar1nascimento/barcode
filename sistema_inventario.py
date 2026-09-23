@@ -124,7 +124,7 @@ def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs:
 
         if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
             if not unidade_escolhida:
-                st.warning("⚠️ Selecione uma URS ou UBS válida para continuar.")
+                st.warning("⚠️ Selecione uma URS, UBS ou o Almoxarifado Central SESA para continuar.")
             else:
                 st.session_state.unidade_selecionada = unidade_escolhida
                 st.session_state.pagina_atual = "inventario"
