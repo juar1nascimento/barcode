@@ -32,7 +32,7 @@ def _agora_brasilia() -> datetime:
 
 
 def _data_hora_cadastro() -> str:
-    return _agora_brasilia().strftime("%d-%m-%Y %H:%M:%S")
+    return _agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
