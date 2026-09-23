@@ -407,17 +407,19 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
     if erros: return False, erros
 
     import postgresql_persistencia as pg
-    for novo in novos:
-        salvo_pg, mensagem_pg = pg.salvar_patrimonio(
-            codigo_barras=novo["Nº de Patrimônio"],
-            tipo=novo["Tipo de Patrimônio"],
-            setor=novo["Setor"],
-            unidade=unidade_limpa,
-            fabricante=novo["Fabricante"],
-            numero_patrimonio=novo["Nº de Patrimônio"],
-        )
-        if not salvo_pg:
-            return False, [f"Falha no PostgreSQL para o patrimônio {novo['Nº de Patrimônio']}: {mensagem_pg}"]
+    registros_pg = [
+        {
+            "codigo_barras": novo["Nº de Patrimônio"],
+            "tipo_patrimonio": novo["Tipo de Patrimônio"],
+            "setor": novo["Setor"],
+            "fabricante": novo["Fabricante"],
+            "numero_patrimonio": novo["Nº de Patrimônio"],
+        }
+        for novo in novos
+    ]
+    salvo_pg, mensagem_pg = pg.salvar_patrimonios_em_lote(registros_pg, unidade_limpa)
+    if not salvo_pg:
+        return False, [mensagem_pg]
 
     sucesso = _anexar_no_google(
         pd.DataFrame(novos, columns=COLUNAS_INVENTARIO),
