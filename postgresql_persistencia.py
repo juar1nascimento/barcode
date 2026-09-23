@@ -287,31 +287,93 @@ def excluir_patrimonio_postgresql(patrimonio_id: int) -> Tuple[bool, str]:
         conn.close()
 
 
-def excluir_setor_postgresql(unidade: str, setor: str) -> Tuple[bool, str]:
+def excluir_patrimonio_por_identificacao(unidade: str, setor: str, numero_patrimonio: str) -> Tuple[bool, str]:
+    """Exclui exatamente um patrimônio usando os identificadores estáveis da UI."""
     conn = conectar()
     if conn is None:
         return False, "PostgreSQL não disponível."
     try:
+        nome_unidade = str(unidade or "").strip()
+        numero = str(numero_patrimonio or "").strip()
+        if not nome_unidade or not numero:
+            return False, "Unidade e número de patrimônio são obrigatórios."
+
+        nome_setor, numero_consultorio, especialidade = _dividir_setor(setor)
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM unidades WHERE nome=%s", (str(unidade).strip(),))
+            cur.execute(
+                """SELECT p.id
+                   FROM patrimonios p
+                   JOIN unidades u ON u.id = p.unidade_id
+                   JOIN setores s ON s.id = p.setor_id
+                   WHERE u.nome=%s
+                     AND s.nome=%s
+                     AND s.numero_consultorio IS NOT DISTINCT FROM %s
+                     AND s.especialidade IS NOT DISTINCT FROM %s
+                     AND p.numero_patrimonio=%s
+                   FOR UPDATE""",
+                (nome_unidade, nome_setor, numero_consultorio, especialidade, numero),
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.rollback()
+                return False, "Patrimônio não encontrado no PostgreSQL."
+
+            cur.execute("DELETE FROM patrimonios WHERE id=%s", (row[0],))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return False, "Patrimônio não pôde ser excluído do PostgreSQL."
+
+        conn.commit()
+        return True, "Patrimônio excluído do PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        return False, f"Falha ao excluir patrimônio: {exc}"
+    finally:
+        conn.close()
+
+
+def excluir_setor_postgresql(unidade: str, setor: str) -> Tuple[bool, str]:
+    """Exclui setor e seus patrimônios em uma única transação."""
+    conn = conectar()
+    if conn is None:
+        return False, "PostgreSQL não disponível."
+    try:
+        nome_unidade = str(unidade or "").strip()
+        nome_setor, numero_consultorio, especialidade = _dividir_setor(setor)
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM unidades WHERE nome=%s", (nome_unidade,))
             row = cur.fetchone()
             if not row:
                 return False, "Unidade não encontrada."
-            nome, numero, especialidade = _dividir_setor(setor)
+
+            unidade_id = row[0]
             cur.execute(
-                """UPDATE setores SET ativo=FALSE
+                """SELECT id
+                   FROM setores
                    WHERE unidade_id=%s AND nome=%s
                      AND numero_consultorio IS NOT DISTINCT FROM %s
-                     AND especialidade IS NOT DISTINCT FROM %s""",
-                (row[0], nome, numero, especialidade),
+                     AND especialidade IS NOT DISTINCT FROM %s
+                   FOR UPDATE""",
+                (unidade_id, nome_setor, numero_consultorio, especialidade),
             )
-            if cur.rowcount != 1:
+            setor_row = cur.fetchone()
+            if not setor_row:
                 conn.rollback()
                 return False, "Setor não encontrado."
+
+            setor_id = setor_row[0]
+            cur.execute("DELETE FROM patrimonios WHERE setor_id=%s", (setor_id,))
+            patrim_consumidos = cur.rowcount
+
+            cur.execute("DELETE FROM setores WHERE id=%s", (setor_id,))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return False, "Setor não pôde ser excluído do PostgreSQL."
+
         conn.commit()
-        return True, "Setor desativado no PostgreSQL."
+        return True, f"Setor excluído do PostgreSQL; {patrim_consumidos} patrimônio(s) removido(s)."
     except Exception as exc:
         conn.rollback()
-        return False, f"Falha ao desativar setor: {exc}"
+        return False, f"Falha ao excluir setor: {exc}"
     finally:
         conn.close()
