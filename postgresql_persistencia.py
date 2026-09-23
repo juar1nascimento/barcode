@@ -277,6 +277,48 @@ def listar_setores(unidade: str, apenas_ativos: bool = True):
         conn.close()
 
 
+def obter_foto_patrimonio(unidade: str, setor: str, numero_patrimonio: str) -> Optional[bytes]:
+    """Recupera somente a foto de um patrimônio identificado pela UI.
+
+    A consulta é sob demanda para não carregar todas as imagens BYTEA da unidade
+    junto com a tabela principal.
+    """
+    conn = conectar()
+    if conn is None:
+        return None
+
+    try:
+        nome_unidade = str(unidade or "").strip()
+        numero = str(numero_patrimonio or "").strip()
+        if not nome_unidade or not numero:
+            return None
+
+        nome_setor, numero_consultorio, especialidade = _dividir_setor(setor)
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT p.foto
+                   FROM patrimonios p
+                   JOIN unidades u ON u.id = p.unidade_id
+                   JOIN setores s ON s.id = p.setor_id
+                   WHERE u.nome=%s
+                     AND s.nome=%s
+                     AND s.numero_consultorio IS NOT DISTINCT FROM %s
+                     AND s.especialidade IS NOT DISTINCT FROM %s
+                     AND p.numero_patrimonio=%s
+                   LIMIT 1""",
+                (nome_unidade, nome_setor, numero_consultorio, especialidade, numero),
+            )
+            row = cur.fetchone()
+            if not row or row[0] is None:
+                return None
+            return bytes(row[0])
+    except Exception as exc:
+        st.warning(f"Não foi possível recuperar a foto do patrimônio: {exc}")
+        return None
+    finally:
+        conn.close()
+
+
 def listar_patrimonios(unidade: Optional[str] = None, setor: Optional[str] = None):
     conn = conectar()
     if conn is None:
