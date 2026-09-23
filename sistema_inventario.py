@@ -108,6 +108,20 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
 # ==============================================================================
 # CARD DE INVENTÁRIO E PORTAL DE NAVEGAÇÃO
 # ==============================================================================
+def _opcoes_unidade_por_categoria(
+    categoria: str,
+    urs_opcoes: List[str],
+    ubs_opcoes: List[str],
+    almox_opcoes: List[str],
+) -> List[str]:
+    """Retorna somente as unidades pertencentes à categoria escolhida."""
+    if categoria == "URS":
+        return urs_opcoes
+    if categoria == "UBS":
+        return ubs_opcoes
+    return almox_opcoes
+
+
 def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
     almox_opcoes = [u for u in (lista_almoxarifado if lista_almoxarifado is not None else LISTA_ALMOXARIFADO_PADRAO) if not str(u).startswith("Selecione")]
     urs_opcoes = [u for u in (lista_urs if lista_urs is not None else LISTA_URS_PADRAO) if not str(u).startswith("Selecione")]
@@ -117,14 +131,35 @@ def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs:
         st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra por URS, UBS ou Almoxarifado Central SESA.</p>", unsafe_allow_html=True)
 
-        urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", urs_opcoes, index=None, placeholder="Selecione uma URS...", key="sel_urs_card_inventario")
-        ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", ubs_opcoes, index=None, placeholder="Selecione uma UBS...", key="sel_ubs_card_inventario")
-        almox_selecionado = st.selectbox("Almoxarifado Central SESA", almox_opcoes, index=None, placeholder="Selecione o Almoxarifado Central SESA...", key="sel_almox_card_inventario")
-        unidade_escolhida = urs_selecionada if urs_selecionada else (ubs_selecionada if ubs_selecionada else (almox_selecionado if almox_selecionado else ""))
+        categoria_unidade = st.radio(
+            "Tipo de unidade:",
+            ["URS", "UBS", "Almoxarifado"],
+            horizontal=True,
+            key="tipo_unidade_card_inventario",
+        )
+        opcoes_unidade = _opcoes_unidade_por_categoria(
+            categoria_unidade,
+            urs_opcoes,
+            ubs_opcoes,
+            almox_opcoes,
+        )
+        rotulos_categoria = {
+            "URS": ("URS - Unidade Regional de Saúde", "Selecione uma URS..."),
+            "UBS": ("UBS - Unidade Básica de Saúde", "Selecione uma UBS..."),
+            "Almoxarifado": ("Almoxarifado Central SESA", "Selecione o Almoxarifado Central SESA..."),
+        }
+        rotulo, placeholder = rotulos_categoria[categoria_unidade]
+        unidade_escolhida = st.selectbox(
+            rotulo,
+            opcoes_unidade,
+            index=None,
+            placeholder=placeholder,
+            key="sel_unidade_card_inventario",
+        )
 
         if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
             if not unidade_escolhida:
-                st.warning("⚠️ Selecione uma URS, UBS ou o Almoxarifado Central SESA para continuar.")
+                st.warning("⚠️ Selecione uma unidade para continuar.")
             else:
                 st.session_state.unidade_selecionada = unidade_escolhida
                 st.session_state.pagina_atual = "inventario"
