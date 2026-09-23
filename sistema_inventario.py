@@ -381,6 +381,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             foto_capturada = st.camera_input(
                 "Tire a foto do patrimônio",
                 key=f"camera_patrimonio_{numero_foto_pendente}",
+                resolution="720p",
             )
             if foto_capturada is not None and st.button(
                 "💾 Enviar e armazenar foto", type="primary", use_container_width=True,
