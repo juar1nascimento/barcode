@@ -405,8 +405,27 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         vistos.add(chave)
         novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro()})
     if erros: return False, erros
-    sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)
-    return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
+
+    import postgresql_persistencia as pg
+    for novo in novos:
+        salvo_pg, mensagem_pg = pg.salvar_patrimonio(
+            codigo_barras=novo["Nº de Patrimônio"],
+            tipo=novo["Tipo de Patrimônio"],
+            setor=novo["Setor"],
+            unidade=unidade_limpa,
+            fabricante=novo["Fabricante"],
+            numero_patrimonio=novo["Nº de Patrimônio"],
+        )
+        if not salvo_pg:
+            return False, [f"Falha no PostgreSQL para o patrimônio {novo['Nº de Patrimônio']}: {mensagem_pg}"]
+
+    sucesso = _anexar_no_google(
+        pd.DataFrame(novos, columns=COLUNAS_INVENTARIO),
+        unidade_limpa,
+    )
+    if not sucesso:
+        return True, ["Patrimônios salvos no PostgreSQL, mas o espelho do Google Sheets não foi confirmado."]
+    return True, []
 
 
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
