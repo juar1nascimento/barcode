@@ -6,11 +6,11 @@ from typing import Any
 import pandas as pd
 
 COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
-FORMATO_DATA_HORA = "%d-%m-%Y %H:%M:%S"
+FORMATO_DATA_HORA = "%Y-%m-%d %H:%M:%S"
 
 
 def normalizar_data_hora(valor: Any) -> str:
-    """Converte datas legadas para DD-MM-YYYY HH:MM:SS."""
+    """Converte datas legadas para o formato canônico YYYY-MM-DD HH:MM:SS."""
     if valor is None:
         return ""
     texto = str(valor).strip()
