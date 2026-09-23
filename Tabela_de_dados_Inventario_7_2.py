@@ -496,6 +496,86 @@ def adicionar_e_salvar_sem_sobrescrever(
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
 
 
+
+def _aplicar_edicao_patrimonio(
+    df: pd.DataFrame,
+    setor_atual: str,
+    numero_atual: str,
+    novo_setor: str,
+    novo_tipo: str,
+    novo_numero: str,
+    novo_fabricante: str,
+) -> Tuple[pd.DataFrame, bool]:
+    """Aplica uma edição local ao espelho sem depender de posição da linha."""
+    df = _normalizar_legacy_dataframe(df)
+    if df.empty:
+        return df.copy(), False
+
+    mask = (
+        df["Setor"].map(_chave_texto).eq(_chave_texto(setor_atual))
+        & df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(numero_atual))
+    )
+    if not mask.any():
+        return df.copy(), False
+
+    novo = df.copy()
+    idx = novo.index[mask][0]
+    novo.at[idx, "Setor"] = novo_setor
+    novo.at[idx, "Tipo de Patrimônio"] = novo_tipo
+    novo.at[idx, "Nº de Patrimônio"] = novo_numero
+    novo.at[idx, "Fabricante"] = novo_fabricante
+    return novo, True
+
+
+def editar_patrimonio(
+    setor_atual: str,
+    numero_atual: str,
+    novo_setor: str,
+    novo_tipo: str,
+    novo_numero: str,
+    novo_fabricante: str,
+    unidade: str,
+) -> bool:
+    df, _ = carregar_dados_excel(unidade)
+    novo, alterado = _aplicar_edicao_patrimonio(
+        df, setor_atual, numero_atual, novo_setor, novo_tipo, novo_numero, novo_fabricante
+    )
+    if not alterado:
+        st.warning("⚠️ Patrimônio não encontrado para edição.")
+        return False
+
+    ok_validacao, msg_validacao = validar_cadastro_patrimonio(
+        novo_tipo, novo_setor, unidade, novo_numero
+    )
+    if not ok_validacao:
+        st.warning(f"⚠️ Edição cancelada: {msg_validacao}")
+        return False
+
+    if postgresql_persistencia._conexao_configurada():
+        ok_pg, msg_pg = postgresql_persistencia.atualizar_patrimonio_por_identificacao(
+            unidade,
+            setor_atual,
+            numero_atual,
+            novo_tipo,
+            novo_setor,
+            novo_numero,
+            novo_fabricante,
+        )
+        if not ok_pg:
+            st.warning(f"⚠️ Edição cancelada: {msg_pg}")
+            return False
+
+        sucesso_sheets = salvar_no_excel(novo, unidade)
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ O patrimônio foi atualizado no PostgreSQL, mas o espelho Google Sheets "
+                "não confirmou a atualização."
+            )
+        return True
+
+    return salvar_no_excel(novo, unidade)
+
+
 def _aplicar_exclusao_setor(df: pd.DataFrame, setor: str) -> Tuple[pd.DataFrame, bool]:
     df = _normalizar_legacy_dataframe(df)
     if df.empty: return df.copy(), False
