@@ -195,7 +195,7 @@ def test_cadastro_legacy_da_tela_e_convertido_para_schema_atual():
     legado = pd.DataFrame([{"Setor": "Farmacia", "CPU": "CPU-UI-001", "Fabricante CPU": "Dell"}])
     assert backend._normalizar_legacy_dataframe(legado).to_dict("records") == [{
         "Setor": "Farmacia", "Tipo de Patrimônio": "CPU", "Nº de Patrimônio": "CPU-UI-001",
-        "Fabricante": "Dell", "Data Cadastro": "",
+        "Fabricante": "Dell", "Data Cadastro": "", "Foto": "",
     }]
 
 
