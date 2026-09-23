@@ -468,12 +468,49 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
 
 
 def excluir_setor(setor: str, unidade: str) -> bool:
+    import postgresql_persistencia as pg
+    if not pg._conexao_configurada():
+        st.error("PostgreSQL não configurado: exclusão bloqueada.")
+        return False
+    conn = pg.conectar()
+    if conn is None: return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT s.id, COUNT(p.id) FROM setores s JOIN unidades u ON u.id=s.unidade_id LEFT JOIN patrimonios p ON p.setor_id=s.id WHERE u.nome=%s AND s.nome=%s GROUP BY s.id", (str(unidade).strip(), str(setor).strip()))
+            row = cur.fetchone()
+            if not row: return False
+            if row[1] > 0:
+                st.warning("O setor possui patrimônios cadastrados; remova-os antes de excluir o setor.")
+                return False
+            cur.execute("DELETE FROM setores WHERE id=%s", (row[0],))
+        conn.commit()
+    except Exception as exc:
+        conn.rollback(); st.error(f"Falha ao excluir o setor no PostgreSQL: {exc}"); return False
+    finally: conn.close()
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_setor(df, setor)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    return salvar_no_excel(novo, unidade) if alterado else True
 
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
+    import postgresql_persistencia as pg
+    if not pg._conexao_configurada():
+        st.error("PostgreSQL não configurado: exclusão bloqueada.")
+        return False
+    conn = pg.conectar()
+    if conn is None: return False
+    numero = _valor_texto(coluna)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM patrimonios p USING unidades u, setores s WHERE p.unidade_id=u.id AND p.setor_id=s.id AND u.nome=%s AND s.nome=%s AND p.numero_patrimonio=%s RETURNING p.id", (str(unidade).strip(), str(setor).strip(), numero))
+            removido = cur.fetchone()
+        conn.commit()
+    except Exception as exc:
+        conn.rollback(); st.error(f"Falha ao excluir o patrimônio no PostgreSQL: {exc}"); return False
+    finally: conn.close()
+    if not removido:
+        st.warning(f"O patrimônio `{numero}` não foi encontrado no PostgreSQL.")
+        return False
     df, _ = carregar_dados_excel(unidade)
-    novo, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    novo, alterado = _aplicar_exclusao_patrimonio(df, setor, numero)
+    return salvar_no_excel(novo, unidade) if alterado else True
