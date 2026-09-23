@@ -225,6 +225,53 @@ def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file) -> 
         conn.close()
 
 
+
+def salvar_patrimonios_em_lote(registros, unidade: str) -> Tuple[bool, str]:
+    """Grava todo o lote em uma única transação PostgreSQL."""
+    if not _conexao_configurada():
+        return False, "PostgreSQL não configurado. Cadastro em lote bloqueado."
+
+    unidade = str(unidade or "").strip()
+    registros = list(registros or [])
+    if not unidade or not registros:
+        return False, "Lote ou unidade inválidos."
+
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            unidade_id = garantir_unidade(cur, unidade)
+            for item in registros:
+                numero = str(item.get("numero_patrimonio", "") or item.get("codigo_barras", "")).strip()
+                codigo = str(item.get("codigo_barras", "")).strip() or None
+                tipo = str(item.get("tipo_patrimonio", "")).strip()
+                setor = re.sub(r"\s+", " ", str(item.get("setor", "")).strip())
+                fabricante = str(item.get("fabricante", "")).strip() or None
+                if not numero or tipo not in TIPOS_PATRIMONIO or not setor:
+                    raise ValueError(f"Dados inválidos para o patrimônio '{numero}'.")
+                setor_id = garantir_setor(cur, unidade_id, setor)
+                cur.execute(
+                    """INSERT INTO patrimonios
+                         (unidade_id, setor_id, tipo, numero_patrimonio,
+                          codigo_barras, fabricante, data_cadastro, atualizado_em)
+                       VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())""",
+                    (unidade_id, setor_id, tipo, numero, codigo, fabricante),
+                )
+        conn.commit()
+        return True, str(len(registros)) + " patrimônio(s) gravado(s) no PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        texto = str(exc)
+        if "duplicate key" in texto.lower() or "unique" in texto.lower():
+            return False, "O lote foi cancelado integralmente porque existe número ou código de patrimônio duplicado no PostgreSQL."
+        return False, f"Lote cancelado integralmente no PostgreSQL: {texto}"
+    finally:
+        conn.close()
+
+
+
 def atualizar_patrimonio(
     numero_patrimonio_original: str,
     codigo_barras: str,
