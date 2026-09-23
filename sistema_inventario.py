@@ -76,19 +76,19 @@ def preparar_foto(image_file: Any) -> Tuple[str, bytes]:
         from PIL import Image
         img = Image.open(io.BytesIO(original)).convert("RGB")
         melhor = b""
-        for dimensao in (1280, 1024, 800, 640, 512):
+        for dimensao in (1280, 1024, 800, 640, 512, 384, 256):
             copia = img.copy()
             copia.thumbnail((dimensao, dimensao), Image.Resampling.LANCZOS)
-            for qualidade in (72, 62, 52, 42, 34):
+            for qualidade in (72, 62, 52, 42, 34, 28, 22):
                 buffer = io.BytesIO()
                 copia.save(buffer, format="JPEG", quality=qualidade, optimize=True)
                 dados = buffer.getvalue()
                 melhor = dados
-                if len(dados) <= 32000:
+                if len(dados) <= 30000:
                     encoded = base64.b64encode(dados).decode("ascii")
                     return f"data:image/jpeg;base64,{encoded}", original
         encoded = base64.b64encode(melhor).decode("ascii")
-        return f"data:image/jpeg;base64,{encoded}"[:45000], original
+        return f"data:image/jpeg;base64,{encoded}", original
     except Exception as exc:
         st.warning(f"Não foi possível preparar a foto do patrimônio: {exc}")
         return "", b""
@@ -257,7 +257,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     if not descricao_final or not setor_input.strip():
         st.warning("⚠️ Preencha o **Setor** e o **Tipo de patrimônio** para habilitar o leitor.")
     else:
-        tab_unificada, tab_upload = st.tabs(["⚡ Câmera / Scanner USB", "📁 Upload de Imagem"])
+        tab_unificada, tab_upload = st.tabs(["⚡ Câmera / Scanner USB", "📷 Foto do Patrimônio"])
         header_patrimonio = formatar_nome_patrimonio(descricao_final)
         header_fabricante = formatar_nome_fabricante(descricao_final)
 
