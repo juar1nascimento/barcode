@@ -407,9 +407,18 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     # PostgreSQL é a fonte oficial de verdade quando configurado.
     # O Sheets só participa da prevenção de duplicidade no modo legado, sem PostgreSQL.
     if not pg_configurado:
+        dados_atuais, _ = carregar_dados_excel(unidade_limpa)
+        dados_atuais = _normalizar_legacy_dataframe(dados_atuais)
+        numeros_existentes = {
+            _chave_texto(valor) for valor in dados_atuais["Nº de Patrimônio"]
+            if not _eh_vazio(valor)
+        }
+        if _chave_texto(numero) in numeros_existentes:
+            st.warning("O número de patrimônio/código de barras já está cadastrado na unidade.")
+            return False
         planilha_validacao = conectar_google_sheets()
         if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
-            st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado no Google Sheets.")
+            st.warning("O número de patrimônio/código de barras já está cadastrado no Google Sheets.")
             return False
 
     if pg_configurado:
