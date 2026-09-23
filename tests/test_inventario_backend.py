@@ -640,3 +640,19 @@ def test_obter_foto_patrimonio_sem_foto_retorna_none(monkeypatch):
     assert backend.postgresql_persistencia.obter_foto_patrimonio(
         "UBS Teste", "Farmacia", "SEM-FOTO-001"
     ) is None
+
+
+def test_leitura_nao_faz_fallback_para_sheets_se_postgresql_estiver_configurado_e_indisponivel(monkeypatch):
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(backend, "_carregar_dados_postgresql", lambda unidade: None)
+    sheets_chamado = []
+    monkeypatch.setattr(backend, "conectar_google_sheets", lambda: sheets_chamado.append(True) or None)
+    monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
+    backend.carregar_dados_excel.clear()
+
+    df, fonte = backend.carregar_dados_excel("UBS Teste")
+
+    assert df.empty
+    assert list(df.columns) == COLUNAS
+    assert fonte == "PostgreSQL indisponível"
+    assert sheets_chamado == []
