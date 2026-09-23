@@ -357,6 +357,35 @@ def atualizar_patrimonio(
 
 
 
+def listar_patrimonios(unidade: str):
+    """Retorna os patrimônios da unidade diretamente do PostgreSQL."""
+    if not _conexao_configurada():
+        return None, "PostgreSQL não configurado."
+    conn = conectar()
+    if conn is None:
+        return None, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT p.numero_patrimonio, p.tipo, p.fabricante,
+                          s.nome, s.numero_consultorio, s.especialidade
+                     FROM patrimonios p
+                     JOIN unidades u ON u.id = p.unidade_id
+                     JOIN setores s ON s.id = p.setor_id
+                    WHERE u.nome = %s
+                    ORDER BY p.numero_patrimonio""",
+                (str(unidade).strip(),),
+            )
+            linhas = cur.fetchall()
+        return linhas, ""
+    except Exception as exc:
+        conn.rollback()
+        return None, f"Erro ao consultar PostgreSQL: {exc}"
+    finally:
+        conn.close()
+
+
+
 def salvar_patrimonio(
     codigo_barras: str,
     tipo: str,
