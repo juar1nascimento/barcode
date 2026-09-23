@@ -21,9 +21,9 @@ def ativar():
     import sistema_inventario
     _original = sistema_inventario.adicionar_e_salvar
 
-    def wrapper(codigo, patrimonio, setor, unidade, fabricante=""):
+    def wrapper(codigo, patrimonio, setor, unidade, fabricante="", foto_data_url="", foto_bytes=None):
         if not postgresql_persistencia._conexao_configurada():
-            return _original(codigo, patrimonio, setor, unidade, fabricante)
+            return _original(codigo, patrimonio, setor, unidade, fabricante, foto_data_url=foto_data_url, foto_bytes=foto_bytes)
 
         ok_pg, msg_pg = postgresql_persistencia.salvar_patrimonio(
             codigo_barras=codigo,
@@ -31,6 +31,7 @@ def ativar():
             setor=setor,
             unidade=unidade,
             fabricante=fabricante,
+            foto_bytes=foto_bytes,
         )
         if not ok_pg:
             st.error(f"❌ Cadastro não concluído: {msg_pg}")
