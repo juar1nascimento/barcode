@@ -9,7 +9,7 @@ from typing import Optional, Tuple, List, Dict, Any
 
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
-    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
+    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
     carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
 )
 
@@ -143,7 +143,7 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
 def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
     urs_opcoes = [u for u in (lista_urs if lista_urs is not None else LISTA_URS_PADRAO) if not str(u).startswith("Selecione")]
     ubs_opcoes = [u for u in (lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO) if not str(u).startswith("Selecione")]
-    almox_opcoes = [u for u in (lista_almoxarifado if lista_almoxarifado is not None else ["Almoxarifado Central SESA"]) if not str(u).startswith("Selecione")]
+    almox_opcoes = [u for u in (lista_almoxarifado if lista_almoxarifado is not None else LISTA_ALMOXARIFADO_PADRAO) if not str(u).startswith("Selecione")]
 
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
