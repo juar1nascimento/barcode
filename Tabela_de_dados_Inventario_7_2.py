@@ -467,6 +467,59 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
     return df.loc[~mask_excluir].copy(), True
 
 
+
+@_serializar_persistencia
+def atualizar_patrimonio(
+    numero_patrimonio_original: str,
+    codigo_barras: str,
+    tipo: str,
+    setor: str,
+    unidade: str,
+    fabricante: str = "",
+    numero_patrimonio: str = "",
+) -> Tuple[bool, str]:
+    """Atualiza PostgreSQL e depois sincroniza o espelho do Google Sheets."""
+    numero_original = _valor_texto(numero_patrimonio_original)
+    numero_novo = _valor_texto(numero_patrimonio) or numero_original
+    tipo = _normalizar_tipo(tipo)
+    setor = _valor_texto(setor)
+    unidade = _normalizar_unidade_aba(unidade)
+    fabricante = _valor_texto(fabricante)
+    codigo = _valor_texto(codigo_barras)
+
+    valido, mensagem = validar_cadastro_patrimonio(tipo, setor, unidade, numero_novo)
+    if not valido:
+        return False, mensagem
+
+    import postgresql_persistencia as pg
+    salvo_pg, mensagem_pg = pg.atualizar_patrimonio(
+        numero_patrimonio_original=numero_original,
+        codigo_barras=codigo,
+        tipo=tipo,
+        setor=setor,
+        unidade=unidade,
+        fabricante=fabricante,
+        numero_patrimonio=numero_novo,
+    )
+    if not salvo_pg:
+        return False, mensagem_pg
+
+    df, _ = carregar_dados_excel(unidade)
+    df = _normalizar_legacy_dataframe(df)
+    mascara = df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(numero_original))
+    if not mascara.any():
+        return True, "Patrimônio atualizado no PostgreSQL; o espelho Google Sheets não continha a linha original."
+
+    df.loc[mascara, "Setor"] = setor
+    df.loc[mascara, "Tipo de Patrimônio"] = tipo
+    df.loc[mascara, "Nº de Patrimônio"] = numero_novo
+    df.loc[mascara, "Fabricante"] = fabricante
+    sucesso_google = salvar_no_excel(df, unidade)
+    if not sucesso_google:
+        return True, "Patrimônio atualizado no PostgreSQL, mas o espelho do Google Sheets não foi confirmado."
+    return True, "Patrimônio atualizado no PostgreSQL e no Google Sheets."
+
+
 def excluir_setor(setor: str, unidade: str) -> bool:
     import postgresql_persistencia as pg
     if not pg._conexao_configurada():
