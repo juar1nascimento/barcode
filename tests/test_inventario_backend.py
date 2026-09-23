@@ -318,7 +318,6 @@ def test_cadastro_nao_reintroduz_colunas_removidas(monkeypatch):
     assert not any(c in estado["df"].columns for c in ("Código de Barras", "Origem", "Status"))
 
 
-
 def test_carga_em_massa_sem_gravacao_parcial(monkeypatch):
     estado = _estado_vazio()
     _mock_persistencia(monkeypatch, estado)
@@ -364,7 +363,7 @@ def test_interface_delega_cadastro_ao_backend(monkeypatch):
     chamadas = []
     monkeypatch.setattr(ui, "registrar_patrimonio", lambda *args, **kwargs: chamadas.append((args, kwargs)) or True)
     assert ui.adicionar_e_salvar("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")
-    assert chamadas == [("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell")]
+    assert chamadas == [(("PAT-UI-001", "CPU", "Farmacia", "UBS Teste", "Dell"), {"foto_data_url": "", "foto_bytes": None})]
 
 
 def test_cadastro_normal_anexa_sem_limpar_aba(monkeypatch, tmp_path):
