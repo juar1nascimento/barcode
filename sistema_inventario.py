@@ -8,7 +8,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, atualizar_patrimonio, excluir_setor, excluir_patrimonio
+    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, atualizar_patrimonio, excluir_setor, excluir_patrimonio, auditar_sincronizacao_unidade
 )
 import postgresql_persistencia
 
@@ -205,6 +205,33 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             st.rerun()
 
     st.divider()
+
+    with st.expander("🔎 Auditoria PostgreSQL × Google Sheets", expanded=False):
+        st.caption("Compara o PostgreSQL (fonte principal) com o Google Sheets (espelho) sem alterar dados.")
+        if st.button("Executar auditoria desta unidade", key="btn_auditar_sync", use_container_width=True):
+            with st.spinner("Comparando os registros..."):
+                auditoria = auditar_sincronizacao_unidade(unidade)
+            if auditoria.get("erro"):
+                st.error(auditoria["erro"])
+            else:
+                total_dif = len(auditoria["somente_postgresql"]) + len(auditoria["somente_google"]) + len(auditoria["divergentes"])
+                if total_dif == 0:
+                    st.success(f"Sincronização conferida: {auditoria['postgresql']} registro(s) no PostgreSQL e {auditoria['google_sheets']} no Google Sheets, sem divergências.")
+                else:
+                    st.warning(f"Foram encontradas {total_dif} divergência(s). O PostgreSQL continua sendo a fonte principal.")
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Só PostgreSQL", len(auditoria["somente_postgresql"]))
+                    col2.metric("Só Google Sheets", len(auditoria["somente_google"]))
+                    col3.metric("Campos divergentes", len(auditoria["divergentes"]))
+                    if auditoria["somente_postgresql"]:
+                        st.write("**Existem no PostgreSQL e não no Sheets:**")
+                        st.dataframe(pd.DataFrame(auditoria["somente_postgresql"]), use_container_width=True, hide_index=True)
+                    if auditoria["somente_google"]:
+                        st.write("**Existem no Sheets e não no PostgreSQL:**")
+                        st.dataframe(pd.DataFrame(auditoria["somente_google"]), use_container_width=True, hide_index=True)
+                    if auditoria["divergentes"]:
+                        st.write("**Mesmo patrimônio, dados diferentes:**")
+                        st.json(auditoria["divergentes"])
 
     # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
     # Não é montado a partir dos dados existentes na planilha.
