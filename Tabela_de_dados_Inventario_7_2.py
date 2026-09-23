@@ -238,11 +238,18 @@ def _carregar_dados_postgresql(unidade: str) -> Optional[pd.DataFrame]:
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     unidade = _normalizar_unidade_aba(unidade)
 
-    # ETAPA 5: PostgreSQL passa a ser a fonte preferencial de leitura quando
-    # estiver configurado e acessível. Google Sheets continua como fallback.
+    # PostgreSQL é a fonte oficial quando estiver configurado.
+    # Se estiver configurado mas indisponível, NÃO usamos um espelho potencialmente
+    # desatualizado como fonte de leitura: interrompemos a leitura e informamos o erro.
+    # O fallback para Google Sheets fica restrito ao modo legado, quando PostgreSQL
+    # ainda não foi configurado.
+    postgresql_configurado = postgresql_persistencia._conexao_configurada()
     dados_postgresql = _carregar_dados_postgresql(unidade)
     if dados_postgresql is not None:
         return dados_postgresql.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), "PostgreSQL"
+    if postgresql_configurado:
+        st.error("⚠️ PostgreSQL está configurado, mas indisponível. A leitura do inventário foi interrompida para evitar usar dados potencialmente desatualizados do Google Sheets.")
+        return pd.DataFrame(columns=COLUNAS_INVENTARIO), "PostgreSQL indisponível"
 
     planilha = conectar_google_sheets()
     nome_aba = _nome_aba(unidade)
