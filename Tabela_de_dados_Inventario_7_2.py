@@ -395,8 +395,16 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     if not valido:
         if mensagem: st.warning(mensagem)
         return False
-    # PostgreSQL é a fonte de verdade quando configurado: valida e grava antes do espelho.
-    if postgresql_persistencia._conexao_configurada():
+    pg_configurado = postgresql_persistencia._conexao_configurada()
+
+    # Antes da gravação, verifica duplicidade no espelho legado apenas para
+    # evitar criar divergência desnecessária durante a transição.
+    planilha_validacao = conectar_google_sheets()
+    if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
+        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado no Google Sheets.")
+        return False
+
+    if pg_configurado:
         ok_pg, msg_pg = postgresql_persistencia.salvar_patrimonio(
             codigo_barras=codigo,
             tipo=tipo,
@@ -410,20 +418,27 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
             st.warning(msg_pg)
             return False
 
-    df, _ = carregar_dados_excel(unidade_limpa)
-    df = _normalizar_legacy_dataframe(df)
-    chave_numero = _chave_texto(numero)
-    if (df["Nº de Patrimônio"].map(_chave_texto) == chave_numero).any():
-        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado.")
-        return False
-    planilha_validacao = conectar_google_sheets()
-    if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
-        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
-        return False
-    nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro(), "Foto": _valor_texto(foto_data_url)[:45000]}
-    sucesso_sheets = _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)
-    if not sucesso_sheets and postgresql_persistencia._conexao_configurada():
-        st.error("⚠️ PostgreSQL gravou o patrimônio, mas o espelho Google Sheets não foi confirmado. O registro permanece no PostgreSQL.")
+    nova = {
+        "Setor": setor_limpo,
+        "Tipo de Patrimônio": tipo,
+        "Nº de Patrimônio": numero,
+        "Fabricante": fabricante_limpo,
+        "Data Cadastro": _data_hora_cadastro(),
+        "Foto": _valor_texto(foto_data_url)[:45000],
+    }
+    sucesso_sheets = _anexar_no_google(
+        pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa
+    )
+
+    # Com PostgreSQL ativo, a gravação principal já foi confirmada no banco.
+    # O Sheets é espelho durante a migração; sua falha não desfaz a transação.
+    if pg_configurado:
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ PostgreSQL confirmou o patrimônio, mas o espelho Google Sheets "
+                "não foi confirmado. O registro permanece salvo no PostgreSQL."
+            )
+        return True
     return sucesso_sheets
 
 
