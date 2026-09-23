@@ -34,7 +34,7 @@ def _agora_brasilia() -> datetime:
 
 
 def _data_hora_cadastro() -> str:
-    return _agora_brasilia().strftime("%d-%m-%Y %H:%M:%S")
+    return _agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:
@@ -75,15 +75,22 @@ def _eh_vazio(v) -> bool:
 
 
 def _numero_patrimonio_existe_na_planilha(planilha, numero_patrimonio: str) -> bool:
+    """Procura um número em todas as abas, tolerando linhas legadas incompletas."""
     chave = _chave_texto(numero_patrimonio)
     if not chave or planilha is None:
         return False
     try:
         for aba in planilha.worksheets():
             valores = aba.get_all_values()
-            if not valores:
+            if not valores or len(valores) < 2:
                 continue
-            df = _normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])) if len(valores) > 1 else pd.DataFrame(columns=COLUNAS_INVENTARIO)
+            cabecalho = [str(v).strip() for v in valores[0]]
+            largura = len(cabecalho)
+            linhas = [
+                list(linha[:largura]) + [""] * max(0, largura - len(linha))
+                for linha in valores[1:]
+            ]
+            df = _normalizar_legacy_dataframe(pd.DataFrame(linhas, columns=cabecalho))
             if not df.empty and df["Nº de Patrimônio"].map(_chave_texto).eq(chave).any():
                 return True
     except Exception:
@@ -397,12 +404,13 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         return False
     pg_configurado = postgresql_persistencia._conexao_configurada()
 
-    # Antes da gravação, verifica duplicidade no espelho legado apenas para
-    # evitar criar divergência desnecessária durante a transição.
-    planilha_validacao = conectar_google_sheets()
-    if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
-        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado no Google Sheets.")
-        return False
+    # PostgreSQL é a fonte oficial de verdade quando configurado.
+    # O Sheets só participa da prevenção de duplicidade no modo legado, sem PostgreSQL.
+    if not pg_configurado:
+        planilha_validacao = conectar_google_sheets()
+        if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
+            st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado no Google Sheets.")
+            return False
 
     if pg_configurado:
         ok_pg, msg_pg = postgresql_persistencia.salvar_patrimonio(
