@@ -1,8 +1,7 @@
 """Persistência PostgreSQL do GTI-SESA.
 
-A integração é opcional: sem a Secret [postgresql], o sistema continua
-operando com Google Sheets. Quando configurada, o cadastro é gravado no
-PostgreSQL e, separadamente, no Google Sheets.
+O PostgreSQL é a persistência principal do inventário. O Google Sheets pode
+ser usado separadamente como espelho operacional.
 """
 
 import hashlib
@@ -224,6 +223,91 @@ def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file) -> 
         return False, f"Falha ao armazenar a foto no PostgreSQL: {exc}"
     finally:
         conn.close()
+
+
+def atualizar_patrimonio(
+    numero_patrimonio_original: str,
+    codigo_barras: str,
+    tipo: str,
+    setor: str,
+    unidade: str,
+    fabricante: str = "",
+    numero_patrimonio: str = "",
+    unidade_original: str = "",
+) -> Tuple[bool, str]:
+    """Atualiza um patrimônio existente sem recriar a linha.
+
+    A atualização preserva o mesmo patrimonio_id e eventual foto vinculada.
+    """
+    if not _conexao_configurada():
+        return False, "PostgreSQL não configurado. Edição bloqueada para evitar divergência."
+
+    numero_original = str(numero_patrimonio_original or "").strip()
+    numero_novo = str(numero_patrimonio or "").strip() or numero_original
+    codigo = str(codigo_barras or "").strip() or None
+    tipo = str(tipo or "").strip()
+    setor = re.sub(r"\s+", " ", str(setor or "").strip())
+    unidade = str(unidade or "").strip()
+    unidade_original = str(unidade_original or "").strip()
+    fabricante = str(fabricante or "").strip() or None
+
+    if not numero_original or not numero_novo or not tipo or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
+        return False, "Dados insuficientes ou inválidos para atualizar o patrimônio."
+
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            if unidade_original:
+                cur.execute(
+                    """SELECT p.id
+                         FROM patrimonios p
+                         JOIN unidades u ON u.id = p.unidade_id
+                        WHERE p.numero_patrimonio = %s
+                          AND u.nome = %s
+                        LIMIT 1""",
+                    (numero_original, unidade_original),
+                )
+            else:
+                cur.execute(
+                    """SELECT id FROM patrimonios
+                        WHERE numero_patrimonio = %s
+                        LIMIT 1""",
+                    (numero_original,),
+                )
+            row = cur.fetchone()
+            if not row:
+                return False, f"O patrimônio original `{numero_original}` não foi encontrado no PostgreSQL."
+
+            patrimonio_id = row[0]
+            unidade_id = garantir_unidade(cur, unidade)
+            setor_id = garantir_setor(cur, unidade_id, setor)
+
+            cur.execute(
+                """UPDATE patrimonios
+                      SET unidade_id = %s,
+                          setor_id = %s,
+                          tipo = %s,
+                          numero_patrimonio = %s,
+                          codigo_barras = %s,
+                          fabricante = %s,
+                          atualizado_em = NOW()
+                    WHERE id = %s""",
+                (unidade_id, setor_id, tipo, numero_novo, codigo, fabricante, patrimonio_id),
+            )
+        conn.commit()
+        return True, "Patrimônio atualizado no PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        texto = str(exc)
+        if "duplicate key" in texto.lower() or "unique" in texto.lower():
+            return False, f"O número/código do patrimônio `{numero_novo}` já está em uso no PostgreSQL."
+        return False, f"Falha ao atualizar o patrimônio no PostgreSQL: {texto}"
+    finally:
+        conn.close()
+
 
 
 def salvar_patrimonio(
