@@ -384,7 +384,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
 
 
 @_serializar_persistencia
-def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "", foto_data_url: str = "") -> bool:
+def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "", foto_data_url: str = "", foto_bytes: Optional[bytes] = None) -> bool:
     codigo = _valor_texto(codigo_barras)
     setor_limpo = _valor_texto(setor)
     unidade_limpa = _normalizar_unidade_aba(unidade)
@@ -395,6 +395,21 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     if not valido:
         if mensagem: st.warning(mensagem)
         return False
+    # PostgreSQL é a fonte de verdade quando configurado: valida e grava antes do espelho.
+    if postgresql_persistencia._conexao_configurada():
+        ok_pg, msg_pg = postgresql_persistencia.salvar_patrimonio(
+            codigo_barras=codigo,
+            tipo=tipo,
+            setor=setor_limpo,
+            unidade=unidade_limpa,
+            fabricante=fabricante_limpo,
+            numero_patrimonio=numero,
+            foto_bytes=foto_bytes,
+        )
+        if not ok_pg:
+            st.warning(msg_pg)
+            return False
+
     df, _ = carregar_dados_excel(unidade_limpa)
     df = _normalizar_legacy_dataframe(df)
     chave_numero = _chave_texto(numero)
@@ -406,7 +421,10 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
         return False
     nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro(), "Foto": _valor_texto(foto_data_url)[:45000]}
-    return _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)
+    sucesso_sheets = _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)
+    if not sucesso_sheets and postgresql_persistencia._conexao_configurada():
+        st.error("⚠️ PostgreSQL gravou o patrimônio, mas o espelho Google Sheets não foi confirmado. O registro permanece no PostgreSQL.")
+    return sucesso_sheets
 
 
 @_serializar_persistencia
@@ -439,7 +457,7 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
 
 
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "", foto_data_url: str = "") -> bool:
-    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio, foto_data_url)
+    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio, foto_data_url, foto_bytes)
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
