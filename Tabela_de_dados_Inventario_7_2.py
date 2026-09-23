@@ -10,6 +10,8 @@ from typing import Optional, Tuple
 import gspread
 import pandas as pd
 import streamlit as st
+
+import postgresql_persistencia
 from google.oauth2.service_account import Credentials
 
 ARQUIVO_EXCEL = "inventario_dados.xlsx"
@@ -180,10 +182,54 @@ def conectar_google_sheets():
 def _nome_aba(unidade: str) -> str:
     return _normalizar_unidade_aba(unidade)[:90].strip()
 
+def _carregar_dados_postgresql(unidade: str) -> Optional[pd.DataFrame]:
+    """Lê o inventário do PostgreSQL quando a conexão estiver configurada.
+
+    Retorna None quando o PostgreSQL não estiver configurado ou estiver indisponível,
+    permitindo o fallback controlado para o Google Sheets durante a migração.
+    """
+    if not postgresql_persistencia._conexao_configurada():
+        return None
+    try:
+        registros = postgresql_persistencia.listar_patrimonios(unidade=unidade)
+        linhas = []
+        for row in registros:
+            # id, unidade, setor, numero_consultorio, especialidade, tipo,
+            # numero_patrimonio, codigo_barras, fabricante, data_cadastro,
+            # atualizado_em, possui_foto
+            _, _, nome_setor, numero_consultorio, especialidade, tipo, numero,
+            codigo, fabricante, data_cadastro, _, possui_foto = row
+            setor = nome_setor or ""
+            if numero_consultorio is not None and str(nome_setor).strip().casefold() == "consultório":
+                setor = f"Consultório {numero_consultorio}"
+                if especialidade:
+                    setor += f" - {especialidade}"
+            linhas.append({
+                "Setor": setor,
+                "Tipo de Patrimônio": _normalizar_tipo(tipo),
+                "Nº de Patrimônio": _valor_texto(numero),
+                "Fabricante": _valor_texto(fabricante),
+                "Data Cadastro": normalizar_data_hora(data_cadastro),
+                # A imagem permanece no PostgreSQL; a tabela mantém a indicação
+                # de foto sem transportar bytes para a interface.
+                "Foto": "📷 Foto armazenada" if possui_foto else "",
+            })
+        return pd.DataFrame(linhas, columns=COLUNAS_INVENTARIO).fillna("").astype(str)
+    except Exception as exc:
+        st.warning(f"PostgreSQL indisponível para leitura; usando o espelho legado. Detalhes: {exc}")
+        return None
+
 
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     unidade = _normalizar_unidade_aba(unidade)
+
+    # ETAPA 5: PostgreSQL passa a ser a fonte preferencial de leitura quando
+    # estiver configurado e acessível. Google Sheets continua como fallback.
+    dados_postgresql = _carregar_dados_postgresql(unidade)
+    if dados_postgresql is not None:
+        return dados_postgresql.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), "PostgreSQL"
+
     planilha = conectar_google_sheets()
     nome_aba = _nome_aba(unidade)
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
