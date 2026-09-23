@@ -528,8 +528,20 @@ def excluir_setor(setor: str, unidade: str) -> bool:
     conn = pg.conectar()
     if conn is None: return False
     try:
+        nome_setor, numero_consultorio, especialidade = pg._dividir_setor(setor)
         with conn.cursor() as cur:
-            cur.execute("SELECT s.id, COUNT(p.id) FROM setores s JOIN unidades u ON u.id=s.unidade_id LEFT JOIN patrimonios p ON p.setor_id=s.id WHERE u.nome=%s AND s.nome=%s GROUP BY s.id", (str(unidade).strip(), str(setor).strip()))
+            cur.execute(
+                """SELECT s.id, COUNT(p.id)
+                     FROM setores s
+                     JOIN unidades u ON u.id = s.unidade_id
+                     LEFT JOIN patrimonios p ON p.setor_id = s.id
+                    WHERE u.nome = %s
+                      AND s.nome = %s
+                      AND s.numero_consultorio IS NOT DISTINCT FROM %s
+                      AND s.especialidade IS NOT DISTINCT FROM %s
+                    GROUP BY s.id""",
+                (str(unidade).strip(), nome_setor, numero_consultorio, especialidade),
+            )
             row = cur.fetchone()
             if not row: return False
             if row[1] > 0:
@@ -554,8 +566,21 @@ def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     if conn is None: return False
     numero = _valor_texto(coluna)
     try:
+        nome_setor, numero_consultorio, especialidade = pg._dividir_setor(setor)
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM patrimonios p USING unidades u, setores s WHERE p.unidade_id=u.id AND p.setor_id=s.id AND u.nome=%s AND s.nome=%s AND p.numero_patrimonio=%s RETURNING p.id", (str(unidade).strip(), str(setor).strip(), numero))
+            cur.execute(
+                """DELETE FROM patrimonios p
+                     USING unidades u, setores s
+                    WHERE p.unidade_id = u.id
+                      AND p.setor_id = s.id
+                      AND u.nome = %s
+                      AND s.nome = %s
+                      AND s.numero_consultorio IS NOT DISTINCT FROM %s
+                      AND s.especialidade IS NOT DISTINCT FROM %s
+                      AND p.numero_patrimonio = %s
+                 RETURNING p.id""",
+                (str(unidade).strip(), nome_setor, numero_consultorio, especialidade, numero),
+            )
             removido = cur.fetchone()
         conn.commit()
     except Exception as exc:
