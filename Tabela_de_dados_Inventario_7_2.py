@@ -314,7 +314,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
         try:
             aba = _obter_aba_gravacao(planilha, nome_aba, len(df_salvar) + 1)
             linhas_limpeza = max(aba.row_count, len(valores), 100)
-            aba.batch_clear([f"A1:E{linhas_limpeza}"])
+            aba.batch_clear([f"A1:F{linhas_limpeza}"])
             aba.update(values=valores, range_name="A1")
             sucesso_sheets = _verificar_gravacao_google(aba, valores)
             if not sucesso_sheets:
