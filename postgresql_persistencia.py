@@ -5,6 +5,8 @@ operando com Google Sheets. Quando configurada, o cadastro é gravado no
 PostgreSQL e, separadamente, no Google Sheets.
 """
 
+import hashlib
+import io
 import re
 from datetime import datetime
 from typing import Optional, Tuple
@@ -142,6 +144,86 @@ def garantir_setor(cur, unidade_id: int, setor: str) -> int:
         raise RuntimeError("Não foi possível obter o setor após a inserção.")
     cur.execute("UPDATE setores SET ativo = TRUE WHERE id = %s", (existente[0],))
     return existente[0]
+
+
+MAX_FOTO_DIMENSAO = 1600
+MAX_FOTO_BYTES = 1024 * 1024
+FOTO_QUALIDADE_JPEG = 78
+
+
+def preparar_foto_patrimonio(image_file) -> Tuple[bytes, int, int, str]:
+    """Reduz e comprime a foto antes do envio ao PostgreSQL."""
+    from PIL import Image, ImageOps
+    if hasattr(image_file, "getvalue"):
+        bruto = image_file.getvalue()
+    elif isinstance(image_file, (bytes, bytearray, memoryview)):
+        bruto = bytes(image_file)
+    else:
+        bruto = image_file.read()
+    if not bruto:
+        raise ValueError("A foto está vazia.")
+    with Image.open(io.BytesIO(bruto)) as original:
+        imagem = ImageOps.exif_transpose(original)
+        imagem.thumbnail((MAX_FOTO_DIMENSAO, MAX_FOTO_DIMENSAO), Image.Resampling.LANCZOS)
+        if imagem.mode not in ("RGB", "L"):
+            imagem = imagem.convert("RGB")
+        qualidade = FOTO_QUALIDADE_JPEG
+        while True:
+            buffer = io.BytesIO()
+            imagem.save(buffer, format="JPEG", quality=qualidade, optimize=True)
+            dados = buffer.getvalue()
+            if len(dados) <= MAX_FOTO_BYTES or qualidade <= 55:
+                break
+            qualidade -= 8
+        largura, altura = imagem.size
+    if len(dados) > MAX_FOTO_BYTES:
+        raise ValueError("A foto continua maior que 1 MiB após a compressão.")
+    return dados, largura, altura, hashlib.sha256(dados).hexdigest()
+
+
+def _obter_patrimonio_id(cur, numero_patrimonio: str, unidade: str):
+    cur.execute(
+        """SELECT p.id FROM patrimonios p JOIN unidades u ON u.id = p.unidade_id
+             WHERE p.numero_patrimonio = %s AND u.nome = %s LIMIT 1""",
+        (str(numero_patrimonio or "").strip(), str(unidade or "").strip()),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file) -> Tuple[bool, str]:
+    """Comprime, valida e grava/substitui a foto do patrimônio."""
+    if not _conexao_configurada():
+        return False, "PostgreSQL não configurado; a foto não pode ser armazenada na tabela."
+    try:
+        dados, largura, altura, sha256 = preparar_foto_patrimonio(image_file)
+    except Exception as exc:
+        return False, f"Não foi possível preparar a foto: {exc}"
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL para armazenar a foto."
+    try:
+        with conn.cursor() as cur:
+            patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
+            if patrimonio_id is None:
+                return False, f"Patrimônio `{numero_patrimonio}` não encontrado na unidade `{unidade}`."
+            cur.execute(
+                """INSERT INTO patrimonio_fotos
+                     (patrimonio_id, imagem, mime_type, tamanho_bytes, largura, altura, sha256, atualizado_em)
+                   VALUES (%s, %s, 'image/jpeg', %s, %s, %s, %s, NOW())
+                   ON CONFLICT (patrimonio_id) DO UPDATE SET
+                     imagem = EXCLUDED.imagem, mime_type = EXCLUDED.mime_type,
+                     tamanho_bytes = EXCLUDED.tamanho_bytes, largura = EXCLUDED.largura,
+                     altura = EXCLUDED.altura, sha256 = EXCLUDED.sha256, atualizado_em = NOW()""",
+                (patrimonio_id, dados, len(dados), largura, altura, sha256),
+            )
+        conn.commit()
+        return True, f"Foto armazenada no PostgreSQL ({len(dados) // 1024} KiB)."
+    except Exception as exc:
+        conn.rollback()
+        return False, f"Falha ao armazenar a foto no PostgreSQL: {exc}"
+    finally:
+        conn.close()
 
 
 def salvar_patrimonio(
