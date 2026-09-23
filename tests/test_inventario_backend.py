@@ -546,6 +546,64 @@ def test_exclusao_por_identificacao_remove_a_linha_que_contem_a_foto(monkeypatch
     assert conn.committed is True
     assert conn.cur.sql.strip().upper().startswith("DELETE FROM PATRIMONIOS")
 
+
+def test_cadastro_pg_confirmado_nao_falha_se_espelho_sheets_indisponivel(monkeypatch):
+    import Tabela_de_dados_Inventario_7_2 as backend
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(
+        backend.postgresql_persistencia,
+        "salvar_patrimonio",
+        lambda **kwargs: (True, "PostgreSQL OK"),
+    )
+    monkeypatch.setattr(backend, "_anexar_no_google", lambda *args, **kwargs: False)
+    assert backend.registrar_patrimonio(
+        "COD-001", "CPU", "Farmacia", "UBS Teste", "Dell", "PAT-PG-001"
+    )
+
+
+def test_edicao_pg_confirmada_nao_desfaz_se_espelho_sheets_falhar(monkeypatch):
+    import Tabela_de_dados_Inventario_7_2 as backend
+    df = backend.pd.DataFrame([{
+        "Setor": "Farmacia",
+        "Tipo de Patrimônio": "CPU",
+        "Nº de Patrimônio": "PAT-001",
+        "Fabricante": "Dell",
+        "Data Cadastro": "2026-09-23 10:00:00",
+        "Foto": "📷 Foto armazenada",
+    }])
+    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (df, None))
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(
+        backend.postgresql_persistencia,
+        "atualizar_patrimonio_por_identificacao",
+        lambda *args, **kwargs: (True, "PostgreSQL OK"),
+    )
+    monkeypatch.setattr(backend, "salvar_no_excel", lambda *args, **kwargs: False)
+    assert backend.editar_patrimonio(
+        "Farmacia", "PAT-001", "Recepção", "CPU", "PAT-002", "Dell", "UBS Teste"
+    )
+
+
+def test_exclusao_pg_confirmada_nao_desfaz_se_espelho_sheets_falhar(monkeypatch):
+    import Tabela_de_dados_Inventario_7_2 as backend
+    df = backend.pd.DataFrame([{
+        "Setor": "Farmacia",
+        "Tipo de Patrimônio": "CPU",
+        "Nº de Patrimônio": "PAT-001",
+        "Fabricante": "Dell",
+        "Data Cadastro": "2026-09-23 10:00:00",
+        "Foto": "📷 Foto armazenada",
+    }])
+    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (df, None))
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: True)
+    monkeypatch.setattr(
+        backend.postgresql_persistencia,
+        "excluir_patrimonio_por_identificacao",
+        lambda *args, **kwargs: (True, "PostgreSQL OK"),
+    )
+    monkeypatch.setattr(backend, "salvar_no_excel", lambda *args, **kwargs: False)
+    assert backend.excluir_patrimonio("Farmacia", "PAT-001", "UBS Teste")
+
 def test_obter_foto_patrimonio_recupera_bytes_sob_demanda(monkeypatch):
     class Cursor:
         def __enter__(self): return self
