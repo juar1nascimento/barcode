@@ -18,12 +18,8 @@ def _norm(value) -> str:
     return " ".join(str(value or "").strip().split()).casefold()
 
 
-def _chave(row) -> tuple[str, str, str]:
-    return (
-        _norm(row.get("Setor", "")),
-        _norm(row.get("Tipo de Patrimônio", "")),
-        _norm(row.get("Nº de Patrimônio", "")),
-    )
+def _chave_numero(row, coluna="Nº de Patrimônio") -> str:
+    return _norm(row.get(coluna, ""))
 
 
 def _carregar_postgresql(unidade: str) -> pd.DataFrame:
