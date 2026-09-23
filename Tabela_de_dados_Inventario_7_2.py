@@ -471,8 +471,26 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
     return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
 
 
-def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "", foto_data_url: str = "") -> bool:
-    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio, foto_data_url, foto_bytes)
+def adicionar_e_salvar_sem_sobrescrever(
+    codigo: str,
+    patrimonio: str,
+    setor: str,
+    unidade: str,
+    fabricante: str = "",
+    numero_patrimonio: str = "",
+    foto_data_url: str = "",
+    foto_bytes: Optional[bytes] = None,
+) -> bool:
+    return registrar_patrimonio(
+        codigo,
+        patrimonio,
+        setor,
+        unidade,
+        fabricante,
+        numero_patrimonio,
+        foto_data_url,
+        foto_bytes,
+    )
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
@@ -513,10 +531,70 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
 def excluir_setor(setor: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_setor(df, setor)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    if not alterado:
+        return False
+
+    if postgresql_persistencia._conexao_configurada():
+        ok_pg, msg_pg = postgresql_persistencia.excluir_setor_postgresql(unidade, setor)
+        if not ok_pg:
+            st.warning(f"⚠️ Exclusão cancelada: {msg_pg}")
+            return False
+
+        sucesso_sheets = salvar_no_excel(novo, unidade)
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ O setor foi excluído do PostgreSQL, mas o espelho Google Sheets "
+                "não confirmou a atualização."
+            )
+        return True
+
+    return salvar_no_excel(novo, unidade)
 
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    if not alterado:
+        return False
+
+    alvo_numero = None
+    setor_mask = df["Setor"].map(_chave_texto) == _chave_texto(setor)
+    candidatos = df.loc[setor_mask]
+    if not candidatos.empty:
+        alvo = _valor_texto(coluna)
+        por_numero = candidatos[
+            candidatos["Nº de Patrimônio"].map(_chave_texto) == _chave_texto(alvo)
+        ]
+        if not por_numero.empty:
+            alvo_numero = _valor_texto(por_numero.iloc[0]["Nº de Patrimônio"])
+        else:
+            tipo = _normalizar_tipo(
+                re.sub(r"\s*-\s*N[ºo]?\s*de\s*Patrim[ôo]nio", "", alvo, flags=re.I)
+            )
+            por_tipo = candidatos[
+                candidatos["Tipo de Patrimônio"].astype(str).map(_normalizar_tipo) == tipo
+            ] if tipo else pd.DataFrame()
+            if len(por_tipo) == 1:
+                alvo_numero = _valor_texto(por_tipo.iloc[0]["Nº de Patrimônio"])
+
+    if postgresql_persistencia._conexao_configurada():
+        if not alvo_numero:
+            st.warning("⚠️ Não foi possível identificar com segurança o número do patrimônio para excluir.")
+            return False
+
+        ok_pg, msg_pg = postgresql_persistencia.excluir_patrimonio_por_identificacao(
+            unidade, setor, alvo_numero
+        )
+        if not ok_pg:
+            st.warning(f"⚠️ Exclusão cancelada: {msg_pg}")
+            return False
+
+        sucesso_sheets = salvar_no_excel(novo, unidade)
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ O patrimônio foi excluído do PostgreSQL, mas o espelho Google Sheets "
+                "não confirmou a atualização."
+            )
+        return True
+
+    return salvar_no_excel(novo, unidade)
