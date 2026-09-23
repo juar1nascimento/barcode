@@ -353,7 +353,32 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
         return False
     nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro()}
-    return _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)
+
+    # PostgreSQL passa a ser a persistência principal. O Google Sheets permanece
+    # como espelho operacional e só recebe o registro depois da confirmação do DB.
+    import postgresql_persistencia as pg
+    salvo_pg, mensagem_pg = pg.salvar_patrimonio(
+        codigo_barras=codigo,
+        tipo=tipo,
+        setor=setor_limpo,
+        unidade=unidade_limpa,
+        fabricante=fabricante_limpo,
+        numero_patrimonio=numero,
+    )
+    if not salvo_pg:
+        st.error(f"⚠️ Cadastro não concluído: {mensagem_pg}")
+        return False
+
+    sucesso_google = _anexar_no_google(
+        pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
+        unidade_limpa,
+    )
+    if not sucesso_google:
+        st.warning(
+            "⚠️ Patrimônio salvo no PostgreSQL, mas o espelho do Google Sheets "
+            "não foi confirmado. O PostgreSQL permanece como fonte principal."
+        )
+    return True
 
 
 @_serializar_persistencia
