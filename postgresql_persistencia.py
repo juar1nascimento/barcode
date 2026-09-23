@@ -268,6 +268,84 @@ def atualizar_patrimonio(patrimonio_id: int, tipo: str, setor: str, unidade: str
         conn.close()
 
 
+
+def atualizar_patrimonio_por_identificacao(
+    unidade: str,
+    setor_atual: str,
+    numero_atual: str,
+    tipo: str,
+    novo_setor: str,
+    novo_numero: str,
+    fabricante: str = "",
+) -> Tuple[bool, str]:
+    """Atualiza um patrimônio usando a identificação estável exibida pela UI."""
+    conn = conectar()
+    if conn is None:
+        return False, "PostgreSQL não disponível."
+
+    try:
+        nome_unidade = str(unidade or "").strip()
+        numero_origem = str(numero_atual or "").strip()
+        numero_destino = str(novo_numero or "").strip()
+        tipo_limpo = str(tipo or "").strip()
+
+        if not nome_unidade or not numero_origem or not numero_destino:
+            return False, "Unidade e números de patrimônio são obrigatórios."
+        if tipo_limpo not in TIPOS_PATRIMONIO:
+            return False, "Tipo de patrimônio inválido."
+
+        nome_setor_atual, num_cons_atual, esp_atual = _dividir_setor(setor_atual)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT p.id
+                   FROM patrimonios p
+                   JOIN unidades u ON u.id=p.unidade_id
+                   JOIN setores s ON s.id=p.setor_id
+                   WHERE u.nome=%s AND s.nome=%s
+                     AND s.numero_consultorio IS NOT DISTINCT FROM %s
+                     AND s.especialidade IS NOT DISTINCT FROM %s
+                     AND p.numero_patrimonio=%s
+                   FOR UPDATE""",
+                (nome_unidade, nome_setor_atual, num_cons_atual, esp_atual, numero_origem),
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.rollback()
+                return False, "Patrimônio original não encontrado no PostgreSQL."
+
+            unidade_id = garantir_unidade(cur, nome_unidade)
+            setor_id = garantir_setor(cur, unidade_id, novo_setor)
+
+            cur.execute(
+                """UPDATE patrimonios
+                   SET unidade_id=%s, setor_id=%s, tipo=%s, numero_patrimonio=%s,
+                       fabricante=%s, atualizado_em=NOW()
+                   WHERE id=%s""",
+                (
+                    unidade_id,
+                    setor_id,
+                    tipo_limpo,
+                    numero_destino,
+                    str(fabricante or "").strip() or None,
+                    row[0],
+                ),
+            )
+            if cur.rowcount != 1:
+                conn.rollback()
+                return False, "Patrimônio não pôde ser atualizado."
+
+        conn.commit()
+        return True, "Patrimônio atualizado no PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        if "duplicate key" in str(exc).lower() or "unique" in str(exc).lower():
+            return False, "O novo número de patrimônio já está em uso."
+        return False, f"Falha ao atualizar patrimônio: {exc}"
+    finally:
+        conn.close()
+
+
 def excluir_patrimonio_postgresql(patrimonio_id: int) -> Tuple[bool, str]:
     conn = conectar()
     if conn is None:
