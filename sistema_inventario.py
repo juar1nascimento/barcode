@@ -8,7 +8,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
+    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, atualizar_patrimonio, excluir_setor, excluir_patrimonio
 )
 import postgresql_persistencia
 
@@ -456,6 +456,88 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             st.session_state.del_setor = None
         if st.session_state.pop("reset_del_coluna_patrimonio", False):
             st.session_state.del_coluna_patrimonio = None
+
+
+        with st.expander(
+            f"✏️ Gerenciador de Edição — Aba ({unidade})",
+            expanded=False,
+        ):
+            df_edicao = df_atual.copy()
+            numeros_edicao = sorted(
+                dict.fromkeys(
+                    str(v).strip()
+                    for v in df_edicao["Nº de Patrimônio"].tolist()
+                    if str(v).strip()
+                ),
+                key=str.casefold,
+            )
+            if not numeros_edicao:
+                st.info("ℹ️ Não existem patrimônios cadastrados para edição nesta unidade.")
+            else:
+                numero_original_edicao = st.selectbox(
+                    "Selecione o Nº de Patrimônio:",
+                    numeros_edicao,
+                    index=None,
+                    placeholder="Selecione um patrimônio...",
+                    key="editar_numero_original",
+                )
+                if numero_original_edicao:
+                    linha_edicao = df_edicao[
+                        df_edicao["Nº de Patrimônio"].map(str).str.strip().str.casefold()
+                        == numero_original_edicao.strip().casefold()
+                    ].iloc[0]
+
+                    col_e1, col_e2 = st.columns(2)
+                    with col_e1:
+                        novo_numero_edicao = st.text_input(
+                            "Novo Nº de Patrimônio:",
+                            value=str(linha_edicao["Nº de Patrimônio"]),
+                            key="editar_novo_numero",
+                        )
+                        valor_tipo_edicao = str(linha_edicao["Tipo de Patrimônio"])
+                        novo_tipo_edicao = st.selectbox(
+                            "Tipo de Patrimônio:",
+                            opcoes_patrimonio,
+                            index=opcoes_patrimonio.index(valor_tipo_edicao) if valor_tipo_edicao in opcoes_patrimonio else None,
+                            key="editar_tipo",
+                        )
+                    with col_e2:
+                        novo_setor_edicao = st.text_input(
+                            "Setor:",
+                            value=str(linha_edicao["Setor"]),
+                            key="editar_setor",
+                        )
+                        novo_fabricante_edicao = st.text_input(
+                            "Fabricante:",
+                            value=str(linha_edicao["Fabricante"]),
+                            key="editar_fabricante",
+                        )
+
+                    if st.button(
+                        "💾 Salvar alterações",
+                        type="primary",
+                        use_container_width=True,
+                        key="btn_salvar_edicao",
+                    ):
+                        novo_numero = novo_numero_edicao.strip()
+                        if not novo_numero:
+                            st.error("Informe o novo número de patrimônio.")
+                        else:
+                            ok_edicao, msg_edicao = atualizar_patrimonio(
+                                numero_patrimonio_original=numero_original_edicao,
+                                codigo_barras=novo_numero,
+                                tipo=novo_tipo_edicao or "",
+                                setor=novo_setor_edicao,
+                                unidade=unidade,
+                                fabricante=novo_fabricante_edicao,
+                                numero_patrimonio=novo_numero,
+                            )
+                            if ok_edicao:
+                                st.session_state.mensagem_sucesso = f"✏️ {msg_edicao}"
+                                carregar_dados_excel.clear()
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg_edicao}")
 
         with st.expander(
             f"🗑️ Gerenciador de Exclusão — Aba ({unidade})",
