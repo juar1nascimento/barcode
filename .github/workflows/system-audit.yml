@@ -2,7 +2,9 @@ name: System Audit
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - "main"
+      - "feature/captura-foto-patrimonio"
   pull_request:
     branches: ["main"]
   workflow_dispatch:
