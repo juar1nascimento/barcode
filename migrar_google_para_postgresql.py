@@ -17,7 +17,12 @@ from Tabela_de_dados_Inventario_7_2 import (
     LISTA_ALMOXARIFADO_PADRAO,
 )
 from google_sheets_lote import carregar_dados_excel_lote
-from postgresql_persistencia import conectar, garantir_unidade, garantir_setor
+from postgresql_persistencia import (
+    _dividir_setor,
+    conectar,
+    garantir_unidade,
+    garantir_setor,
+)
 
 
 def _converter_data(valor: str):
@@ -34,6 +39,28 @@ def _converter_data(valor: str):
 
 def _normalizar_texto(valor) -> str:
     return " ".join(str(valor or "").strip().split())
+
+
+def _buscar_unidade_existente(cur, unidade: str):
+    cur.execute("SELECT id FROM unidades WHERE nome=%s LIMIT 1", (str(unidade).strip(),))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _buscar_setor_existente(cur, unidade_id: int | None, setor: str):
+    if unidade_id is None:
+        return None
+    nome, numero, especialidade = _dividir_setor(setor)
+    cur.execute(
+        """SELECT id FROM setores
+           WHERE unidade_id=%s AND nome=%s
+             AND numero_consultorio IS NOT DISTINCT FROM %s
+             AND especialidade IS NOT DISTINCT FROM %s
+           LIMIT 1""",
+        (unidade_id, nome, numero, especialidade),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
 
 
 def migrar_unidade(unidade: str, dry_run: bool = False, dados_lote=None) -> dict:
@@ -64,7 +91,13 @@ def migrar_unidade(unidade: str, dry_run: bool = False, dados_lote=None) -> dict
 
     try:
         with conn.cursor() as cur:
-            unidade_id = garantir_unidade(cur, unidade)
+            if dry_run:
+                # Dry-run é estritamente somente leitura: nenhuma unidade ou
+                # setor pode ser criado/reativado durante a simulação.
+                unidade_id = _buscar_unidade_existente(cur, unidade)
+            else:
+                unidade_id = garantir_unidade(cur, unidade)
+
             for _, row in df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").iterrows():
                 numero = _normalizar_texto(row.get("Nº de Patrimônio", ""))
                 tipo = _normalizar_texto(row.get("Tipo de Patrimônio", ""))
@@ -79,7 +112,10 @@ def migrar_unidade(unidade: str, dry_run: bool = False, dados_lote=None) -> dict
                     continue
 
                 resultado["candidatos"] += 1
-                setor_id = garantir_setor(cur, unidade_id, setor)
+                if dry_run:
+                    setor_id = _buscar_setor_existente(cur, unidade_id, setor)
+                else:
+                    setor_id = garantir_setor(cur, unidade_id, setor)
                 cur.execute(
                     """SELECT p.id, p.unidade_id, p.setor_id, p.tipo,
                               p.numero_patrimonio, p.fabricante
