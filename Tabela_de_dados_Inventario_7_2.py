@@ -522,6 +522,78 @@ def atualizar_patrimonio(
     return True, "Patrimônio atualizado no PostgreSQL e no Google Sheets."
 
 
+def auditar_sincronizacao_unidade(unidade: str) -> dict:
+    """Compara PostgreSQL (fonte principal) com o Google Sheets (espelho)."""
+    unidade = _normalizar_unidade_aba(unidade)
+    resultado = {"unidade": unidade, "postgresql": 0, "google_sheets": 0,
+                 "somente_postgresql": [], "somente_google": [], "divergentes": [], "erro": ""}
+    try:
+        import postgresql_persistencia as pg
+        if not pg._conexao_configurada():
+            resultado["erro"] = "PostgreSQL não configurado."
+            return resultado
+        conn = pg.conectar()
+        if conn is None:
+            resultado["erro"] = "Não foi possível conectar ao PostgreSQL."
+            return resultado
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT p.numero_patrimonio, p.tipo, p.fabricante,
+                              s.nome, s.numero_consultorio, s.especialidade
+                         FROM patrimonios p
+                         JOIN unidades u ON u.id = p.unidade_id
+                         JOIN setores s ON s.id = p.setor_id
+                        WHERE u.nome = %s""",
+                    (unidade,),
+                )
+                linhas_pg = cur.fetchall()
+        finally:
+            conn.close()
+
+        pg_map = {}
+        for numero, tipo, fabricante, nome, numero_consultorio, especialidade in linhas_pg:
+            chave = _chave_texto(numero)
+            if not chave:
+                continue
+            setor = _valor_texto(nome)
+            if setor.casefold() == "consultório" and numero_consultorio is not None:
+                setor += f" {int(numero_consultorio)}"
+                if especialidade:
+                    setor += f" - {_valor_texto(especialidade)}"
+            pg_map[chave] = {"numero": _valor_texto(numero), "tipo": _valor_texto(tipo),
+                             "fabricante": _valor_texto(fabricante), "setor": setor}
+
+        df, _ = carregar_dados_excel(unidade)
+        df = _normalizar_legacy_dataframe(df)
+        gs_map = {}
+        for _, row in df.iterrows():
+            chave = _chave_texto(row["Nº de Patrimônio"])
+            if chave:
+                gs_map[chave] = {"numero": _valor_texto(row["Nº de Patrimônio"]),
+                                 "tipo": _valor_texto(row["Tipo de Patrimônio"]),
+                                 "fabricante": _valor_texto(row["Fabricante"]),
+                                 "setor": _valor_texto(row["Setor"])}
+
+        resultado["postgresql"], resultado["google_sheets"] = len(pg_map), len(gs_map)
+        for chave in sorted(set(pg_map) - set(gs_map)):
+            resultado["somente_postgresql"].append(pg_map[chave])
+        for chave in sorted(set(gs_map) - set(pg_map)):
+            resultado["somente_google"].append(gs_map[chave])
+        for chave in sorted(set(pg_map) & set(gs_map)):
+            diffs = {}
+            for campo in ("tipo", "fabricante", "setor"):
+                if _chave_texto(pg_map[chave][campo]) != _chave_texto(gs_map[chave][campo]):
+                    diffs[campo] = {"postgresql": pg_map[chave][campo], "google_sheets": gs_map[chave][campo]}
+            if diffs:
+                resultado["divergentes"].append({"numero": pg_map[chave]["numero"], "campos": diffs})
+        return resultado
+    except Exception as exc:
+        resultado["erro"] = f"Falha na auditoria: {exc}"
+        return resultado
+
+
+
 def excluir_setor(setor: str, unidade: str) -> bool:
     import postgresql_persistencia as pg
     if not pg._conexao_configurada():
