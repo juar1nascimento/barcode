@@ -444,32 +444,90 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
 
 @_serializar_persistencia
 def registrar_patrimonios_em_lote(registros, unidade: str):
+    """Registra um lote com PostgreSQL como fonte primária e Sheets como espelho."""
     registros = list(registros or [])
-    if not registros: return False, ["O lote está vazio."]
-    if len(registros) > 1000: return False, ["O lote excede o limite de 1000 patrimônios por operação."]
+    if not registros:
+        return False, ["O lote está vazio."]
+    if len(registros) > 1000:
+        return False, ["O lote excede o limite de 1000 patrimônios por operação."]
+
     unidade_limpa = _normalizar_unidade_aba(unidade)
     df, _ = carregar_dados_excel(unidade_limpa)
     df = _normalizar_legacy_dataframe(df)
+
     existentes = set(df["Nº de Patrimônio"].map(_chave_texto))
     vistos, novos, erros = set(), [], []
+
     for posicao, item in enumerate(registros, start=1):
         item = item or {}
         numero = _valor_texto(item.get("numero_patrimonio", "")) or _valor_texto(item.get("codigo_barras", ""))
-        tipo = _normalizar_tipo(item.get("tipo_patrimonio", ""))
+        tipo = _normalizar_tipo(item.get("tipo_patrimonio", "") or item.get("tipo", ""))
         setor = _valor_texto(item.get("setor", ""))
         fabricante = _valor_texto(item.get("fabricante", ""))
         foto_data_url = _valor_texto(item.get("foto_data_url", ""))[:45000]
-        ok, mensagem = validar_cadastro_patrimonio(tipo, setor, unidade_limpa, numero)
-        if not ok: erros.append(f"Registro {posicao}: {mensagem}"); continue
-        chave = _chave_texto(numero)
-        if chave in existentes: erros.append(f"Registro {posicao}: o patrimônio `{numero}` já existe na unidade."); continue
-        if chave in vistos: erros.append(f"Registro {posicao}: o patrimônio `{numero}` está duplicado no próprio lote."); continue
-        vistos.add(chave)
-        novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro(), "Foto": foto_data_url})
-    if erros: return False, erros
-    sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)
-    return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
+        foto_bytes = item.get("foto_bytes")
 
+        ok, mensagem = validar_cadastro_patrimonio(tipo, setor, unidade_limpa, numero)
+        if not ok:
+            erros.append(f"Registro {posicao}: {mensagem}")
+            continue
+
+        chave = _chave_texto(numero)
+        if chave in existentes:
+            erros.append(f"Registro {posicao}: o patrimônio {numero} já existe na unidade.")
+            continue
+        if chave in vistos:
+            erros.append(f"Registro {posicao}: o patrimônio {numero} está duplicado no próprio lote.")
+            continue
+
+        vistos.add(chave)
+        novos.append({
+            "Setor": setor,
+            "Tipo de Patrimônio": tipo,
+            "Nº de Patrimônio": numero,
+            "Fabricante": fabricante,
+            "Data Cadastro": _data_hora_cadastro(),
+            "Foto": foto_data_url,
+            "_foto_bytes": foto_bytes,
+            "_codigo_barras": _valor_texto(item.get("codigo_barras", "")),
+        })
+
+    if erros:
+        return False, erros
+
+    if postgresql_persistencia._conexao_configurada():
+        registros_pg = [
+            {
+                "numero_patrimonio": item["Nº de Patrimônio"],
+                "codigo_barras": item["_codigo_barras"],
+                "tipo": item["Tipo de Patrimônio"],
+                "setor": item["Setor"],
+                "fabricante": item["Fabricante"],
+                "data_cadastro": item["Data Cadastro"],
+                "foto_bytes": item["_foto_bytes"],
+            }
+            for item in novos
+        ]
+        ok_pg, msg_pg = postgresql_persistencia.salvar_patrimonios_em_lote(
+            registros_pg, unidade_limpa
+        )
+        if not ok_pg:
+            return False, [msg_pg]
+
+        df_espelho = pd.DataFrame(novos, columns=COLUNAS_INVENTARIO + ["_foto_bytes", "_codigo_barras"])
+        df_espelho = df_espelho[COLUNAS_INVENTARIO]
+        sucesso_sheets = _anexar_no_google(df_espelho, unidade_limpa)
+        if not sucesso_sheets:
+            st.warning(
+                "⚠️ O lote foi confirmado no PostgreSQL, mas o espelho Google Sheets "
+                "não confirmou a gravação."
+            )
+        return True, []
+
+    df_espelho = pd.DataFrame(novos, columns=COLUNAS_INVENTARIO + ["_foto_bytes", "_codigo_barras"])
+    df_espelho = df_espelho[COLUNAS_INVENTARIO]
+    sucesso = _anexar_no_google(df_espelho, unidade_limpa)
+    return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
 
 def adicionar_e_salvar_sem_sobrescrever(
     codigo: str,
