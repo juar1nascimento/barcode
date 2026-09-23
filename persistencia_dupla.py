@@ -37,7 +37,7 @@ def ativar():
             st.error(f"❌ Cadastro não concluído: {msg_pg}")
             return False
 
-        ok_sheets = _original(codigo, patrimonio, setor, unidade, fabricante)
+        ok_sheets = _original(codigo, patrimonio, setor, unidade, fabricante, foto_data_url=foto_data_url, foto_bytes=foto_bytes)
         if not ok_sheets:
             st.warning(
                 "⚠️ O patrimônio foi gravado no PostgreSQL, mas o Google Sheets "
