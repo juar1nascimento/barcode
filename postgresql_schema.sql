@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS patrimonios (
     fabricante VARCHAR(150),
     data_cadastro TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    foto BYTEA,
     CONSTRAINT uq_patrimonio_numero UNIQUE (numero_patrimonio),
     CONSTRAINT uq_patrimonio_codigo_barras UNIQUE (codigo_barras)
 );
