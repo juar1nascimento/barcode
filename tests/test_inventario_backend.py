@@ -21,6 +21,7 @@ def _mock_persistencia(monkeypatch, estado):
     monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
     monkeypatch.setattr(backend, "_anexar_no_google", lambda df, unidade: estado.__setitem__("df", pd.concat([estado["df"], df], ignore_index=True)) or True)
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: None)
+    monkeypatch.setattr(backend.postgresql_persistencia, "_conexao_configurada", lambda: False)
 
 
 def test_schema_e_tipo_patrimonio():
