@@ -72,7 +72,10 @@ def _dividir_setor(setor: str) -> Tuple[str, Optional[int], Optional[str]]:
 
 
 def _tipo_unidade(unidade: str) -> str:
-    return "URS" if str(unidade or "").strip().upper().startswith("URS ") else "UBS"
+    texto = str(unidade or "").strip()
+    if texto.casefold() == "almoxarifado central sesa".casefold():
+        return "ALMOX"
+    return "URS" if texto.upper().startswith("URS ") else "UBS"
 
 
 def garantir_unidade(cur, unidade: str) -> int:

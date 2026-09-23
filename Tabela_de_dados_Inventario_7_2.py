@@ -20,8 +20,9 @@ COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fab
 COLUNAS_PADRAO = COLUNAS_INVENTARIO.copy()
 SETORES_PADRAO = ["Consultório", "Almoxarifado", "Farmacia", "Sala de Preparo", "Sala de Vacina", "Sala de curativo", "Gerencia", "Administração", "Odontologia", "Recepção", "Outro Setor"]
 LISTA_URS_PADRAO = ["URS Novo Horizonte", "URS Jacaraípe", "URS Boa Vista", "URS Feu Rosa", "URS Serra Sede", "URS Serra Dourada"]
+LISTA_ALMOXARIFADO_PADRAO = ["Almoxarifado Central SESA"]
 LISTA_UBS_PADRAO = ["UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)", "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos", "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra", "UBS Itinerante (atendimento na UBS)"]
-UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO
+UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO + LISTA_ALMOXARIFADO_PADRAO
 FUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")
 _PERSISTENCIA_LOCK = threading.RLock()
 
@@ -31,7 +32,7 @@ def _agora_brasilia() -> datetime:
 
 
 def _data_hora_cadastro() -> str:
-    return _agora_brasilia().strftime("%d-%m-%Y %H:%M:%S")
+    return _agora_brasilia().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def formatar_nome_patrimonio(patrimonio: str) -> str:

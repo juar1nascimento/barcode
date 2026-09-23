@@ -16,6 +16,7 @@ from Tabela_de_dados_Inventario_7_2 import (
     COLUNAS_INVENTARIO,
     TIPOS_PATRIMONIO,
     UNIDADES_PADRAO,
+    LISTA_ALMOXARIFADO_PADRAO,
 )
 from google_sheets_lote import carregar_dados_excel_lote
 

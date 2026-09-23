@@ -7,7 +7,7 @@ from typing import Optional, Tuple, List, Dict, Any
 
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
-    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
+    LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
     carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
 )
 
@@ -108,29 +108,66 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
 # ==============================================================================
 # CARD DE INVENTÁRIO E PORTAL DE NAVEGAÇÃO
 # ==============================================================================
-def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, *args, **kwargs) -> None:
+def _opcoes_unidade_por_categoria(
+    categoria: str,
+    urs_opcoes: List[str],
+    ubs_opcoes: List[str],
+    almox_opcoes: List[str],
+) -> List[str]:
+    """Retorna somente as unidades pertencentes à categoria escolhida."""
+    if categoria == "URS":
+        return urs_opcoes
+    if categoria == "UBS":
+        return ubs_opcoes
+    return almox_opcoes
+
+
+def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
+    almox_opcoes = [u for u in (lista_almoxarifado if lista_almoxarifado is not None else LISTA_ALMOXARIFADO_PADRAO) if not str(u).startswith("Selecione")]
     urs_opcoes = [u for u in (lista_urs if lista_urs is not None else LISTA_URS_PADRAO) if not str(u).startswith("Selecione")]
     ubs_opcoes = [u for u in (lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO) if not str(u).startswith("Selecione")]
 
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📦 Sistema de Inventários</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra por URS/UBS.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de gestão e leitura de códigos de barra por URS, UBS ou Almoxarifado Central SESA.</p>", unsafe_allow_html=True)
 
-        urs_selecionada = st.selectbox("URS - Unidade Regional de Saúde", urs_opcoes, index=None, placeholder="Selecione uma URS...", key="sel_urs_card_inventario")
-        ubs_selecionada = st.selectbox("UBS - Unidade Básica de Saúde", ubs_opcoes, index=None, placeholder="Selecione uma UBS...", key="sel_ubs_card_inventario")
-        unidade_escolhida = urs_selecionada if urs_selecionada else (ubs_selecionada if ubs_selecionada else "")
+        categoria_unidade = st.radio(
+            "Tipo de unidade:",
+            ["URS", "UBS", "Almoxarifado"],
+            horizontal=True,
+            key="tipo_unidade_card_inventario",
+        )
+        opcoes_unidade = _opcoes_unidade_por_categoria(
+            categoria_unidade,
+            urs_opcoes,
+            ubs_opcoes,
+            almox_opcoes,
+        )
+        rotulos_categoria = {
+            "URS": ("URS - Unidade Regional de Saúde", "Selecione uma URS..."),
+            "UBS": ("UBS - Unidade Básica de Saúde", "Selecione uma UBS..."),
+            "Almoxarifado": ("Almoxarifado Central SESA", "Selecione o Almoxarifado Central SESA..."),
+        }
+        rotulo, placeholder = rotulos_categoria[categoria_unidade]
+        unidade_escolhida = st.selectbox(
+            rotulo,
+            opcoes_unidade,
+            index=None,
+            placeholder=placeholder,
+            key="sel_unidade_card_inventario",
+        )
 
         if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
             if not unidade_escolhida:
-                st.warning("⚠️ Selecione uma URS ou UBS válida para continuar.")
+                st.warning("⚠️ Selecione uma unidade para continuar.")
             else:
                 st.session_state.unidade_selecionada = unidade_escolhida
                 st.session_state.pagina_atual = "inventario"
                 st.rerun()
 
 
-def renderizar_portal_principal(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, *args, **kwargs) -> None:
-    renderizar_card_inventario(lista_urs=lista_urs, lista_ubs=lista_ubs, *args, **kwargs)
+def renderizar_portal_principal(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
+    renderizar_card_inventario(lista_urs=lista_urs, lista_ubs=lista_ubs, lista_almoxarifado=lista_almoxarifado, *args, **kwargs)
 
 # ==============================================================================
 # PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
