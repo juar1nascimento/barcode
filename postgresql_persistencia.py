@@ -148,6 +148,7 @@ def salvar_patrimonio(
     unidade: str,
     fabricante: str = "",
     numero_patrimonio: str = "",
+    foto_bytes: Optional[bytes] = None,
 ) -> Tuple[bool, str]:
     """Grava um patrimônio no PostgreSQL e retorna (sucesso, mensagem).
 
@@ -179,9 +180,9 @@ def salvar_patrimonio(
             cur.execute(
                 """INSERT INTO patrimonios
                      (unidade_id, setor_id, tipo, numero_patrimonio,
-                      codigo_barras, fabricante, data_cadastro, atualizado_em)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())""",
-                (unidade_id, setor_id, tipo, numero, codigo, fabricante, datetime.now()),
+                      codigo_barras, fabricante, data_cadastro, atualizado_em, foto)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s)""",
+                (unidade_id, setor_id, tipo, numero, codigo, fabricante, datetime.now(), foto_bytes),
             )
         conn.commit()
         return True, "Patrimônio gravado no PostgreSQL."
