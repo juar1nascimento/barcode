@@ -190,6 +190,13 @@ def _carregar_dados_postgresql(unidade: str) -> Optional[pd.DataFrame]:
     """
     if not postgresql_persistencia._conexao_configurada():
         return None
+    teste = postgresql_persistencia.conectar()
+    if teste is None:
+        return None
+    try:
+        teste.close()
+    except Exception:
+        pass
     try:
         registros = postgresql_persistencia.listar_patrimonios(unidade=unidade)
         linhas = []
