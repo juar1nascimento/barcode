@@ -24,7 +24,7 @@ def _mock_persistencia(monkeypatch, estado):
 
 
 def test_schema_e_tipo_patrimonio():
-    assert COLUNAS == ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
+    assert COLUNAS == ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro", "Foto"]
     assert "Código de Barras" not in COLUNAS
     assert "Origem" not in COLUNAS
     assert "Status" not in COLUNAS
@@ -254,7 +254,7 @@ def test_salvar_no_google_confirma_leitura_de_volta(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     assert backend.salvar_no_excel(_df_exemplo(), "UBS Teste") is True
-    assert planilha.sheets["UBS Teste"].rows == [COLUNAS, ["Farmacia", "Monitores", "MON-001", "Samsung", "2026-09-09 12:00:00"]]
+    assert planilha.sheets["UBS Teste"].rows == [COLUNAS, ["Farmacia", "Monitores", "MON-001", "Samsung", "2026-09-09 12:00:00", ""]]
 
 
 def test_google_com_leitura_de_confirmacao_diferente_eh_falha(monkeypatch, tmp_path):
