@@ -241,7 +241,7 @@ def salvar_patrimonio(
     espelhamento separadamente para manter as duas persistências independentes.
     """
     if not _conexao_configurada():
-        return True, "PostgreSQL não configurado; persistência principal ainda não ativada."
+        return False, "PostgreSQL não configurado. Cadastros foram bloqueados para evitar gravação somente no Google Sheets."
 
     numero = str(numero_patrimonio or "").strip() or str(codigo_barras or "").strip()
     codigo = str(codigo_barras or "").strip() or None
