@@ -422,3 +422,41 @@ def test_identificador_nao_pode_repetir_em_outra_unidade(monkeypatch):
     planilha=Planilha()
     assert backend._numero_patrimonio_existe_na_planilha(planilha,' global-001 ')
     assert not backend._numero_patrimonio_existe_na_planilha(planilha,'GLOBAL-002')
+
+
+def test_obter_foto_patrimonio_recupera_bytes_sob_demanda(monkeypatch):
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def execute(self, sql, params):
+            self.params = params
+            self.sql = sql
+        def fetchone(self):
+            return (b"\xff\xd8foto\xff\xd9",)
+
+    class Conn:
+        def cursor(self): return Cursor()
+        def close(self): pass
+
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: Conn())
+    foto = backend.postgresql_persistencia.obter_foto_patrimonio(
+        "Almoxarifado Central SESA", "Farmacia", "ALM-001"
+    )
+    assert foto == b"\xff\xd8foto\xff\xd9"
+
+
+def test_obter_foto_patrimonio_sem_foto_retorna_none(monkeypatch):
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def execute(self, sql, params): pass
+        def fetchone(self): return (None,)
+
+    class Conn:
+        def cursor(self): return Cursor()
+        def close(self): pass
+
+    monkeypatch.setattr(backend.postgresql_persistencia, "conectar", lambda: Conn())
+    assert backend.postgresql_persistencia.obter_foto_patrimonio(
+        "UBS Teste", "Farmacia", "SEM-FOTO-001"
+    ) is None
