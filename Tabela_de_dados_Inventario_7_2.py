@@ -184,6 +184,30 @@ def _nome_aba(unidade: str) -> str:
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     unidade = _normalizar_unidade_aba(unidade)
+    import postgresql_persistencia as pg
+
+    # PostgreSQL é a fonte principal. Google Sheets só é usado quando
+    # PostgreSQL ainda não está configurado neste ambiente.
+    if pg._conexao_configurada():
+        linhas, erro = pg.listar_patrimonios(unidade)
+        if linhas is not None:
+            registros = []
+            for numero, tipo, fabricante, nome, numero_consultorio, especialidade in linhas:
+                setor = _valor_texto(nome)
+                if setor.casefold() == "consultório" and numero_consultorio is not None:
+                    setor += f" {int(numero_consultorio)}"
+                    if especialidade:
+                        setor += f" - {_valor_texto(especialidade)}"
+                registros.append({
+                    "Setor": setor,
+                    "Tipo de Patrimônio": _valor_texto(tipo),
+                    "Nº de Patrimônio": _valor_texto(numero),
+                    "Fabricante": _valor_texto(fabricante),
+                })
+            return pd.DataFrame(registros, columns=COLUNAS_INVENTARIO), "PostgreSQL"
+        st.error(f"Erro ao carregar o PostgreSQL: {erro}")
+        return pd.DataFrame(columns=COLUNAS_INVENTARIO), "PostgreSQL"
+
     planilha = conectar_google_sheets()
     nome_aba = _nome_aba(unidade)
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
@@ -210,7 +234,6 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
         try: return _normalizar_legacy_dataframe(pd.read_excel(nome_arquivo_local, dtype=str)), nome_arquivo_local
         except Exception: pass
     return pd.DataFrame(columns=COLUNAS_INVENTARIO), nome_arquivo_local
-
 
 def _obter_aba_gravacao(planilha, nome_aba: str, linhas_necessarias: int):
     try: return planilha.worksheet(nome_aba)
