@@ -14,6 +14,7 @@ from Tabela_de_dados_Inventario_7_2 import (
     COLUNAS_INVENTARIO,
     LISTA_UBS_PADRAO,
     LISTA_URS_PADRAO,
+    LISTA_ALMOXARIFADO_PADRAO,
 )
 from google_sheets_lote import carregar_dados_excel_lote
 from postgresql_persistencia import conectar, garantir_unidade, garantir_setor
@@ -137,7 +138,7 @@ def migrar_todas_as_unidades(
     dry_run: bool = False,
 ) -> dict:
     """Executa a simulação ou migração controlada para as unidades informadas."""
-    unidades = list(unidades or (LISTA_URS_PADRAO + LISTA_UBS_PADRAO))
+    unidades = list(unidades or (LISTA_URS_PADRAO + LISTA_UBS_PADRAO + LISTA_ALMOXARIFADO_PADRAO))
     dados_lote = carregar_dados_excel_lote(unidades)
     resultados = [
         migrar_unidade(u, dry_run=dry_run, dados_lote=dados_lote)
