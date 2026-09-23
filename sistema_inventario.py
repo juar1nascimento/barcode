@@ -10,7 +10,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
+    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, editar_patrimonio, excluir_setor, excluir_patrimonio
 )
 
 # ==============================================================================
@@ -360,6 +360,96 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if adicionar_e_salvar(codigo_foto.strip(), descricao_final, setor_input, unidade, fabricante_input.strip(), foto_data_url=foto_data_url, foto_bytes=foto_bytes):
                         st.session_state.mensagem_sucesso = f"✅ Patrimônio `{codigo_foto.strip()}` registrado com a foto na coluna `Foto`."
                         st.rerun()
+
+    st.divider()
+    st.header("✏️ Editar Patrimônio")
+
+    with st.expander("Abrir editor de patrimônio", expanded=False):
+        patrimonios_edicao = []
+        info_edicao = {}
+        for _, linha in df_inicial.iterrows():
+            numero = str(linha.get("Nº de Patrimônio", "")).strip()
+            if not numero or numero.casefold() in {"nan", "none", "null"}:
+                continue
+            patrimonios_edicao.append(numero)
+            info_edicao[numero] = {
+                "setor": str(linha.get("Setor", "")).strip(),
+                "tipo": str(linha.get("Tipo de Patrimônio", "")).strip(),
+                "fabricante": str(linha.get("Fabricante", "")).strip(),
+            }
+
+        patrimonios_edicao = sorted(dict.fromkeys(patrimonios_edicao), key=str.casefold)
+        if not patrimonios_edicao:
+            st.info("ℹ️ Não existem patrimônios disponíveis para edição nesta unidade.")
+        else:
+            numero_edicao = st.selectbox(
+                "Selecione o Nº de Patrimônio:",
+                patrimonios_edicao,
+                index=None,
+                key="editar_numero_patrimonio",
+                placeholder="Selecione um patrimônio...",
+                format_func=lambda n: f"{n} — {info_edicao[n]['tipo']} — {info_edicao[n]['setor']}",
+            )
+
+            if numero_edicao:
+                atual = info_edicao[numero_edicao]
+                setores_existentes = sorted(
+                    {str(v).strip() for v in df_inicial["Setor"].tolist()
+                     if str(v).strip() and str(v).strip().casefold() not in {"nan", "none", "null"}},
+                    key=str.casefold,
+                )
+                setores_edicao = sorted(dict.fromkeys(setores_existentes + opcoes_setor), key=str.casefold)
+
+                tipo_edicao = st.selectbox(
+                    "Tipo de patrimônio:",
+                    opcoes_patrimonio,
+                    index=opcoes_patrimonio.index(atual["tipo"]) if atual["tipo"] in opcoes_patrimonio else None,
+                    key="editar_tipo_patrimonio",
+                )
+                setor_edicao = st.selectbox(
+                    "Setor:",
+                    setores_edicao,
+                    index=setores_edicao.index(atual["setor"]) if atual["setor"] in setores_edicao else None,
+                    key="editar_setor_patrimonio",
+                )
+
+                setor_final_edicao = setor_edicao or ""
+                numero_cons_edicao = 1
+                especialidade_edicao = ""
+                if setor_edicao == "Consultório":
+                    col_cons1, col_cons2 = st.columns(2)
+                    with col_cons1:
+                        numero_cons_edicao = st.number_input("Nº do Consultório:", min_value=1, step=1, value=1, key="editar_num_consultorio")
+                    with col_cons2:
+                        especialidade_edicao = st.text_input("Especialidade:", value="", key="editar_especialidade_consultorio")
+                    import re as _re_edicao
+                    m = _re_edicao.fullmatch(r"Consultório\s+(\d+)\s*-\s*(.+)", atual["setor"], flags=_re_edicao.I)
+                    if m:
+                        numero_cons_edicao = int(m.group(1))
+                        especialidade_edicao = m.group(2).strip()
+                    setor_final_edicao = f"Consultório {int(numero_cons_edicao)} - {especialidade_edicao.strip()}" if especialidade_edicao.strip() else ""
+                elif setor_edicao == "Outro Setor":
+                    setor_final_edicao = st.text_input("Nome do novo setor:", value=atual["setor"] if atual["setor"] not in opcoes_setor else "", key="editar_outro_setor").strip()
+
+                novo_numero_edicao = st.text_input("Novo Nº de Patrimônio:", value=numero_edicao, key="editar_novo_numero").strip()
+                novo_fabricante_edicao = st.text_input("Fabricante:", value=atual["fabricante"], key="editar_fabricante").strip()
+
+                if st.button("💾 Salvar alterações", type="primary", use_container_width=True, key="btn_salvar_edicao_patrimonio"):
+                    if not setor_final_edicao:
+                        st.warning("⚠️ Informe um setor válido.")
+                    elif not novo_numero_edicao:
+                        st.warning("⚠️ Informe o novo número de patrimônio.")
+                    elif setor_edicao == "Consultório" and not especialidade_edicao.strip():
+                        st.warning("⚠️ Informe a especialidade do consultório.")
+                    else:
+                        sucesso_edicao = editar_patrimonio(
+                            atual["setor"], numero_edicao, setor_final_edicao,
+                            tipo_edicao, novo_numero_edicao, novo_fabricante_edicao, unidade
+                        )
+                        carregar_dados_excel.clear()
+                        if sucesso_edicao:
+                            st.success(f"✅ Patrimônio `{numero_edicao}` atualizado para `{novo_numero_edicao}`.")
+                            st.rerun()
 
     st.divider()
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
