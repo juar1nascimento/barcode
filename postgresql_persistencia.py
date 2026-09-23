@@ -165,6 +165,85 @@ def salvar_patrimonio(codigo_barras: str, tipo: str, setor: str, unidade: str,
         conn.close()
 
 
+
+def salvar_patrimonios_em_lote(registros, unidade: str) -> Tuple[bool, str]:
+    """Grava um lote inteiro em uma única transação PostgreSQL.
+
+    Todas as linhas são validadas e inseridas antes do commit. Qualquer
+    duplicidade ou erro faz rollback do lote inteiro, evitando gravação parcial.
+    """
+    if not _conexao_configurada():
+        return False, "PostgreSQL não configurado."
+
+    itens = list(registros or [])
+    if not itens:
+        return False, "O lote está vazio."
+    if len(itens) > 1000:
+        return False, "O lote excede o limite de 1000 patrimônios por operação."
+
+    nome_unidade = str(unidade or "").strip()
+    if not nome_unidade:
+        return False, "Unidade obrigatória."
+
+    vistos = set()
+    for posicao, item in enumerate(itens, start=1):
+        item = item or {}
+        numero = str(item.get("numero_patrimonio") or item.get("codigo_barras") or "").strip()
+        tipo = str(item.get("tipo") or item.get("tipo_patrimonio") or "").strip()
+        setor = re.sub(r"\s+", " ", str(item.get("setor") or "").strip())
+        if not numero or tipo not in TIPOS_PATRIMONIO or not setor:
+            return False, f"Registro {posicao}: dados insuficientes ou tipo inválido."
+        chave = numero.casefold()
+        if chave in vistos:
+            return False, f"Registro {posicao}: o patrimônio {numero} está duplicado no próprio lote."
+        vistos.add(chave)
+
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            unidade_id = garantir_unidade(cur, nome_unidade)
+
+            for item in itens:
+                numero = str(item.get("numero_patrimonio") or item.get("codigo_barras") or "").strip()
+                codigo = str(item.get("codigo_barras") or "").strip() or None
+                tipo = str(item.get("tipo") or item.get("tipo_patrimonio") or "").strip()
+                setor = re.sub(r"\s+", " ", str(item.get("setor") or "").strip())
+                fabricante = str(item.get("fabricante") or "").strip() or None
+                foto_bytes = item.get("foto_bytes")
+
+                setor_id = garantir_setor(cur, unidade_id, setor)
+                cur.execute(
+                    """INSERT INTO patrimonios
+                       (unidade_id, setor_id, tipo, numero_patrimonio,
+                        codigo_barras, fabricante, data_cadastro, atualizado_em, foto)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s)""",
+                    (
+                        unidade_id,
+                        setor_id,
+                        tipo,
+                        numero,
+                        codigo,
+                        fabricante,
+                        item.get("data_cadastro") or datetime.now(),
+                        foto_bytes,
+                    ),
+                )
+
+        conn.commit()
+        return True, f"{len(itens)} patrimônio(s) gravado(s) no PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        texto = str(exc)
+        if "duplicate key" in texto.lower() or "unique" in texto.lower():
+            return False, "O lote foi cancelado: um ou mais patrimônios já existem no PostgreSQL."
+        return False, f"Lote cancelado e revertido: {texto}"
+    finally:
+        conn.close()
+
+
 def listar_unidades(apenas_ativas: bool = True):
     conn = conectar()
     if conn is None:
