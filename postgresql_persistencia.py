@@ -227,7 +227,7 @@ def salvar_patrimonios_em_lote(registros, unidade: str) -> Tuple[bool, str]:
                         numero,
                         codigo,
                         fabricante,
-                        item.get("data_cadastro") or datetime.now(),
+                        datetime.now(),
                         foto_bytes,
                     ),
                 )
