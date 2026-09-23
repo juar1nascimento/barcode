@@ -7,6 +7,8 @@ import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
 
+import postgresql_persistencia
+
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
@@ -489,6 +491,40 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             st.dataframe(df_atual, use_container_width=True, hide_index=True, column_config={"Foto": st.column_config.ImageColumn("Foto", width="medium", help="Foto do patrimônio registrada pela câmera.")})
         else:
             st.dataframe(df_styled, use_container_width=True)
+
+        # A foto original fica no PostgreSQL como BYTEA e é carregada somente quando solicitada.
+        if "Foto" in df_atual.columns:
+            numeros_com_foto = sorted(
+                [
+                    str(linha["Nº de Patrimônio"]).strip()
+                    for _, linha in df_atual.iterrows()
+                    if str(linha.get("Nº de Patrimônio", "")).strip()
+                    and str(linha.get("Foto", "")).strip()
+                ],
+                key=str.casefold,
+            )
+            if numeros_com_foto:
+                st.markdown("#### 📷 Visualizar foto armazenada")
+                numero_foto = st.selectbox(
+                    "Selecione o patrimônio com foto:",
+                    numeros_com_foto,
+                    index=None,
+                    placeholder="Selecione um patrimônio...",
+                    key="visualizar_foto_patrimonio",
+                )
+                if numero_foto and st.button("👁️ Carregar foto", use_container_width=True, key="btn_carregar_foto_patrimonio"):
+                    linha_foto = df_atual[
+                        df_atual["Nº de Patrimônio"].astype(str).str.strip().str.casefold() == numero_foto.casefold()
+                    ].iloc[0]
+                    bytes_foto = postgresql_persistencia.obter_foto_patrimonio(
+                        unidade,
+                        str(linha_foto.get("Setor", "")).strip(),
+                        numero_foto,
+                    )
+                    if bytes_foto:
+                        st.image(bytes_foto, caption=f"Patrimônio {numero_foto}", use_container_width=True)
+                    else:
+                        st.warning("⚠️ A foto não foi encontrada no PostgreSQL ou o banco não está disponível.")
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
