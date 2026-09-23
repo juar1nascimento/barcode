@@ -16,7 +16,7 @@ ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Código de Barras", "Origem", "Status"]
 TIPOS_PATRIMONIO = ("CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos")
-COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
+COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro", "Foto"]
 COLUNAS_PADRAO = COLUNAS_INVENTARIO.copy()
 SETORES_PADRAO = ["Consultório", "Almoxarifado", "Farmacia", "Sala de Preparo", "Sala de Vacina", "Sala de curativo", "Gerencia", "Administração", "Odontologia", "Recepção", "Outro Setor"]
 LISTA_URS_PADRAO = ["URS Novo Horizonte", "URS Jacaraípe", "URS Boa Vista", "URS Feu Rosa", "URS Serra Sede", "URS Serra Dourada"]
@@ -330,7 +330,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
 
 
 @_serializar_persistencia
-def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
+def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "", foto_data_url: str = "") -> bool:
     codigo = _valor_texto(codigo_barras)
     setor_limpo = _valor_texto(setor)
     unidade_limpa = _normalizar_unidade_aba(unidade)
@@ -351,7 +351,7 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
         st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
         return False
-    nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro()}
+    nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro(), "Foto": _valor_texto(foto_data_url)[:45000]}
     return _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)
 
 
@@ -371,20 +371,21 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         tipo = _normalizar_tipo(item.get("tipo_patrimonio", ""))
         setor = _valor_texto(item.get("setor", ""))
         fabricante = _valor_texto(item.get("fabricante", ""))
+        foto_data_url = _valor_texto(item.get("foto_data_url", ""))[:45000]
         ok, mensagem = validar_cadastro_patrimonio(tipo, setor, unidade_limpa, numero)
         if not ok: erros.append(f"Registro {posicao}: {mensagem}"); continue
         chave = _chave_texto(numero)
         if chave in existentes: erros.append(f"Registro {posicao}: o patrimônio `{numero}` já existe na unidade."); continue
         if chave in vistos: erros.append(f"Registro {posicao}: o patrimônio `{numero}` está duplicado no próprio lote."); continue
         vistos.add(chave)
-        novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro()})
+        novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro(), "Foto": foto_data_url})
     if erros: return False, erros
     sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)
     return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
 
 
-def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
-    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio)
+def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "", foto_data_url: str = "") -> bool:
+    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio, foto_data_url)
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
