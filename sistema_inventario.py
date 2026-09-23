@@ -1,5 +1,7 @@
 import os
 import re
+import base64
+import io
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -44,7 +46,8 @@ def validar_tipo_patrimonio(tipo: str) -> str:
 # LÓGICA DE CADASTRO COM SUPORTE A CABEÇALHOS ARTICULADOS DE FABRICANTE
 # ==============================================================================
 def adicionar_e_salvar_sem_sobrescrever(
-    codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = ""
+    codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "",
+    foto_data_url: str = "", foto_bytes: Optional[bytes] = None
 ) -> bool:
     """Ponto único de entrada do cadastro da interface.
 
@@ -56,10 +59,39 @@ def adicionar_e_salvar_sem_sobrescrever(
     except ValueError as e:
         st.error(str(e))
         return False
-    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante)
+    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, foto_data_url=foto_data_url, foto_bytes=foto_bytes)
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
+
+# ==============================================================================
+# CAPTURA E COMPACTAÇÃO DA FOTO DO PATRIMÔNIO
+# ==============================================================================
+def preparar_foto(image_file: Any) -> Tuple[str, bytes]:
+    """Prepara uma miniatura para a coluna Foto e preserva os bytes originais."""
+    if image_file is None:
+        return "", b""
+    try:
+        original = image_file.getvalue() if hasattr(image_file, "getvalue") else bytes(image_file)
+        from PIL import Image
+        img = Image.open(io.BytesIO(original)).convert("RGB")
+        melhor = b""
+        for dimensao in (1280, 1024, 800, 640, 512):
+            copia = img.copy()
+            copia.thumbnail((dimensao, dimensao), Image.Resampling.LANCZOS)
+            for qualidade in (72, 62, 52, 42, 34):
+                buffer = io.BytesIO()
+                copia.save(buffer, format="JPEG", quality=qualidade, optimize=True)
+                dados = buffer.getvalue()
+                melhor = dados
+                if len(dados) <= 32000:
+                    encoded = base64.b64encode(dados).decode("ascii")
+                    return f"data:image/jpeg;base64,{encoded}", original
+        encoded = base64.b64encode(melhor).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"[:45000], original
+    except Exception as exc:
+        st.warning(f"Não foi possível preparar a foto do patrimônio: {exc}")
+        return "", b""
 
 # ==============================================================================
 # VISÃO COMPUTACIONAL / LEITURA DE IMAGEM
@@ -314,18 +346,17 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         st.rerun()
 
         with tab_upload:
-            uploaded_file = st.file_uploader("Envie uma imagem do código de barras", type=["jpg", "png", "jpeg"])
-            if uploaded_file is not None:
-                img_processada, codigos_encontrados = processar_imagem(uploaded_file)
-                col_img1, col_img2 = st.columns(2)
-                with col_img1:
-                    if img_processada is not None:
-                        st.image(img_processada, caption="Imagem Analisada", use_container_width=True)
-                with col_img2:
-                    if codigos_encontrados:
-                        codigos_registrados = [item["codigo"] for item in codigos_encontrados if adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade, fabricante_input.strip())]
-                        if codigos_registrados:
-                            st.session_state.mensagem_sucesso = f"✅ {len(codigos_registrados)} código(s) registrado(s) com sucesso na coluna `{header_patrimonio}`!"
+            st.markdown("### 📷 Fotografar patrimônio")
+            st.caption("Tire uma foto do patrimônio. A imagem ficará vinculada ao registro criado para esta unidade, setor e tipo de patrimônio.")
+            foto_capturada = st.camera_input("Tirar foto do patrimônio", key="camera_foto_patrimonio", resolution="720p")
+            if foto_capturada is not None:
+                foto_data_url, foto_bytes = preparar_foto(foto_capturada)
+                st.image(foto_capturada, caption="Foto capturada", use_container_width=True)
+                st.info("Informe/leia o número de patrimônio e salve. A foto será gravada na mesma linha.")
+                codigo_foto = st.text_input("Nº de Patrimônio / Código:", key="codigo_com_foto", autocomplete="off", placeholder="Informe ou leia o número...")
+                if st.button("📸 Salvar Patrimônio com Foto", type="primary", use_container_width=True, key="btn_salvar_foto") and codigo_foto.strip():
+                    if adicionar_e_salvar(codigo_foto.strip(), descricao_final, setor_input, unidade, fabricante_input.strip(), foto_data_url=foto_data_url, foto_bytes=foto_bytes):
+                        st.session_state.mensagem_sucesso = f"✅ Patrimônio `{codigo_foto.strip()}` registrado com a foto na coluna `Foto`."
                         st.rerun()
 
     st.divider()
@@ -362,7 +393,10 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             {'selector': 'td:first-child', 'props': [('font-weight', '700'), ('background-color', '#F1F5F9'), ('color', '#0F172A'), ('border-right', '2px solid #CBD5E1')]}
         ])
 
-        st.dataframe(df_styled, use_container_width=True)
+        if "Foto" in df_atual.columns:
+            st.dataframe(df_atual, use_container_width=True, hide_index=True, column_config={"Foto": st.column_config.ImageColumn("Foto", width="medium", help="Foto do patrimônio registrada pela câmera.")})
+        else:
+            st.dataframe(df_styled, use_container_width=True)
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
