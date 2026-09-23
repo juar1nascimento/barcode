@@ -41,8 +41,8 @@ jobs:
       - name: Compile all Python modules
         run: python -m compileall -q .
 
-      - name: Run backend functional simulations
-        run: pytest -q tests/test_inventario_backend.py
+      - name: Run test suite
+        run: pytest -q
 
       - name: Streamlit startup smoke test
         shell: bash
