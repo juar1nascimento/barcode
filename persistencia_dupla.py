@@ -1,59 +1,21 @@
-"""Ponte de persistência dupla para o módulo de inventário.
+"""Compatibilidade para a antiga ponte de persistência dupla.
 
-Quando a Secret [postgresql] estiver configurada, cada novo cadastro passa
-primeiro pelo PostgreSQL e depois pelo Google Sheets. Sem PostgreSQL configurado,
-o comportamento existente do Google Sheets permanece inalterado.
+A persistência PostgreSQL + espelho Google Sheets agora é controlada pelo
+backend canônico de Tabela_de_dados_Inventario_7_2.registrar_patrimonio().
+Este módulo permanece apenas para compatibilidade com o app.py antigo e não
+intercepta mais o cadastro, evitando dupla inserção no PostgreSQL.
 """
 
-import streamlit as st
-
-import postgresql_persistencia
-
-_original = None
+_ativado = False
 
 
 def ativar():
-    """Ativa o espelhamento PostgreSQL + Google Sheets durante a página."""
-    global _original
-    if _original is not None:
-        return
-
-    import sistema_inventario
-    _original = sistema_inventario.adicionar_e_salvar
-
-    def wrapper(codigo, patrimonio, setor, unidade, fabricante="", foto_data_url="", foto_bytes=None):
-        if not postgresql_persistencia._conexao_configurada():
-            return _original(codigo, patrimonio, setor, unidade, fabricante, foto_data_url=foto_data_url, foto_bytes=foto_bytes)
-
-        ok_pg, msg_pg = postgresql_persistencia.salvar_patrimonio(
-            codigo_barras=codigo,
-            tipo=patrimonio,
-            setor=setor,
-            unidade=unidade,
-            fabricante=fabricante,
-            foto_bytes=foto_bytes,
-        )
-        if not ok_pg:
-            st.error(f"❌ Cadastro não concluído: {msg_pg}")
-            return False
-
-        ok_sheets = _original(codigo, patrimonio, setor, unidade, fabricante, foto_data_url=foto_data_url, foto_bytes=foto_bytes)
-        if not ok_sheets:
-            st.warning(
-                "⚠️ O patrimônio foi gravado no PostgreSQL, mas o Google Sheets "
-                "não confirmou o espelhamento. O registro não foi descartado. "
-                "Será necessário sincronizar o Sheets posteriormente."
-            )
-            return False
-        return True
-
-    sistema_inventario.adicionar_e_salvar = wrapper
+    """Mantém compatibilidade sem substituir o fluxo canônico de cadastro."""
+    global _ativado
+    _ativado = True
 
 
 def desativar():
-    global _original
-    if _original is None:
-        return
-    import sistema_inventario
-    sistema_inventario.adicionar_e_salvar = _original
-    _original = None
+    """Desativa a compatibilidade; não há função original a restaurar."""
+    global _ativado
+    _ativado = False
