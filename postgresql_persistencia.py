@@ -4,8 +4,10 @@ O PostgreSQL é a persistência principal do inventário. O Google Sheets pode
 ser usado separadamente como espelho operacional.
 """
 
+import base64
 import hashlib
 import io
+import json
 import re
 from datetime import datetime
 from typing import Optional, Tuple
@@ -190,12 +192,31 @@ def _obter_patrimonio_id(cur, numero_patrimonio: str, unidade: str):
     return row[0] if row else None
 
 
-def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file) -> Tuple[bool, str]:
-    """Comprime, valida e grava/substitui a foto do patrimônio."""
+def montar_registro_foto(serial: str, dados: bytes, largura: int, altura: int, sha256: str) -> dict:
+    """Monta o item sequencial armazenado na coluna fotos."""
+    serial_original = str(serial or "").strip()
+    if not serial_original:
+        raise ValueError("O número serial da etiqueta é obrigatório.")
+    nome_arquivo = re.sub(r"[^A-Za-z0-9._-]+", "_", serial_original) + ".jpg"
+    return {
+        "nome": serial_original,
+        "arquivo_nome": nome_arquivo,
+        "mime_type": "image/jpeg",
+        "tamanho_bytes": len(dados),
+        "largura": largura,
+        "altura": altura,
+        "sha256": sha256,
+        "imagem_base64": base64.b64encode(dados).decode("ascii"),
+    }
+
+
+def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file, serial: str = "") -> Tuple[bool, str]:
+    """Acrescenta uma foto à coluna fotos do próprio patrimônio."""
     if not _conexao_configurada():
-        return False, "PostgreSQL não configurado; a foto não pode ser armazenada na tabela."
+        return False, "PostgreSQL não configurado; a foto não pode ser armazenada na tabela de patrimônios."
     try:
         dados, largura, altura, sha256 = preparar_foto_patrimonio(image_file)
+        registro = montar_registro_foto(serial or numero_patrimonio, dados, largura, altura, sha256)
     except Exception as exc:
         return False, f"Não foi possível preparar a foto: {exc}"
     conn = conectar()
@@ -206,18 +227,15 @@ def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file) -> 
             patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
             if patrimonio_id is None:
                 return False, f"Patrimônio `{numero_patrimonio}` não encontrado na unidade `{unidade}`."
-            cur.execute(
-                """INSERT INTO patrimonio_fotos
-                     (patrimonio_id, imagem, mime_type, tamanho_bytes, largura, altura, sha256, atualizado_em)
-                   VALUES (%s, %s, 'image/jpeg', %s, %s, %s, %s, NOW())
-                   ON CONFLICT (patrimonio_id) DO UPDATE SET
-                     imagem = EXCLUDED.imagem, mime_type = EXCLUDED.mime_type,
-                     tamanho_bytes = EXCLUDED.tamanho_bytes, largura = EXCLUDED.largura,
-                     altura = EXCLUDED.altura, sha256 = EXCLUDED.sha256, atualizado_em = NOW()""",
-                (patrimonio_id, dados, len(dados), largura, altura, sha256),
-            )
+            cur.execute("SELECT COALESCE(fotos, '[]'::jsonb) FROM patrimonios WHERE id = %s FOR UPDATE", (patrimonio_id,))
+            row = cur.fetchone()
+            fotos = row[0] if row and row[0] else []
+            if not isinstance(fotos, list):
+                fotos = []
+            fotos.append(registro)
+            cur.execute("UPDATE patrimonios SET fotos = %s::jsonb, atualizado_em = NOW() WHERE id = %s", (json.dumps(fotos, ensure_ascii=False), patrimonio_id))
         conn.commit()
-        return True, f"Foto armazenada no PostgreSQL ({len(dados) // 1024} KiB)."
+        return True, f"Foto `{registro['nome']}` armazenada na ficha do patrimônio como foto {len(fotos)} ({len(dados) // 1024} KiB)."
     except Exception as exc:
         conn.rollback()
         return False, f"Falha ao armazenar a foto no PostgreSQL: {exc}"
