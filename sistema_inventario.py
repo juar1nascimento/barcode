@@ -8,7 +8,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
+    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, atualizar_patrimonio, excluir_setor, excluir_patrimonio, auditar_sincronizacao_unidade, auditar_migracao_unidade, auditar_identificadores_unidade
 )
 import postgresql_persistencia
 
@@ -206,6 +206,85 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     st.divider()
 
+    with st.expander("🔎 Auditoria PostgreSQL × Google Sheets", expanded=False):
+        st.caption("Compara o PostgreSQL (fonte principal) com o Google Sheets (espelho) sem alterar dados.")
+        if st.button("Executar auditoria desta unidade", key="btn_auditar_sync", use_container_width=True):
+            with st.spinner("Comparando os registros..."):
+                auditoria = auditar_sincronizacao_unidade(unidade)
+            if auditoria.get("erro"):
+                st.error(auditoria["erro"])
+            else:
+                total_dif = len(auditoria["somente_postgresql"]) + len(auditoria["somente_google"]) + len(auditoria["divergentes"])
+                if total_dif == 0:
+                    st.success(f"Sincronização conferida: {auditoria['postgresql']} registro(s) no PostgreSQL e {auditoria['google_sheets']} no Google Sheets, sem divergências.")
+                else:
+                    st.warning(f"Foram encontradas {total_dif} divergência(s). O PostgreSQL continua sendo a fonte principal.")
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Só PostgreSQL", len(auditoria["somente_postgresql"]))
+                    col2.metric("Só Google Sheets", len(auditoria["somente_google"]))
+                    col3.metric("Campos divergentes", len(auditoria["divergentes"]))
+                    if auditoria["somente_postgresql"]:
+                        st.write("**Existem no PostgreSQL e não no Sheets:**")
+                        st.dataframe(pd.DataFrame(auditoria["somente_postgresql"]), use_container_width=True, hide_index=True)
+                    if auditoria["somente_google"]:
+                        st.write("**Existem no Sheets e não no PostgreSQL:**")
+                        st.dataframe(pd.DataFrame(auditoria["somente_google"]), use_container_width=True, hide_index=True)
+                    if auditoria["divergentes"]:
+                        st.write("**Mesmo patrimônio, dados diferentes:**")
+                        st.json(auditoria["divergentes"])
+
+    with st.expander("🧪 Pré-auditoria de migração PostgreSQL", expanded=False):
+        st.caption("Analisa o Google Sheets legado contra o PostgreSQL. Esta etapa é somente leitura e não migra nem altera dados.")
+        if st.button("Executar pré-auditoria de migração", key="btn_auditar_migracao", use_container_width=True):
+            with st.spinner("Analisando registros legados..."):
+                auditoria_mig = auditar_migracao_unidade(unidade)
+            if auditoria_mig.get("erro"):
+                st.error(auditoria_mig["erro"])
+            else:
+                cats = auditoria_mig["categorias"]
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Legado analisado", auditoria_mig["total_legacy"])
+                c2.metric("Já no PostgreSQL", len(cats["ja_existentes_pg"]))
+                c3.metric("Prontos para migração", len(cats["validos_para_migracao"]))
+                c4, c5, c6 = st.columns(3)
+                c4.metric("Duplicados na planilha", len(cats["duplicados_planilha"]))
+                c5.metric("Inválidos", len(cats["invalidos"]))
+                c6.metric("Divergentes do PostgreSQL", len(cats["divergentes_pg"]))
+                st.caption(f"Fonte legada: {auditoria_mig['fonte']}. Nenhuma alteração foi realizada.")
+                if cats["validos_para_migracao"]:
+                    st.write("**Registros classificados como candidatos à migração:**")
+                    st.dataframe(pd.DataFrame(cats["validos_para_migracao"]), use_container_width=True, hide_index=True)
+                if cats["duplicados_planilha"]:
+                    st.write("**Duplicidades encontradas na fonte legada:**")
+                    st.dataframe(pd.DataFrame(cats["duplicados_planilha"]), use_container_width=True, hide_index=True)
+                if cats["invalidos"]:
+                    st.write("**Registros inválidos/incompletos:**")
+                    st.dataframe(pd.DataFrame(cats["invalidos"]), use_container_width=True, hide_index=True)
+                if cats["divergentes_pg"]:
+                    st.write("**Registros que já existem no PostgreSQL, mas com dados divergentes:**")
+                    st.dataframe(pd.DataFrame(cats["divergentes_pg"]), use_container_width=True, hide_index=True)
+
+    with st.expander("🆔 Auditoria de identificadores — Patrimônio × Código de Barras", expanded=False):
+        st.caption("Etapa somente leitura: verifica se o modelo atual está tratando o número de patrimônio e o código de barras como identificadores distintos. Nenhum dado é alterado.")
+        if st.button("Executar auditoria de identificadores", key="btn_auditar_identificadores", use_container_width=True):
+            with st.spinner("Analisando identificadores no PostgreSQL e no legado..."):
+                auditoria_id = auditar_identificadores_unidade(unidade)
+            if auditoria_id.get("erro"):
+                st.error(auditoria_id["erro"])
+            else:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Patrimônios no PostgreSQL", auditoria_id["postgresql"])
+                c2.metric("Sem código de barras", auditoria_id["sem_codigo_barras"])
+                c3.metric("Patrimônio = código", auditoria_id["iguais"])
+                c4, c5, c6 = st.columns(3)
+                c4.metric("Códigos duplicados", auditoria_id["codigos_duplicados"])
+                c5.metric("Números duplicados", auditoria_id["numeros_duplicados"])
+                c6.metric("Campo legado separado", "SIM" if auditoria_id["legado_tem_codigo_barras"] else "NÃO")
+                if auditoria_id["codigos_duplicados_detalhes"]:
+                    st.write("**Códigos de barras duplicados no PostgreSQL:**")
+                    st.dataframe(pd.DataFrame(auditoria_id["codigos_duplicados_detalhes"]), use_container_width=True, hide_index=True)
+                st.info(auditoria_id["conclusao"])
+
     # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
     # Não é montado a partir dos dados existentes na planilha.
     opcoes_setor = [
@@ -376,28 +455,51 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     if unidade.casefold() == "almoxarifado central sesa".casefold():
         numero_foto_pendente = st.session_state.get("patrimonio_foto_pendente")
         if numero_foto_pendente:
-            st.markdown("### 📸 Foto do patrimônio")
-            st.caption(f"Registre a foto do patrimônio **{numero_foto_pendente}**. A imagem será otimizada antes do armazenamento.")
+            st.markdown("### 📸 Fotos do patrimônio")
+            st.caption(f"Você pode registrar várias fotos para **{numero_foto_pendente}**. Elas serão armazenadas em sequência na última coluna da ficha do patrimônio.")
+            st.session_state.setdefault("foto_contador", 0)
+            serial_foto = st.text_input(
+                "Número serial contido na etiqueta:",
+                value=numero_foto_pendente,
+                key=f"serial_foto_{numero_foto_pendente}_{st.session_state.foto_contador}",
+                help="O nome da foto será este número serial, com extensão .jpg no armazenamento.",
+            )
             foto_capturada = st.camera_input(
                 "Tire a foto do patrimônio",
-                key=f"camera_patrimonio_{numero_foto_pendente}",
+                key=f"camera_patrimonio_{numero_foto_pendente}_{st.session_state.foto_contador}",
                 resolution="720p",
             )
+            fotos_existentes, erro_fotos = postgresql_persistencia.listar_fotos_patrimonio(numero_foto_pendente, unidade)
+            if erro_fotos:
+                st.caption("ℹ️ A quantidade de fotos será exibida após a conexão com o PostgreSQL.")
+            else:
+                st.info(f"📷 Fotos já armazenadas para este patrimônio: **{len(fotos_existentes or [])}**")
+                if fotos_existentes:
+                    st.dataframe(
+                        pd.DataFrame(fotos_existentes)[["ordem", "nome", "arquivo_nome", "tamanho_bytes", "largura", "altura"]],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
             if foto_capturada is not None and st.button(
-                "💾 Enviar e armazenar foto", type="primary", use_container_width=True,
-                key=f"salvar_foto_{numero_foto_pendente}",
+                "💾 Enviar e adicionar esta foto", type="primary", use_container_width=True,
+                key=f"salvar_foto_{numero_foto_pendente}_{st.session_state.foto_contador}",
             ):
-                ok_foto, msg_foto = postgresql_persistencia.salvar_foto_patrimonio(
-                    numero_patrimonio=numero_foto_pendente,
-                    unidade=unidade,
-                    image_file=foto_capturada,
-                )
-                if ok_foto:
-                    st.success(f"✅ {msg_foto}")
-                    st.session_state.pop("patrimonio_foto_pendente", None)
-                    st.rerun()
+                if not serial_foto.strip():
+                    st.error("❌ Informe o número serial contido na etiqueta.")
                 else:
-                    st.error(f"❌ {msg_foto}")
+                    ok_foto, msg_foto = postgresql_persistencia.salvar_foto_patrimonio(
+                        numero_patrimonio=numero_foto_pendente,
+                        unidade=unidade,
+                        serial=serial_foto.strip(),
+                        image_file=foto_capturada,
+                    )
+                    if ok_foto:
+                        st.success(f"✅ {msg_foto}")
+                        st.session_state.foto_contador += 1
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {msg_foto}")
 
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
 
@@ -456,6 +558,88 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             st.session_state.del_setor = None
         if st.session_state.pop("reset_del_coluna_patrimonio", False):
             st.session_state.del_coluna_patrimonio = None
+
+
+        with st.expander(
+            f"✏️ Gerenciador de Edição — Aba ({unidade})",
+            expanded=False,
+        ):
+            df_edicao = df_atual.copy()
+            numeros_edicao = sorted(
+                dict.fromkeys(
+                    str(v).strip()
+                    for v in df_edicao["Nº de Patrimônio"].tolist()
+                    if str(v).strip()
+                ),
+                key=str.casefold,
+            )
+            if not numeros_edicao:
+                st.info("ℹ️ Não existem patrimônios cadastrados para edição nesta unidade.")
+            else:
+                numero_original_edicao = st.selectbox(
+                    "Selecione o Nº de Patrimônio:",
+                    numeros_edicao,
+                    index=None,
+                    placeholder="Selecione um patrimônio...",
+                    key="editar_numero_original",
+                )
+                if numero_original_edicao:
+                    linha_edicao = df_edicao[
+                        df_edicao["Nº de Patrimônio"].map(str).str.strip().str.casefold()
+                        == numero_original_edicao.strip().casefold()
+                    ].iloc[0]
+
+                    col_e1, col_e2 = st.columns(2)
+                    with col_e1:
+                        novo_numero_edicao = st.text_input(
+                            "Novo Nº de Patrimônio:",
+                            value=str(linha_edicao["Nº de Patrimônio"]),
+                            key="editar_novo_numero",
+                        )
+                        valor_tipo_edicao = str(linha_edicao["Tipo de Patrimônio"])
+                        novo_tipo_edicao = st.selectbox(
+                            "Tipo de Patrimônio:",
+                            opcoes_patrimonio,
+                            index=opcoes_patrimonio.index(valor_tipo_edicao) if valor_tipo_edicao in opcoes_patrimonio else None,
+                            key="editar_tipo",
+                        )
+                    with col_e2:
+                        novo_setor_edicao = st.text_input(
+                            "Setor:",
+                            value=str(linha_edicao["Setor"]),
+                            key="editar_setor",
+                        )
+                        novo_fabricante_edicao = st.text_input(
+                            "Fabricante:",
+                            value=str(linha_edicao["Fabricante"]),
+                            key="editar_fabricante",
+                        )
+
+                    if st.button(
+                        "💾 Salvar alterações",
+                        type="primary",
+                        use_container_width=True,
+                        key="btn_salvar_edicao",
+                    ):
+                        novo_numero = novo_numero_edicao.strip()
+                        if not novo_numero:
+                            st.error("Informe o novo número de patrimônio.")
+                        else:
+                            ok_edicao, msg_edicao = atualizar_patrimonio(
+                                numero_patrimonio_original=numero_original_edicao,
+                                codigo_barras=novo_numero,
+                                tipo=novo_tipo_edicao or "",
+                                setor=novo_setor_edicao,
+                                unidade=unidade,
+                                fabricante=novo_fabricante_edicao,
+                                numero_patrimonio=novo_numero,
+                            )
+                            if ok_edicao:
+                                st.session_state.mensagem_sucesso = f"✏️ {msg_edicao}"
+                                carregar_dados_excel.clear()
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg_edicao}")
 
         with st.expander(
             f"🗑️ Gerenciador de Exclusão — Aba ({unidade})",

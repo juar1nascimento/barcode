@@ -184,34 +184,31 @@ def _nome_aba(unidade: str) -> str:
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     unidade = _normalizar_unidade_aba(unidade)
-    planilha = conectar_google_sheets()
-    nome_aba = _nome_aba(unidade)
-    nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
-    if planilha:
-        try:
-            nomes = [nome_aba]
-            if nome_aba == "URS Jacaraípe": nomes.append("URS Jacara_pe")
-            elif nome_aba == "UBS Bairro de Fátima": nomes.append("UBS Bairro de F_tima")
-            partes, fontes = [], []
-            for nome in nomes:
-                try: aba = planilha.worksheet(nome)
-                except gspread.exceptions.WorksheetNotFound: continue
-                valores = aba.get_all_values()
-                if valores:
-                    partes.append(_normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])))
-                    fontes.append(nome)
-            if partes:
-                combinado = pd.concat(partes, ignore_index=True).drop_duplicates(subset=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"], keep="first")
-                return combinado.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), f"Google Sheets ({' + '.join(fontes)})"
-            return pd.DataFrame(columns=COLUNAS_INVENTARIO), f"Google Sheets ({nome_aba})"
-        except Exception as e:
-            st.error(f"Erro ao ler do Google Sheets: {e}")
-    if os.path.exists(nome_arquivo_local):
-        try: return _normalizar_legacy_dataframe(pd.read_excel(nome_arquivo_local, dtype=str)), nome_arquivo_local
-        except Exception: pass
-    return pd.DataFrame(columns=COLUNAS_INVENTARIO), nome_arquivo_local
+    import postgresql_persistencia as pg
 
+    # PostgreSQL é a fonte principal. Google Sheets só é usado quando
+    # PostgreSQL ainda não está configurado neste ambiente.
+    if pg._conexao_configurada():
+        linhas, erro = pg.listar_patrimonios(unidade)
+        if linhas is not None:
+            registros = []
+            for numero, tipo, fabricante, nome, numero_consultorio, especialidade in linhas:
+                setor = _valor_texto(nome)
+                if setor.casefold() == "consultório" and numero_consultorio is not None:
+                    setor += f" {int(numero_consultorio)}"
+                    if especialidade:
+                        setor += f" - {_valor_texto(especialidade)}"
+                registros.append({
+                    "Setor": setor,
+                    "Tipo de Patrimônio": _valor_texto(tipo),
+                    "Nº de Patrimônio": _valor_texto(numero),
+                    "Fabricante": _valor_texto(fabricante),
+                })
+            return pd.DataFrame(registros, columns=COLUNAS_INVENTARIO), "PostgreSQL"
+        st.error(f"Erro ao carregar o PostgreSQL: {erro}")
+        return pd.DataFrame(columns=COLUNAS_INVENTARIO), "PostgreSQL"
 
+    return _carregar_google_sheets_legado(unidade)
 def _obter_aba_gravacao(planilha, nome_aba: str, linhas_necessarias: int):
     try: return planilha.worksheet(nome_aba)
     except gspread.exceptions.WorksheetNotFound:
@@ -353,7 +350,32 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
         return False
     nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro()}
-    return _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)
+
+    # PostgreSQL passa a ser a persistência principal. O Google Sheets permanece
+    # como espelho operacional e só recebe o registro depois da confirmação do DB.
+    import postgresql_persistencia as pg
+    salvo_pg, mensagem_pg = pg.salvar_patrimonio(
+        codigo_barras=codigo,
+        tipo=tipo,
+        setor=setor_limpo,
+        unidade=unidade_limpa,
+        fabricante=fabricante_limpo,
+        numero_patrimonio=numero,
+    )
+    if not salvo_pg:
+        st.error(f"⚠️ Cadastro não concluído: {mensagem_pg}")
+        return False
+
+    sucesso_google = _anexar_no_google(
+        pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
+        unidade_limpa,
+    )
+    if not sucesso_google:
+        st.warning(
+            "⚠️ Patrimônio salvo no PostgreSQL, mas o espelho do Google Sheets "
+            "não foi confirmado. O PostgreSQL permanece como fonte principal."
+        )
+    return True
 
 
 @_serializar_persistencia
@@ -380,8 +402,29 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         vistos.add(chave)
         novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro()})
     if erros: return False, erros
-    sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)
-    return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
+
+    import postgresql_persistencia as pg
+    registros_pg = [
+        {
+            "codigo_barras": novo["Nº de Patrimônio"],
+            "tipo_patrimonio": novo["Tipo de Patrimônio"],
+            "setor": novo["Setor"],
+            "fabricante": novo["Fabricante"],
+            "numero_patrimonio": novo["Nº de Patrimônio"],
+        }
+        for novo in novos
+    ]
+    salvo_pg, mensagem_pg = pg.salvar_patrimonios_em_lote(registros_pg, unidade_limpa)
+    if not salvo_pg:
+        return False, [mensagem_pg]
+
+    sucesso = _anexar_no_google(
+        pd.DataFrame(novos, columns=COLUNAS_INVENTARIO),
+        unidade_limpa,
+    )
+    if not sucesso:
+        return True, ["Patrimônios salvos no PostgreSQL, mas o espelho do Google Sheets não foi confirmado."]
+    return True, []
 
 
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
@@ -423,13 +466,298 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
     return df.loc[~mask_excluir].copy(), True
 
 
+
+@_serializar_persistencia
+def atualizar_patrimonio(
+    numero_patrimonio_original: str,
+    codigo_barras: str,
+    tipo: str,
+    setor: str,
+    unidade: str,
+    fabricante: str = "",
+    numero_patrimonio: str = "",
+) -> Tuple[bool, str]:
+    """Atualiza PostgreSQL e depois sincroniza o espelho do Google Sheets."""
+    numero_original = _valor_texto(numero_patrimonio_original)
+    numero_novo = _valor_texto(numero_patrimonio) or numero_original
+    tipo = _normalizar_tipo(tipo)
+    setor = _valor_texto(setor)
+    unidade = _normalizar_unidade_aba(unidade)
+    fabricante = _valor_texto(fabricante)
+    codigo = _valor_texto(codigo_barras)
+
+    valido, mensagem = validar_cadastro_patrimonio(tipo, setor, unidade, numero_novo)
+    if not valido:
+        return False, mensagem
+
+    import postgresql_persistencia as pg
+    salvo_pg, mensagem_pg = pg.atualizar_patrimonio(
+        numero_patrimonio_original=numero_original,
+        codigo_barras=codigo,
+        tipo=tipo,
+        setor=setor,
+        unidade=unidade,
+        fabricante=fabricante,
+        numero_patrimonio=numero_novo,
+    )
+    if not salvo_pg:
+        return False, mensagem_pg
+
+    df, _ = carregar_dados_excel(unidade)
+    df = _normalizar_legacy_dataframe(df)
+    mascara = df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(numero_original))
+    if not mascara.any():
+        return True, "Patrimônio atualizado no PostgreSQL; o espelho Google Sheets não continha a linha original."
+
+    df.loc[mascara, "Setor"] = setor
+    df.loc[mascara, "Tipo de Patrimônio"] = tipo
+    df.loc[mascara, "Nº de Patrimônio"] = numero_novo
+    df.loc[mascara, "Fabricante"] = fabricante
+    sucesso_google = salvar_no_excel(df, unidade)
+    if not sucesso_google:
+        return True, "Patrimônio atualizado no PostgreSQL, mas o espelho do Google Sheets não foi confirmado."
+    return True, "Patrimônio atualizado no PostgreSQL e no Google Sheets."
+
+
+def auditar_sincronizacao_unidade(unidade: str) -> dict:
+    """Compara PostgreSQL (fonte principal) com o Google Sheets (espelho)."""
+    unidade = _normalizar_unidade_aba(unidade)
+    resultado = {"unidade": unidade, "postgresql": 0, "google_sheets": 0,
+                 "somente_postgresql": [], "somente_google": [], "divergentes": [], "erro": ""}
+    try:
+        import postgresql_persistencia as pg
+        if not pg._conexao_configurada():
+            resultado["erro"] = "PostgreSQL não configurado."
+            return resultado
+        conn = pg.conectar()
+        if conn is None:
+            resultado["erro"] = "Não foi possível conectar ao PostgreSQL."
+            return resultado
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT p.numero_patrimonio, p.tipo, p.fabricante,
+                              s.nome, s.numero_consultorio, s.especialidade
+                         FROM patrimonios p
+                         JOIN unidades u ON u.id = p.unidade_id
+                         JOIN setores s ON s.id = p.setor_id
+                        WHERE u.nome = %s""",
+                    (unidade,),
+                )
+                linhas_pg = cur.fetchall()
+        finally:
+            conn.close()
+
+        pg_map = {}
+        for numero, tipo, fabricante, nome, numero_consultorio, especialidade in linhas_pg:
+            chave = _chave_texto(numero)
+            if not chave:
+                continue
+            setor = _valor_texto(nome)
+            if setor.casefold() == "consultório" and numero_consultorio is not None:
+                setor += f" {int(numero_consultorio)}"
+                if especialidade:
+                    setor += f" - {_valor_texto(especialidade)}"
+            pg_map[chave] = {"numero": _valor_texto(numero), "tipo": _valor_texto(tipo),
+                             "fabricante": _valor_texto(fabricante), "setor": setor}
+
+        df, _ = _carregar_google_sheets_legado(unidade)
+        df = _normalizar_legacy_dataframe(df)
+        gs_map = {}
+        for _, row in df.iterrows():
+            chave = _chave_texto(row["Nº de Patrimônio"])
+            if chave:
+                gs_map[chave] = {"numero": _valor_texto(row["Nº de Patrimônio"]),
+                                 "tipo": _valor_texto(row["Tipo de Patrimônio"]),
+                                 "fabricante": _valor_texto(row["Fabricante"]),
+                                 "setor": _valor_texto(row["Setor"])}
+
+        resultado["postgresql"], resultado["google_sheets"] = len(pg_map), len(gs_map)
+        for chave in sorted(set(pg_map) - set(gs_map)):
+            resultado["somente_postgresql"].append(pg_map[chave])
+        for chave in sorted(set(gs_map) - set(pg_map)):
+            resultado["somente_google"].append(gs_map[chave])
+        for chave in sorted(set(pg_map) & set(gs_map)):
+            diffs = {}
+            for campo in ("tipo", "fabricante", "setor"):
+                if _chave_texto(pg_map[chave][campo]) != _chave_texto(gs_map[chave][campo]):
+                    diffs[campo] = {"postgresql": pg_map[chave][campo], "google_sheets": gs_map[chave][campo]}
+            if diffs:
+                resultado["divergentes"].append({"numero": pg_map[chave]["numero"], "campos": diffs})
+        return resultado
+    except Exception as exc:
+        resultado["erro"] = f"Falha na auditoria: {exc}"
+        return resultado
+
+
+
+def _resumir_identificadores(linhas) -> dict:
+    """Calcula métricas de identificadores sem acessar banco ou gravar dados."""
+    linhas = list(linhas or [])
+    numeros = [_chave_texto(n) for n, _ in linhas if not _eh_vazio(n)]
+    codigos = [_chave_texto(c) for _, c in linhas if not _eh_vazio(c)]
+    from collections import Counter
+    dup_num = {k: v for k, v in Counter(numeros).items() if v > 1}
+    dup_cod = {k: v for k, v in Counter(codigos).items() if v > 1}
+    return {
+        "postgresql": len(linhas),
+        "sem_codigo_barras": sum(1 for _, c in linhas if _eh_vazio(c)),
+        "iguais": sum(1 for n, c in linhas if not _eh_vazio(n) and not _eh_vazio(c) and _chave_texto(n) == _chave_texto(c)),
+        "numeros_duplicados": len(dup_num),
+        "codigos_duplicados": len(dup_cod),
+        "codigos_duplicados_detalhes": [
+            {"codigo_barras": codigo, "ocorrencias": ocorrencias}
+            for codigo, ocorrencias in sorted(dup_cod.items())
+        ],
+    }
+
+
+def auditar_identificadores_unidade(unidade: str) -> dict:
+    """Audita, sem escrever, a separação entre patrimônio e código de barras."""
+    unidade = _normalizar_unidade_aba(unidade)
+    resultado = {
+        "unidade": unidade,
+        "postgresql": 0,
+        "sem_codigo_barras": 0,
+        "iguais": 0,
+        "codigos_duplicados": 0,
+        "numeros_duplicados": 0,
+        "codigos_duplicados_detalhes": [],
+        "legado_tem_codigo_barras": False,
+        "conclusao": "",
+        "erro": "",
+    }
+    try:
+        import postgresql_persistencia as pg
+        if not pg._conexao_configurada():
+            resultado["erro"] = "PostgreSQL não configurado."
+            return resultado
+        conn = pg.conectar()
+        if conn is None:
+            resultado["erro"] = "Não foi possível conectar ao PostgreSQL."
+            return resultado
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT p.numero_patrimonio, p.codigo_barras
+                         FROM patrimonios p
+                         JOIN unidades u ON u.id = p.unidade_id
+                        WHERE u.nome = %s
+                        ORDER BY p.id""",
+                    (unidade,),
+                )
+                linhas = cur.fetchall()
+        finally:
+            conn.close()
+
+        resultado.update(_resumir_identificadores(linhas))
+
+        planilha = conectar_google_sheets()
+        if planilha is not None:
+            try:
+                for aba in planilha.worksheets():
+                    valores = aba.get_all_values()
+                    if not valores:
+                        continue
+                    cabecalhos = {_chave_texto(v) for v in valores[0]}
+                    if any("codigo de barras" in h or "código de barras" in h for h in cabecalhos):
+                        resultado["legado_tem_codigo_barras"] = True
+                        break
+            except Exception:
+                pass
+
+        if resultado["legado_tem_codigo_barras"]:
+            resultado["conclusao"] = (
+                "Foi encontrada indicação de coluna legada de código de barras. "
+                "A separação entre os dois identificadores pode ser preservada na migração, "
+                "mas a coluna deve ser auditada antes de qualquer importação."
+            )
+        elif resultado["iguais"] == resultado["postgresql"] and resultado["postgresql"] > 0:
+            resultado["conclusao"] = (
+                "Os registros atuais do PostgreSQL estão usando o mesmo valor para número de patrimônio "
+                "e código de barras. Isso confirma a necessidade de separar os campos antes da evolução do cadastro."
+            )
+        else:
+            resultado["conclusao"] = (
+                "O PostgreSQL já possui campos distintos. Antes de migrar dados legados, "
+                "é necessário confirmar a origem de um código de barras separado."
+            )
+        return resultado
+    except Exception as exc:
+        resultado["erro"] = f"Falha na auditoria de identificadores: {exc}"
+        return resultado
+
+
+
 def excluir_setor(setor: str, unidade: str) -> bool:
+    import postgresql_persistencia as pg
+    if not pg._conexao_configurada():
+        st.error("PostgreSQL não configurado: exclusão bloqueada.")
+        return False
+    conn = pg.conectar()
+    if conn is None: return False
+    try:
+        nome_setor, numero_consultorio, especialidade = pg._dividir_setor(setor)
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT s.id, COUNT(p.id)
+                     FROM setores s
+                     JOIN unidades u ON u.id = s.unidade_id
+                     LEFT JOIN patrimonios p ON p.setor_id = s.id
+                    WHERE u.nome = %s
+                      AND s.nome = %s
+                      AND s.numero_consultorio IS NOT DISTINCT FROM %s
+                      AND s.especialidade IS NOT DISTINCT FROM %s
+                    GROUP BY s.id""",
+                (str(unidade).strip(), nome_setor, numero_consultorio, especialidade),
+            )
+            row = cur.fetchone()
+            if not row: return False
+            if row[1] > 0:
+                st.warning("O setor possui patrimônios cadastrados; remova-os antes de excluir o setor.")
+                return False
+            cur.execute("DELETE FROM setores WHERE id=%s", (row[0],))
+        conn.commit()
+    except Exception as exc:
+        conn.rollback(); st.error(f"Falha ao excluir o setor no PostgreSQL: {exc}"); return False
+    finally: conn.close()
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_setor(df, setor)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    return salvar_no_excel(novo, unidade) if alterado else True
 
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
+    import postgresql_persistencia as pg
+    if not pg._conexao_configurada():
+        st.error("PostgreSQL não configurado: exclusão bloqueada.")
+        return False
+    conn = pg.conectar()
+    if conn is None: return False
+    numero = _valor_texto(coluna)
+    try:
+        nome_setor, numero_consultorio, especialidade = pg._dividir_setor(setor)
+        with conn.cursor() as cur:
+            cur.execute(
+                """DELETE FROM patrimonios p
+                     USING unidades u, setores s
+                    WHERE p.unidade_id = u.id
+                      AND p.setor_id = s.id
+                      AND u.nome = %s
+                      AND s.nome = %s
+                      AND s.numero_consultorio IS NOT DISTINCT FROM %s
+                      AND s.especialidade IS NOT DISTINCT FROM %s
+                      AND p.numero_patrimonio = %s
+                 RETURNING p.id""",
+                (str(unidade).strip(), nome_setor, numero_consultorio, especialidade, numero),
+            )
+            removido = cur.fetchone()
+        conn.commit()
+    except Exception as exc:
+        conn.rollback(); st.error(f"Falha ao excluir o patrimônio no PostgreSQL: {exc}"); return False
+    finally: conn.close()
+    if not removido:
+        st.warning(f"O patrimônio `{numero}` não foi encontrado no PostgreSQL.")
+        return False
     df, _ = carregar_dados_excel(unidade)
-    novo, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    novo, alterado = _aplicar_exclusao_patrimonio(df, setor, numero)
+    return salvar_no_excel(novo, unidade) if alterado else True

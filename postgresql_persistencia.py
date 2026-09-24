@@ -1,12 +1,13 @@
 """Persistência PostgreSQL do GTI-SESA.
 
-A integração é opcional: sem a Secret [postgresql], o sistema continua
-operando com Google Sheets. Quando configurada, o cadastro é gravado no
-PostgreSQL e, separadamente, no Google Sheets.
+O PostgreSQL é a persistência principal do inventário. O Google Sheets pode
+ser usado separadamente como espelho operacional.
 """
 
+import base64
 import hashlib
 import io
+import json
 import re
 from datetime import datetime
 from typing import Optional, Tuple
@@ -191,12 +192,114 @@ def _obter_patrimonio_id(cur, numero_patrimonio: str, unidade: str):
     return row[0] if row else None
 
 
-def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file) -> Tuple[bool, str]:
-    """Comprime, valida e grava/substitui a foto do patrimônio."""
+def montar_registro_foto(serial: str, dados: bytes, largura: int, altura: int, sha256: str) -> dict:
+    """Monta o item sequencial armazenado na coluna fotos."""
+    serial_original = str(serial or "").strip()
+    if not serial_original:
+        raise ValueError("O número serial da etiqueta é obrigatório.")
+    nome_arquivo = re.sub(r"[^A-Za-z0-9._-]+", "_", serial_original) + ".jpg"
+    return {
+        "nome": serial_original,
+        "arquivo_nome": nome_arquivo,
+        "mime_type": "image/jpeg",
+        "tamanho_bytes": len(dados),
+        "largura": largura,
+        "altura": altura,
+        "sha256": sha256,
+        "imagem_base64": base64.b64encode(dados).decode("ascii"),
+    }
+
+
+
+def normalizar_sequencia_fotos(fotos) -> list:
+    """Normaliza a coleção JSONB de fotos sem alterar a ordem."""
+    if fotos is None:
+        return []
+    if not isinstance(fotos, list):
+        raise ValueError("A coluna fotos deve conter uma lista JSON.")
+    resultado = []
+    for indice, foto in enumerate(fotos, start=1):
+        if not isinstance(foto, dict):
+            raise ValueError(f"A foto {indice} da sequência é inválida.")
+        nome = str(foto.get("nome", "")).strip()
+        imagem = str(foto.get("imagem_base64", "")).strip()
+        if not nome or not imagem:
+            raise ValueError(f"A foto {indice} precisa ter nome e imagem.")
+        item = dict(foto)
+        item.setdefault("arquivo_nome", re.sub(r"[^A-Za-z0-9._-]+", "_", nome) + ".jpg")
+        item["ordem"] = indice
+        resultado.append(item)
+    return resultado
+
+
+def contar_fotos_patrimonio(numero_patrimonio: str, unidade: str) -> Tuple[Optional[int], str]:
+    """Consulta somente a quantidade de fotos armazenadas para auditoria."""
     if not _conexao_configurada():
-        return False, "PostgreSQL não configurado; a foto não pode ser armazenada na tabela."
+        return None, "PostgreSQL não configurado."
+    conn = conectar()
+    if conn is None:
+        return None, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
+            if patrimonio_id is None:
+                return None, f"Patrimônio `{numero_patrimonio}` não encontrado."
+            cur.execute(
+                "SELECT jsonb_array_length(COALESCE(fotos, '[]'::jsonb)) FROM patrimonios WHERE id = %s",
+                (patrimonio_id,),
+            )
+            row = cur.fetchone()
+            return int(row[0] or 0), ""
+    except Exception as exc:
+        conn.rollback()
+        return None, f"Erro ao consultar quantidade de fotos: {exc}"
+    finally:
+        conn.close()
+
+
+def listar_fotos_patrimonio(numero_patrimonio: str, unidade: str) -> Tuple[Optional[list], str]:
+    """Retorna somente metadados das fotos, sem carregar os bytes da imagem."""
+    if not _conexao_configurada():
+        return None, "PostgreSQL não configurado."
+    conn = conectar()
+    if conn is None:
+        return None, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
+            if patrimonio_id is None:
+                return None, f"Patrimônio `{numero_patrimonio}` não encontrado."
+            cur.execute(
+                "SELECT COALESCE(fotos, '[]'::jsonb) FROM patrimonios WHERE id = %s",
+                (patrimonio_id,),
+            )
+            row = cur.fetchone()
+            fotos = normalizar_sequencia_fotos(row[0] if row and row[0] else [])
+            return [
+                {
+                    "ordem": foto["ordem"],
+                    "nome": foto["nome"],
+                    "arquivo_nome": foto.get("arquivo_nome", ""),
+                    "tamanho_bytes": foto.get("tamanho_bytes", 0),
+                    "largura": foto.get("largura"),
+                    "altura": foto.get("altura"),
+                    "sha256": foto.get("sha256", ""),
+                }
+                for foto in fotos
+            ], ""
+    except Exception as exc:
+        conn.rollback()
+        return None, f"Erro ao consultar fotos: {exc}"
+    finally:
+        conn.close()
+
+def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file, serial: str = "") -> Tuple[bool, str]:
+    """Acrescenta uma foto à coluna fotos do próprio patrimônio."""
+    if not _conexao_configurada():
+        return False, "PostgreSQL não configurado; a foto não pode ser armazenada na tabela de patrimônios."
     try:
         dados, largura, altura, sha256 = preparar_foto_patrimonio(image_file)
+        registro = montar_registro_foto(serial or numero_patrimonio, dados, largura, altura, sha256)
     except Exception as exc:
         return False, f"Não foi possível preparar a foto: {exc}"
     conn = conectar()
@@ -207,23 +310,180 @@ def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file) -> 
             patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
             if patrimonio_id is None:
                 return False, f"Patrimônio `{numero_patrimonio}` não encontrado na unidade `{unidade}`."
-            cur.execute(
-                """INSERT INTO patrimonio_fotos
-                     (patrimonio_id, imagem, mime_type, tamanho_bytes, largura, altura, sha256, atualizado_em)
-                   VALUES (%s, %s, 'image/jpeg', %s, %s, %s, %s, NOW())
-                   ON CONFLICT (patrimonio_id) DO UPDATE SET
-                     imagem = EXCLUDED.imagem, mime_type = EXCLUDED.mime_type,
-                     tamanho_bytes = EXCLUDED.tamanho_bytes, largura = EXCLUDED.largura,
-                     altura = EXCLUDED.altura, sha256 = EXCLUDED.sha256, atualizado_em = NOW()""",
-                (patrimonio_id, dados, len(dados), largura, altura, sha256),
-            )
+            cur.execute("SELECT COALESCE(fotos, '[]'::jsonb) FROM patrimonios WHERE id = %s FOR UPDATE", (patrimonio_id,))
+            row = cur.fetchone()
+            fotos = normalizar_sequencia_fotos(row[0] if row and row[0] else [])
+            fotos.append(registro)
+            fotos = normalizar_sequencia_fotos(fotos)
+            cur.execute("UPDATE patrimonios SET fotos = %s::jsonb, atualizado_em = NOW() WHERE id = %s", (json.dumps(fotos, ensure_ascii=False), patrimonio_id))
         conn.commit()
-        return True, f"Foto armazenada no PostgreSQL ({len(dados) // 1024} KiB)."
+        return True, f"Foto `{registro['nome']}` armazenada na ficha do patrimônio como foto {len(fotos)} ({len(dados) // 1024} KiB)."
     except Exception as exc:
         conn.rollback()
         return False, f"Falha ao armazenar a foto no PostgreSQL: {exc}"
     finally:
         conn.close()
+
+
+
+def salvar_patrimonios_em_lote(registros, unidade: str) -> Tuple[bool, str]:
+    """Grava todo o lote em uma única transação PostgreSQL."""
+    if not _conexao_configurada():
+        return False, "PostgreSQL não configurado. Cadastro em lote bloqueado."
+
+    unidade = str(unidade or "").strip()
+    registros = list(registros or [])
+    if not unidade or not registros:
+        return False, "Lote ou unidade inválidos."
+
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            unidade_id = garantir_unidade(cur, unidade)
+            for item in registros:
+                numero = str(item.get("numero_patrimonio", "") or item.get("codigo_barras", "")).strip()
+                codigo = str(item.get("codigo_barras", "")).strip() or None
+                tipo = str(item.get("tipo_patrimonio", "")).strip()
+                setor = re.sub(r"\s+", " ", str(item.get("setor", "")).strip())
+                fabricante = str(item.get("fabricante", "")).strip() or None
+                if not numero or tipo not in TIPOS_PATRIMONIO or not setor:
+                    raise ValueError(f"Dados inválidos para o patrimônio '{numero}'.")
+                setor_id = garantir_setor(cur, unidade_id, setor)
+                cur.execute(
+                    """INSERT INTO patrimonios
+                         (unidade_id, setor_id, tipo, numero_patrimonio,
+                          codigo_barras, fabricante, data_cadastro, atualizado_em)
+                       VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())""",
+                    (unidade_id, setor_id, tipo, numero, codigo, fabricante),
+                )
+        conn.commit()
+        return True, str(len(registros)) + " patrimônio(s) gravado(s) no PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        texto = str(exc)
+        if "duplicate key" in texto.lower() or "unique" in texto.lower():
+            return False, "O lote foi cancelado integralmente porque existe número ou código de patrimônio duplicado no PostgreSQL."
+        return False, f"Lote cancelado integralmente no PostgreSQL: {texto}"
+    finally:
+        conn.close()
+
+
+
+def atualizar_patrimonio(
+    numero_patrimonio_original: str,
+    codigo_barras: str,
+    tipo: str,
+    setor: str,
+    unidade: str,
+    fabricante: str = "",
+    numero_patrimonio: str = "",
+    unidade_original: str = "",
+) -> Tuple[bool, str]:
+    """Atualiza um patrimônio existente sem recriar a linha.
+
+    A atualização preserva o mesmo patrimonio_id e eventual foto vinculada.
+    """
+    if not _conexao_configurada():
+        return False, "PostgreSQL não configurado. Edição bloqueada para evitar divergência."
+
+    numero_original = str(numero_patrimonio_original or "").strip()
+    numero_novo = str(numero_patrimonio or "").strip() or numero_original
+    codigo = str(codigo_barras or "").strip() or None
+    tipo = str(tipo or "").strip()
+    setor = re.sub(r"\s+", " ", str(setor or "").strip())
+    unidade = str(unidade or "").strip()
+    unidade_original = str(unidade_original or "").strip()
+    fabricante = str(fabricante or "").strip() or None
+
+    if not numero_original or not numero_novo or not tipo or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
+        return False, "Dados insuficientes ou inválidos para atualizar o patrimônio."
+
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            if unidade_original:
+                cur.execute(
+                    """SELECT p.id
+                         FROM patrimonios p
+                         JOIN unidades u ON u.id = p.unidade_id
+                        WHERE p.numero_patrimonio = %s
+                          AND u.nome = %s
+                        LIMIT 1""",
+                    (numero_original, unidade_original),
+                )
+            else:
+                cur.execute(
+                    """SELECT id FROM patrimonios
+                        WHERE numero_patrimonio = %s
+                        LIMIT 1""",
+                    (numero_original,),
+                )
+            row = cur.fetchone()
+            if not row:
+                return False, f"O patrimônio original `{numero_original}` não foi encontrado no PostgreSQL."
+
+            patrimonio_id = row[0]
+            unidade_id = garantir_unidade(cur, unidade)
+            setor_id = garantir_setor(cur, unidade_id, setor)
+
+            cur.execute(
+                """UPDATE patrimonios
+                      SET unidade_id = %s,
+                          setor_id = %s,
+                          tipo = %s,
+                          numero_patrimonio = %s,
+                          codigo_barras = %s,
+                          fabricante = %s,
+                          atualizado_em = NOW()
+                    WHERE id = %s""",
+                (unidade_id, setor_id, tipo, numero_novo, codigo, fabricante, patrimonio_id),
+            )
+        conn.commit()
+        return True, "Patrimônio atualizado no PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        texto = str(exc)
+        if "duplicate key" in texto.lower() or "unique" in texto.lower():
+            return False, f"O número/código do patrimônio `{numero_novo}` já está em uso no PostgreSQL."
+        return False, f"Falha ao atualizar o patrimônio no PostgreSQL: {texto}"
+    finally:
+        conn.close()
+
+
+
+def listar_patrimonios(unidade: str):
+    """Retorna os patrimônios da unidade diretamente do PostgreSQL."""
+    if not _conexao_configurada():
+        return None, "PostgreSQL não configurado."
+    conn = conectar()
+    if conn is None:
+        return None, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT p.numero_patrimonio, p.tipo, p.fabricante,
+                          s.nome, s.numero_consultorio, s.especialidade
+                     FROM patrimonios p
+                     JOIN unidades u ON u.id = p.unidade_id
+                     JOIN setores s ON s.id = p.setor_id
+                    WHERE u.nome = %s
+                    ORDER BY p.numero_patrimonio""",
+                (str(unidade).strip(),),
+            )
+            linhas = cur.fetchall()
+        return linhas, ""
+    except Exception as exc:
+        conn.rollback()
+        return None, f"Erro ao consultar PostgreSQL: {exc}"
+    finally:
+        conn.close()
+
 
 
 def salvar_patrimonio(
@@ -241,7 +501,7 @@ def salvar_patrimonio(
     espelhamento separadamente para manter as duas persistências independentes.
     """
     if not _conexao_configurada():
-        return True, "PostgreSQL não configurado; persistência principal ainda não ativada."
+        return False, "PostgreSQL não configurado. Cadastros foram bloqueados para evitar gravação somente no Google Sheets."
 
     numero = str(numero_patrimonio or "").strip() or str(codigo_barras or "").strip()
     codigo = str(codigo_barras or "").strip() or None
