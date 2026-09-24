@@ -15,8 +15,8 @@ BEGIN
                 SELECT patrimonio_id,
                        jsonb_agg(
                            jsonb_build_object(
-                               'nome', sha256,
-                               'arquivo_nome', sha256 || '.jpg',
+                               'nome', p.numero_patrimonio,
+                               'arquivo_nome', regexp_replace(p.numero_patrimonio, '[^A-Za-z0-9._-]+', '_', 'g') || '.jpg',
                                'mime_type', mime_type,
                                'tamanho_bytes', tamanho_bytes,
                                'largura', largura,
