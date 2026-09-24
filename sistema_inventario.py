@@ -455,28 +455,39 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     if unidade.casefold() == "almoxarifado central sesa".casefold():
         numero_foto_pendente = st.session_state.get("patrimonio_foto_pendente")
         if numero_foto_pendente:
-            st.markdown("### 📸 Foto do patrimônio")
-            st.caption(f"Registre a foto do patrimônio **{numero_foto_pendente}**. A imagem será otimizada antes do armazenamento.")
+            st.markdown("### 📸 Fotos do patrimônio")
+            st.caption(f"Você pode registrar várias fotos para **{numero_foto_pendente}**. Elas serão armazenadas em sequência na última coluna da ficha do patrimônio.")
+            st.session_state.setdefault("foto_contador", 0)
+            serial_foto = st.text_input(
+                "Número serial contido na etiqueta:",
+                value=numero_foto_pendente,
+                key=f"serial_foto_{numero_foto_pendente}_{st.session_state.foto_contador}",
+                help="O nome da foto será este número serial, com extensão .jpg no armazenamento.",
+            )
             foto_capturada = st.camera_input(
                 "Tire a foto do patrimônio",
-                key=f"camera_patrimonio_{numero_foto_pendente}",
+                key=f"camera_patrimonio_{numero_foto_pendente}_{st.session_state.foto_contador}",
                 resolution="720p",
             )
             if foto_capturada is not None and st.button(
-                "💾 Enviar e armazenar foto", type="primary", use_container_width=True,
-                key=f"salvar_foto_{numero_foto_pendente}",
+                "💾 Enviar e adicionar esta foto", type="primary", use_container_width=True,
+                key=f"salvar_foto_{numero_foto_pendente}_{st.session_state.foto_contador}",
             ):
-                ok_foto, msg_foto = postgresql_persistencia.salvar_foto_patrimonio(
-                    numero_patrimonio=numero_foto_pendente,
-                    unidade=unidade,
-                    image_file=foto_capturada,
-                )
-                if ok_foto:
-                    st.success(f"✅ {msg_foto}")
-                    st.session_state.pop("patrimonio_foto_pendente", None)
-                    st.rerun()
+                if not serial_foto.strip():
+                    st.error("❌ Informe o número serial contido na etiqueta.")
                 else:
-                    st.error(f"❌ {msg_foto}")
+                    ok_foto, msg_foto = postgresql_persistencia.salvar_foto_patrimonio(
+                        numero_patrimonio=numero_foto_pendente,
+                        unidade=unidade,
+                        serial=serial_foto.strip(),
+                        image_file=foto_capturada,
+                    )
+                    if ok_foto:
+                        st.success(f"✅ {msg_foto}")
+                        st.session_state.foto_contador += 1
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {msg_foto}")
 
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
 
