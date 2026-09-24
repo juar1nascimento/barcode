@@ -347,6 +347,54 @@ def listar_fotos_patrimonio(
         conn.close()
 
 
+
+def listar_fotos_capa_patrimonios(unidade: str) -> Tuple[dict, str]:
+    """Retorna a primeira foto de cada patrimônio da unidade para a tabela."""
+    if not _conexao_configurada():
+        return {}, "PostgreSQL não configurado."
+
+    conn = conectar()
+    if conn is None:
+        return {}, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT DISTINCT ON (p.id)
+                          p.numero_patrimonio,
+                          pf.storage_bucket,
+                          pf.storage_path
+                     FROM patrimonios p
+                     JOIN unidades u ON u.id = p.unidade_id
+                     JOIN patrimonio_fotos pf ON pf.patrimonio_id = p.id
+                    WHERE u.nome = %s
+                    ORDER BY p.id, pf.ordem ASC""",
+                (str(unidade or "").strip(),),
+            )
+            linhas = cur.fetchall()
+
+        resultado = {}
+        for numero_patrimonio, storage_bucket, storage_path in linhas:
+            try:
+                url_assinada = create_signed_url(
+                    storage_bucket or FOTO_BUCKET,
+                    storage_path,
+                    expires_in=3600,
+                )
+            except Exception:
+                url_assinada = ""
+
+            if url_assinada:
+                resultado[str(numero_patrimonio).strip().casefold()] = url_assinada
+
+        return resultado, ""
+    except Exception as exc:
+        conn.rollback()
+        return {}, f"Erro ao consultar fotos de capa: {exc}"
+    finally:
+        conn.close()
+
+
 def salvar_foto_patrimonio(
     numero_patrimonio: str,
     unidade: str,
