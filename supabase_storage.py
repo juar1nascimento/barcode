@@ -58,6 +58,26 @@ def upload_bytes(
         )
 
 
+def delete_object(
+    bucket: str,
+    path: str,
+    timeout: int = 30,
+) -> None:
+    """Remove um objeto do Storage; usado para rollback após falha no banco."""
+    url, key = _config()
+    endpoint = f"{url}/storage/v1/object/{bucket}/{path.lstrip('/')}"
+    response = requests.delete(
+        endpoint,
+        headers=_headers(key),
+        timeout=timeout,
+    )
+    if response.status_code not in (200, 204):
+        raise RuntimeError(
+            f"Falha ao remover objeto do Storage ({response.status_code}): "
+            f"{response.text[:500]}"
+        )
+
+
 def download_bytes(
     bucket: str,
     path: str,
