@@ -295,7 +295,11 @@ def _eh_almoxarifado(unidade: str) -> bool:
 
 
 def _sincronizar_almoxarifado_google() -> bool:
-    """Reconstrói a aba do Almoxarifado a partir do PostgreSQL confirmado."""
+    """Reconstrói a aba do Almoxarifado a partir do PostgreSQL confirmado.
+
+    Preserva a coluna Data Cadastro já existente no Google Sheets pelo número
+    de patrimônio; registros novos recebem a data/hora atual.
+    """
     unidade = "Almoxarifado Central SESA"
     import postgresql_persistencia as pg
 
@@ -308,6 +312,34 @@ def _sincronizar_almoxarifado_google() -> bool:
         st.error(f"⚠️ Não foi possível ler o PostgreSQL para sincronizar o Almoxarifado: {erro}")
         return False
 
+    # Captura os valores atuais antes de reconstruir a aba para não apagar
+    # Data Cadastro de registros que já existiam no Google Sheets.
+    datas_existentes = {}
+    planilha = conectar_google_sheets()
+    if planilha is None:
+        st.error("⚠️ Google Sheets indisponível: a sincronização do Almoxarifado foi bloqueada.")
+        return False
+
+    try:
+        aba = _obter_aba_gravacao(planilha, _nome_aba(unidade), len(linhas) + 1)
+        valores_atuais = aba.get_all_values()
+        if valores_atuais:
+            df_atual = _normalizar_legacy_dataframe(
+                pd.DataFrame(
+                    valores_atuais[1:],
+                    columns=valores_atuais[0],
+                )
+            )
+            if not df_atual.empty:
+                for _, row in df_atual.iterrows():
+                    chave = _chave_texto(row["Nº de Patrimônio"])
+                    data_cadastro = _valor_texto(row["Data Cadastro"])
+                    if chave and not _eh_vazio(data_cadastro):
+                        datas_existentes[chave] = data_cadastro
+    except Exception as exc:
+        st.error(f"⚠️ Não foi possível ler a aba '{_nome_aba(unidade)}' antes da sincronização: {exc}")
+        return False
+
     registros = []
     for numero, tipo, fabricante, nome, numero_consultorio, especialidade in linhas:
         setor = _valor_texto(nome)
@@ -315,12 +347,17 @@ def _sincronizar_almoxarifado_google() -> bool:
             setor += f" {int(numero_consultorio)}"
             if especialidade:
                 setor += f" - {_valor_texto(especialidade)}"
+
+        numero_texto = _valor_texto(numero)
+        chave = _chave_texto(numero_texto)
+        data_cadastro = datas_existentes.get(chave) or _data_hora_cadastro()
+
         registros.append({
             "Setor": setor,
             "Tipo de Patrimônio": _valor_texto(tipo),
-            "Nº de Patrimônio": _valor_texto(numero),
+            "Nº de Patrimônio": numero_texto,
             "Fabricante": _valor_texto(fabricante),
-            "Data Cadastro": "",
+            "Data Cadastro": data_cadastro,
         })
 
     return salvar_no_excel(
