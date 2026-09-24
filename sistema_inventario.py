@@ -510,6 +510,18 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
+        # A foto de capa ocupa a última coluna da tabela somente no
+        # Almoxarifado Central SESA. As demais fotos continuam acessíveis
+        # pelo gerenciador de fotos acima.
+        coluna_foto = "📷 Foto"
+        if unidade.casefold() == "almoxarifado central sesa".casefold():
+            mapa_fotos, erro_mapa_fotos = postgresql_persistencia.listar_fotos_capa_patrimonios(unidade)
+            if erro_mapa_fotos:
+                st.caption(f"ℹ️ A coluna de fotos será exibida após a conexão com o PostgreSQL: {erro_mapa_fotos}")
+            df_atual[coluna_foto] = df_atual["Nº de Patrimônio"].map(
+                lambda valor: mapa_fotos.get(str(valor).strip().casefold(), "")
+            )
+
         df_styled = df_atual.style.set_properties(**{
             'font-family': "'Inter', 'Segoe UI', -apple-system, sans-serif",
             'font-size': '13px',
@@ -534,7 +546,21 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             {'selector': 'td:first-child', 'props': [('font-weight', '700'), ('background-color', '#F1F5F9'), ('color', '#0F172A'), ('border-right', '2px solid #CBD5E1')]}
         ])
 
-        st.dataframe(df_styled, use_container_width=True)
+        if coluna_foto in df_atual.columns:
+            st.dataframe(
+                df_atual,
+                column_config={
+                    coluna_foto: st.column_config.ImageColumn(
+                        coluna_foto,
+                        help="Primeira foto registrada do patrimônio.",
+                        width="small",
+                    ),
+                },
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.dataframe(df_styled, use_container_width=True)
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
