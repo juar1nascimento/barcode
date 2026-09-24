@@ -208,33 +208,7 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
         st.error(f"Erro ao carregar o PostgreSQL: {erro}")
         return pd.DataFrame(columns=COLUNAS_INVENTARIO), "PostgreSQL"
 
-    planilha = conectar_google_sheets()
-    nome_aba = _nome_aba(unidade)
-    nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
-    if planilha:
-        try:
-            nomes = [nome_aba]
-            if nome_aba == "URS Jacaraípe": nomes.append("URS Jacara_pe")
-            elif nome_aba == "UBS Bairro de Fátima": nomes.append("UBS Bairro de F_tima")
-            partes, fontes = [], []
-            for nome in nomes:
-                try: aba = planilha.worksheet(nome)
-                except gspread.exceptions.WorksheetNotFound: continue
-                valores = aba.get_all_values()
-                if valores:
-                    partes.append(_normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])))
-                    fontes.append(nome)
-            if partes:
-                combinado = pd.concat(partes, ignore_index=True).drop_duplicates(subset=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"], keep="first")
-                return combinado.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), f"Google Sheets ({' + '.join(fontes)})"
-            return pd.DataFrame(columns=COLUNAS_INVENTARIO), f"Google Sheets ({nome_aba})"
-        except Exception as e:
-            st.error(f"Erro ao ler do Google Sheets: {e}")
-    if os.path.exists(nome_arquivo_local):
-        try: return _normalizar_legacy_dataframe(pd.read_excel(nome_arquivo_local, dtype=str)), nome_arquivo_local
-        except Exception: pass
-    return pd.DataFrame(columns=COLUNAS_INVENTARIO), nome_arquivo_local
-
+    return _carregar_google_sheets_legado(unidade)
 def _obter_aba_gravacao(planilha, nome_aba: str, linhas_necessarias: int):
     try: return planilha.worksheet(nome_aba)
     except gspread.exceptions.WorksheetNotFound:
@@ -587,7 +561,7 @@ def auditar_sincronizacao_unidade(unidade: str) -> dict:
             pg_map[chave] = {"numero": _valor_texto(numero), "tipo": _valor_texto(tipo),
                              "fabricante": _valor_texto(fabricante), "setor": setor}
 
-        df, _ = carregar_dados_excel(unidade)
+        df, _ = _carregar_google_sheets_legado(unidade)
         df = _normalizar_legacy_dataframe(df)
         gs_map = {}
         for _, row in df.iterrows():
