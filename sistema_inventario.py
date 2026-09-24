@@ -469,6 +469,18 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 key=f"camera_patrimonio_{numero_foto_pendente}_{st.session_state.foto_contador}",
                 resolution="720p",
             )
+            fotos_existentes, erro_fotos = postgresql_persistencia.listar_fotos_patrimonio(numero_foto_pendente, unidade)
+            if erro_fotos:
+                st.caption("ℹ️ A quantidade de fotos será exibida após a conexão com o PostgreSQL.")
+            else:
+                st.info(f"📷 Fotos já armazenadas para este patrimônio: **{len(fotos_existentes or [])}**")
+                if fotos_existentes:
+                    st.dataframe(
+                        pd.DataFrame(fotos_existentes)[["ordem", "nome", "arquivo_nome", "tamanho_bytes", "largura", "altura"]],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
             if foto_capturada is not None and st.button(
                 "💾 Enviar e adicionar esta foto", type="primary", use_container_width=True,
                 key=f"salvar_foto_{numero_foto_pendente}_{st.session_state.foto_contador}",
