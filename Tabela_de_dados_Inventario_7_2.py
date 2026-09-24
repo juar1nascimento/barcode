@@ -591,6 +591,100 @@ def auditar_sincronizacao_unidade(unidade: str) -> dict:
 
 
 
+def auditar_identificadores_unidade(unidade: str) -> dict:
+    """Audita, sem escrever, a separação entre patrimônio e código de barras."""
+    unidade = _normalizar_unidade_aba(unidade)
+    resultado = {
+        "unidade": unidade,
+        "postgresql": 0,
+        "sem_codigo_barras": 0,
+        "iguais": 0,
+        "codigos_duplicados": 0,
+        "numeros_duplicados": 0,
+        "codigos_duplicados_detalhes": [],
+        "legado_tem_codigo_barras": False,
+        "conclusao": "",
+        "erro": "",
+    }
+    try:
+        import postgresql_persistencia as pg
+        if not pg._conexao_configurada():
+            resultado["erro"] = "PostgreSQL não configurado."
+            return resultado
+        conn = pg.conectar()
+        if conn is None:
+            resultado["erro"] = "Não foi possível conectar ao PostgreSQL."
+            return resultado
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT p.numero_patrimonio, p.codigo_barras
+                         FROM patrimonios p
+                         JOIN unidades u ON u.id = p.unidade_id
+                        WHERE u.nome = %s
+                        ORDER BY p.id""",
+                    (unidade,),
+                )
+                linhas = cur.fetchall()
+        finally:
+            conn.close()
+
+        resultado["postgresql"] = len(linhas)
+        numeros = [_chave_texto(n) for n, _ in linhas if not _eh_vazio(n)]
+        codigos = [_chave_texto(c) for _, c in linhas if not _eh_vazio(c)]
+        resultado["sem_codigo_barras"] = sum(1 for _, c in linhas if _eh_vazio(c))
+        resultado["iguais"] = sum(
+            1 for n, c in linhas
+            if not _eh_vazio(n) and not _eh_vazio(c) and _chave_texto(n) == _chave_texto(c)
+        )
+
+        from collections import Counter
+        dup_num = {k: v for k, v in Counter(numeros).items() if v > 1}
+        dup_cod = {k: v for k, v in Counter(codigos).items() if v > 1}
+        resultado["numeros_duplicados"] = len(dup_num)
+        resultado["codigos_duplicados"] = len(dup_cod)
+        resultado["codigos_duplicados_detalhes"] = [
+            {"codigo_barras": codigo, "ocorrencias": ocorrencias}
+            for codigo, ocorrencias in sorted(dup_cod.items())
+        ]
+
+        planilha = conectar_google_sheets()
+        if planilha is not None:
+            try:
+                for aba in planilha.worksheets():
+                    valores = aba.get_all_values()
+                    if not valores:
+                        continue
+                    cabecalhos = {_chave_texto(v) for v in valores[0]}
+                    if any("codigo de barras" in h or "código de barras" in h for h in cabecalhos):
+                        resultado["legado_tem_codigo_barras"] = True
+                        break
+            except Exception:
+                pass
+
+        if resultado["legado_tem_codigo_barras"]:
+            resultado["conclusao"] = (
+                "Foi encontrada indicação de coluna legada de código de barras. "
+                "A separação entre os dois identificadores pode ser preservada na migração, "
+                "mas a coluna deve ser auditada antes de qualquer importação."
+            )
+        elif resultado["iguais"] == resultado["postgresql"] and resultado["postgresql"] > 0:
+            resultado["conclusao"] = (
+                "Os registros atuais do PostgreSQL estão usando o mesmo valor para número de patrimônio "
+                "e código de barras. Isso confirma a necessidade de separar os campos antes da evolução do cadastro."
+            )
+        else:
+            resultado["conclusao"] = (
+                "O PostgreSQL já possui campos distintos. Antes de migrar dados legados, "
+                "é necessário confirmar a origem de um código de barras separado."
+            )
+        return resultado
+    except Exception as exc:
+        resultado["erro"] = f"Falha na auditoria de identificadores: {exc}"
+        return resultado
+
+
+
 def excluir_setor(setor: str, unidade: str) -> bool:
     import postgresql_persistencia as pg
     if not pg._conexao_configurada():
