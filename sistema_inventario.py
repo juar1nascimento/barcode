@@ -8,7 +8,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, atualizar_patrimonio, excluir_setor, excluir_patrimonio, auditar_sincronizacao_unidade, auditar_migracao_unidade
+    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, atualizar_patrimonio, excluir_setor, excluir_patrimonio, auditar_sincronizacao_unidade, auditar_migracao_unidade, auditar_identificadores_unidade
 )
 import postgresql_persistencia
 
@@ -263,6 +263,27 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 if cats["divergentes_pg"]:
                     st.write("**Registros que já existem no PostgreSQL, mas com dados divergentes:**")
                     st.dataframe(pd.DataFrame(cats["divergentes_pg"]), use_container_width=True, hide_index=True)
+
+    with st.expander("🆔 Auditoria de identificadores — Patrimônio × Código de Barras", expanded=False):
+        st.caption("Etapa somente leitura: verifica se o modelo atual está tratando o número de patrimônio e o código de barras como identificadores distintos. Nenhum dado é alterado.")
+        if st.button("Executar auditoria de identificadores", key="btn_auditar_identificadores", use_container_width=True):
+            with st.spinner("Analisando identificadores no PostgreSQL e no legado..."):
+                auditoria_id = auditar_identificadores_unidade(unidade)
+            if auditoria_id.get("erro"):
+                st.error(auditoria_id["erro"])
+            else:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Patrimônios no PostgreSQL", auditoria_id["postgresql"])
+                c2.metric("Sem código de barras", auditoria_id["sem_codigo_barras"])
+                c3.metric("Patrimônio = código", auditoria_id["iguais"])
+                c4, c5, c6 = st.columns(3)
+                c4.metric("Códigos duplicados", auditoria_id["codigos_duplicados"])
+                c5.metric("Números duplicados", auditoria_id["numeros_duplicados"])
+                c6.metric("Campo legado separado", "SIM" if auditoria_id["legado_tem_codigo_barras"] else "NÃO")
+                if auditoria_id["codigos_duplicados_detalhes"]:
+                    st.write("**Códigos de barras duplicados no PostgreSQL:**")
+                    st.dataframe(pd.DataFrame(auditoria_id["codigos_duplicados_detalhes"]), use_container_width=True, hide_index=True)
+                st.info(auditoria_id["conclusao"])
 
     # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
     # Não é montado a partir dos dados existentes na planilha.
