@@ -591,6 +591,27 @@ def auditar_sincronizacao_unidade(unidade: str) -> dict:
 
 
 
+def _resumir_identificadores(linhas) -> dict:
+    """Calcula métricas de identificadores sem acessar banco ou gravar dados."""
+    linhas = list(linhas or [])
+    numeros = [_chave_texto(n) for n, _ in linhas if not _eh_vazio(n)]
+    codigos = [_chave_texto(c) for _, c in linhas if not _eh_vazio(c)]
+    from collections import Counter
+    dup_num = {k: v for k, v in Counter(numeros).items() if v > 1}
+    dup_cod = {k: v for k, v in Counter(codigos).items() if v > 1}
+    return {
+        "postgresql": len(linhas),
+        "sem_codigo_barras": sum(1 for _, c in linhas if _eh_vazio(c)),
+        "iguais": sum(1 for n, c in linhas if not _eh_vazio(n) and not _eh_vazio(c) and _chave_texto(n) == _chave_texto(c)),
+        "numeros_duplicados": len(dup_num),
+        "codigos_duplicados": len(dup_cod),
+        "codigos_duplicados_detalhes": [
+            {"codigo_barras": codigo, "ocorrencias": ocorrencias}
+            for codigo, ocorrencias in sorted(dup_cod.items())
+        ],
+    }
+
+
 def auditar_identificadores_unidade(unidade: str) -> dict:
     """Audita, sem escrever, a separação entre patrimônio e código de barras."""
     unidade = _normalizar_unidade_aba(unidade)
@@ -629,24 +650,7 @@ def auditar_identificadores_unidade(unidade: str) -> dict:
         finally:
             conn.close()
 
-        resultado["postgresql"] = len(linhas)
-        numeros = [_chave_texto(n) for n, _ in linhas if not _eh_vazio(n)]
-        codigos = [_chave_texto(c) for _, c in linhas if not _eh_vazio(c)]
-        resultado["sem_codigo_barras"] = sum(1 for _, c in linhas if _eh_vazio(c))
-        resultado["iguais"] = sum(
-            1 for n, c in linhas
-            if not _eh_vazio(n) and not _eh_vazio(c) and _chave_texto(n) == _chave_texto(c)
-        )
-
-        from collections import Counter
-        dup_num = {k: v for k, v in Counter(numeros).items() if v > 1}
-        dup_cod = {k: v for k, v in Counter(codigos).items() if v > 1}
-        resultado["numeros_duplicados"] = len(dup_num)
-        resultado["codigos_duplicados"] = len(dup_cod)
-        resultado["codigos_duplicados_detalhes"] = [
-            {"codigo_barras": codigo, "ocorrencias": ocorrencias}
-            for codigo, ocorrencias in sorted(dup_cod.items())
-        ]
+        resultado.update(_resumir_identificadores(linhas))
 
         planilha = conectar_google_sheets()
         if planilha is not None:
