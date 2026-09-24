@@ -24,3 +24,11 @@ def test_preparar_foto_reduz_e_comprime():
 def test_preparar_foto_rejeita_arquivo_vazio():
     with pytest.raises(ValueError):
         pg.preparar_foto_patrimonio(b"")
+
+
+def test_montar_registro_foto_usa_serial_como_nome():
+    item = pg.montar_registro_foto("SERIAL-001", b"abc", 10, 20, "a" * 64)
+    assert item["nome"] == "SERIAL-001"
+    assert item["arquivo_nome"] == "SERIAL-001.jpg"
+    assert item["tamanho_bytes"] == 3
+    assert item["imagem_base64"] == "YWJj"
