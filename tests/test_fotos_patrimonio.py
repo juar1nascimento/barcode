@@ -32,3 +32,26 @@ def test_montar_registro_foto_usa_serial_como_nome():
     assert item["arquivo_nome"] == "SERIAL-001.jpg"
     assert item["tamanho_bytes"] == 3
     assert item["imagem_base64"] == "YWJj"
+
+
+def test_normalizar_sequencia_fotos_preserva_ordem_e_nomes():
+    fotos = [
+        {"nome": "SERIAL-001", "imagem_base64": "AAA"},
+        {"nome": "SERIAL-002", "imagem_base64": "BBB"},
+    ]
+
+    resultado = pg.normalizar_sequencia_fotos(fotos)
+
+    assert [item["nome"] for item in resultado] == ["SERIAL-001", "SERIAL-002"]
+    assert [item["ordem"] for item in resultado] == [1, 2]
+    assert [item["arquivo_nome"] for item in resultado] == ["SERIAL-001.jpg", "SERIAL-002.jpg"]
+
+
+def test_normalizar_sequencia_fotos_vazia():
+    assert pg.normalizar_sequencia_fotos(None) == []
+    assert pg.normalizar_sequencia_fotos([]) == []
+
+
+def test_normalizar_sequencia_fotos_rejeita_item_invalido():
+    with pytest.raises(ValueError):
+        pg.normalizar_sequencia_fotos([{"nome": "", "imagem_base64": "AAA"}])
