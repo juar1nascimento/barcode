@@ -8,7 +8,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
-    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, atualizar_patrimonio, excluir_setor, excluir_patrimonio, auditar_sincronizacao_unidade
+    carregar_dados_excel, salvar_no_excel, registrar_patrimonio, atualizar_patrimonio, excluir_setor, excluir_patrimonio, auditar_sincronizacao_unidade, auditar_migracao_unidade
 )
 import postgresql_persistencia
 
@@ -232,6 +232,37 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if auditoria["divergentes"]:
                         st.write("**Mesmo patrimônio, dados diferentes:**")
                         st.json(auditoria["divergentes"])
+
+    with st.expander("🧪 Pré-auditoria de migração PostgreSQL", expanded=False):
+        st.caption("Analisa o Google Sheets legado contra o PostgreSQL. Esta etapa é somente leitura e não migra nem altera dados.")
+        if st.button("Executar pré-auditoria de migração", key="btn_auditar_migracao", use_container_width=True):
+            with st.spinner("Analisando registros legados..."):
+                auditoria_mig = auditar_migracao_unidade(unidade)
+            if auditoria_mig.get("erro"):
+                st.error(auditoria_mig["erro"])
+            else:
+                cats = auditoria_mig["categorias"]
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Legado analisado", auditoria_mig["total_legacy"])
+                c2.metric("Já no PostgreSQL", len(cats["ja_existentes_pg"]))
+                c3.metric("Prontos para migração", len(cats["validos_para_migracao"]))
+                c4, c5, c6 = st.columns(3)
+                c4.metric("Duplicados na planilha", len(cats["duplicados_planilha"]))
+                c5.metric("Inválidos", len(cats["invalidos"]))
+                c6.metric("Divergentes do PostgreSQL", len(cats["divergentes_pg"]))
+                st.caption(f"Fonte legada: {auditoria_mig['fonte']}. Nenhuma alteração foi realizada.")
+                if cats["validos_para_migracao"]:
+                    st.write("**Registros classificados como candidatos à migração:**")
+                    st.dataframe(pd.DataFrame(cats["validos_para_migracao"]), use_container_width=True, hide_index=True)
+                if cats["duplicados_planilha"]:
+                    st.write("**Duplicidades encontradas na fonte legada:**")
+                    st.dataframe(pd.DataFrame(cats["duplicados_planilha"]), use_container_width=True, hide_index=True)
+                if cats["invalidos"]:
+                    st.write("**Registros inválidos/incompletos:**")
+                    st.dataframe(pd.DataFrame(cats["invalidos"]), use_container_width=True, hide_index=True)
+                if cats["divergentes_pg"]:
+                    st.write("**Registros que já existem no PostgreSQL, mas com dados divergentes:**")
+                    st.dataframe(pd.DataFrame(cats["divergentes_pg"]), use_container_width=True, hide_index=True)
 
     # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
     # Não é montado a partir dos dados existentes na planilha.
