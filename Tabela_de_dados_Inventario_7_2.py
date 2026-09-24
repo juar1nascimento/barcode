@@ -289,6 +289,46 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
         return False
 
 
+
+def _eh_almoxarifado(unidade: str) -> bool:
+    return _normalizar_unidade_aba(unidade).casefold() == "Almoxarifado Central SESA".casefold()
+
+
+def _sincronizar_almoxarifado_google() -> bool:
+    """Reconstrói a aba do Almoxarifado a partir do PostgreSQL confirmado."""
+    unidade = "Almoxarifado Central SESA"
+    import postgresql_persistencia as pg
+
+    if not pg._conexao_configurada():
+        st.error("⚠️ PostgreSQL não configurado; a sincronização do Almoxarifado com o Google Sheets foi bloqueada.")
+        return False
+
+    linhas, erro = pg.listar_patrimonios(unidade)
+    if linhas is None:
+        st.error(f"⚠️ Não foi possível ler o PostgreSQL para sincronizar o Almoxarifado: {erro}")
+        return False
+
+    registros = []
+    for numero, tipo, fabricante, nome, numero_consultorio, especialidade in linhas:
+        setor = _valor_texto(nome)
+        if setor.casefold() == "consultório" and numero_consultorio is not None:
+            setor += f" {int(numero_consultorio)}"
+            if especialidade:
+                setor += f" - {_valor_texto(especialidade)}"
+        registros.append({
+            "Setor": setor,
+            "Tipo de Patrimônio": _valor_texto(tipo),
+            "Nº de Patrimônio": _valor_texto(numero),
+            "Fabricante": _valor_texto(fabricante),
+            "Data Cadastro": "",
+        })
+
+    return salvar_no_excel(
+        pd.DataFrame(registros, columns=COLUNAS_INVENTARIO),
+        unidade,
+    )
+
+
 def _serializar_persistencia(func):
     """Serializa operações de persistência no processo Streamlit."""
     def wrapper(*args, **kwargs):
@@ -366,14 +406,18 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.error(f"⚠️ Cadastro não concluído: {mensagem_pg}")
         return False
 
-    sucesso_google = _anexar_no_google(
-        pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
-        unidade_limpa,
-    )
+    if _eh_almoxarifado(unidade_limpa):
+        sucesso_google = _sincronizar_almoxarifado_google()
+    else:
+        sucesso_google = _anexar_no_google(
+            pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
+            unidade_limpa,
+        )
+
     if not sucesso_google:
         st.warning(
-            "⚠️ Patrimônio salvo no PostgreSQL, mas o espelho do Google Sheets "
-            "não foi confirmado. O PostgreSQL permanece como fonte principal."
+            "⚠️ Patrimônio salvo no PostgreSQL, mas a aba "
+            "'Almoxarifado Central SESA' não foi confirmada no Google Sheets."
         )
     return True
 
@@ -418,12 +462,15 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
     if not salvo_pg:
         return False, [mensagem_pg]
 
-    sucesso = _anexar_no_google(
-        pd.DataFrame(novos, columns=COLUNAS_INVENTARIO),
-        unidade_limpa,
-    )
+    if _eh_almoxarifado(unidade_limpa):
+        sucesso = _sincronizar_almoxarifado_google()
+    else:
+        sucesso = _anexar_no_google(
+            pd.DataFrame(novos, columns=COLUNAS_INVENTARIO),
+            unidade_limpa,
+        )
     if not sucesso:
-        return True, ["Patrimônios salvos no PostgreSQL, mas o espelho do Google Sheets não foi confirmado."]
+        return True, ["Patrimônios salvos no PostgreSQL, mas a aba 'Almoxarifado Central SESA' não foi confirmada no Google Sheets."]
     return True, []
 
 
