@@ -210,6 +210,52 @@ def montar_registro_foto(serial: str, dados: bytes, largura: int, altura: int, s
     }
 
 
+
+def normalizar_sequencia_fotos(fotos) -> list:
+    """Normaliza a coleção JSONB de fotos sem alterar a ordem."""
+    if fotos is None:
+        return []
+    if not isinstance(fotos, list):
+        raise ValueError("A coluna fotos deve conter uma lista JSON.")
+    resultado = []
+    for indice, foto in enumerate(fotos, start=1):
+        if not isinstance(foto, dict):
+            raise ValueError(f"A foto {indice} da sequência é inválida.")
+        nome = str(foto.get("nome", "")).strip()
+        imagem = str(foto.get("imagem_base64", "")).strip()
+        if not nome or not imagem:
+            raise ValueError(f"A foto {indice} precisa ter nome e imagem.")
+        item = dict(foto)
+        item.setdefault("arquivo_nome", re.sub(r"[^A-Za-z0-9._-]+", "_", nome) + ".jpg")
+        item["ordem"] = indice
+        resultado.append(item)
+    return resultado
+
+
+def contar_fotos_patrimonio(numero_patrimonio: str, unidade: str) -> Tuple[Optional[int], str]:
+    """Consulta somente a quantidade de fotos armazenadas para auditoria."""
+    if not _conexao_configurada():
+        return None, "PostgreSQL não configurado."
+    conn = conectar()
+    if conn is None:
+        return None, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
+            if patrimonio_id is None:
+                return None, f"Patrimônio `{numero_patrimonio}` não encontrado."
+            cur.execute(
+                "SELECT jsonb_array_length(COALESCE(fotos, '[]'::jsonb)) FROM patrimonios WHERE id = %s",
+                (patrimonio_id,),
+            )
+            row = cur.fetchone()
+            return int(row[0] or 0), ""
+    except Exception as exc:
+        conn.rollback()
+        return None, f"Erro ao consultar quantidade de fotos: {exc}"
+    finally:
+        conn.close()
+
 def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file, serial: str = "") -> Tuple[bool, str]:
     """Acrescenta uma foto à coluna fotos do próprio patrimônio."""
     if not _conexao_configurada():
@@ -229,10 +275,9 @@ def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file, ser
                 return False, f"Patrimônio `{numero_patrimonio}` não encontrado na unidade `{unidade}`."
             cur.execute("SELECT COALESCE(fotos, '[]'::jsonb) FROM patrimonios WHERE id = %s FOR UPDATE", (patrimonio_id,))
             row = cur.fetchone()
-            fotos = row[0] if row and row[0] else []
-            if not isinstance(fotos, list):
-                fotos = []
+            fotos = normalizar_sequencia_fotos(row[0] if row and row[0] else [])
             fotos.append(registro)
+            fotos = normalizar_sequencia_fotos(fotos)
             cur.execute("UPDATE patrimonios SET fotos = %s::jsonb, atualizado_em = NOW() WHERE id = %s", (json.dumps(fotos, ensure_ascii=False), patrimonio_id))
         conn.commit()
         return True, f"Foto `{registro['nome']}` armazenada na ficha do patrimônio como foto {len(fotos)} ({len(dados) // 1024} KiB)."
