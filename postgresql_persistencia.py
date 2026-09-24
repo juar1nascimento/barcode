@@ -307,11 +307,21 @@ def listar_fotos_patrimonio(
             storage_path,
             criado_em,
         ) in linhas:
-            url_assinada = create_signed_url(
-                storage_bucket or FOTO_BUCKET,
-                storage_path,
-                expires_in=3600,
-            )
+            try:
+                url_assinada = create_signed_url(
+                    storage_bucket or FOTO_BUCKET,
+                    storage_path,
+                    expires_in=3600,
+                )
+                storage_disponivel = True
+            except Exception as exc:
+                url_assinada = ""
+                storage_disponivel = False
+                st.warning(
+                    f"Não foi possível gerar a URL da foto "
+                    f"{arquivo_nome}: {exc}"
+                )
+
             resultado.append(
                 {
                     "ordem": ordem,
@@ -326,6 +336,7 @@ def listar_fotos_patrimonio(
                     "storage_path": storage_path,
                     "criado_em": criado_em,
                     "url_assinada": url_assinada,
+                    "storage_disponivel": storage_disponivel,
                 }
             )
         return resultado, ""
