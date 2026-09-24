@@ -4,15 +4,15 @@ O PostgreSQL é a persistência principal do inventário. O Google Sheets pode
 ser usado separadamente como espelho operacional.
 """
 
-import base64
 import hashlib
 import io
-import json
 import re
 from datetime import datetime
 from typing import Optional, Tuple
 
 import streamlit as st
+
+from supabase_storage import create_signed_url, delete_object, upload_bytes
 
 TIPOS_PATRIMONIO = (
     "CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos"
@@ -150,102 +150,99 @@ def garantir_setor(cur, unidade_id: int, setor: str) -> int:
 MAX_FOTO_DIMENSAO = 1600
 MAX_FOTO_BYTES = 1024 * 1024
 FOTO_QUALIDADE_JPEG = 78
+FOTO_BUCKET = "patrimonio-fotos"
 
 
 def preparar_foto_patrimonio(image_file) -> Tuple[bytes, int, int, str]:
-    """Reduz e comprime a foto antes do envio ao PostgreSQL."""
+    """Reduz e comprime a foto antes do envio ao Supabase Storage."""
     from PIL import Image, ImageOps
+
     if hasattr(image_file, "getvalue"):
         bruto = image_file.getvalue()
     elif isinstance(image_file, (bytes, bytearray, memoryview)):
         bruto = bytes(image_file)
     else:
         bruto = image_file.read()
+
     if not bruto:
         raise ValueError("A foto está vazia.")
+
     with Image.open(io.BytesIO(bruto)) as original:
         imagem = ImageOps.exif_transpose(original)
-        imagem.thumbnail((MAX_FOTO_DIMENSAO, MAX_FOTO_DIMENSAO), Image.Resampling.LANCZOS)
+        imagem.thumbnail(
+            (MAX_FOTO_DIMENSAO, MAX_FOTO_DIMENSAO),
+            Image.Resampling.LANCZOS,
+        )
         if imagem.mode not in ("RGB", "L"):
             imagem = imagem.convert("RGB")
+
         qualidade = FOTO_QUALIDADE_JPEG
         while True:
             buffer = io.BytesIO()
-            imagem.save(buffer, format="JPEG", quality=qualidade, optimize=True)
+            imagem.save(
+                buffer,
+                format="JPEG",
+                quality=qualidade,
+                optimize=True,
+            )
             dados = buffer.getvalue()
             if len(dados) <= MAX_FOTO_BYTES or qualidade <= 55:
                 break
             qualidade -= 8
+
         largura, altura = imagem.size
+
     if len(dados) > MAX_FOTO_BYTES:
-        raise ValueError("A foto continua maior que 1 MiB após a compressão.")
+        raise ValueError(
+            "A foto continua maior que 1 MiB após a compressão."
+        )
+
     return dados, largura, altura, hashlib.sha256(dados).hexdigest()
 
 
 def _obter_patrimonio_id(cur, numero_patrimonio: str, unidade: str):
     cur.execute(
-        """SELECT p.id FROM patrimonios p JOIN unidades u ON u.id = p.unidade_id
-             WHERE p.numero_patrimonio = %s AND u.nome = %s LIMIT 1""",
-        (str(numero_patrimonio or "").strip(), str(unidade or "").strip()),
+        """SELECT p.id
+             FROM patrimonios p
+             JOIN unidades u ON u.id = p.unidade_id
+            WHERE p.numero_patrimonio = %s
+              AND u.nome = %s
+            LIMIT 1""",
+        (
+            str(numero_patrimonio or "").strip(),
+            str(unidade or "").strip(),
+        ),
     )
     row = cur.fetchone()
     return row[0] if row else None
 
 
-def montar_registro_foto(serial: str, dados: bytes, largura: int, altura: int, sha256: str) -> dict:
-    """Monta o item sequencial armazenado na coluna fotos."""
-    serial_original = str(serial or "").strip()
-    if not serial_original:
-        raise ValueError("O número serial da etiqueta é obrigatório.")
-    nome_arquivo = re.sub(r"[^A-Za-z0-9._-]+", "_", serial_original) + ".jpg"
-    return {
-        "nome": serial_original,
-        "arquivo_nome": nome_arquivo,
-        "mime_type": "image/jpeg",
-        "tamanho_bytes": len(dados),
-        "largura": largura,
-        "altura": altura,
-        "sha256": sha256,
-        "imagem_base64": base64.b64encode(dados).decode("ascii"),
-    }
-
-
-
-def normalizar_sequencia_fotos(fotos) -> list:
-    """Normaliza a coleção JSONB de fotos sem alterar a ordem."""
-    if fotos is None:
-        return []
-    if not isinstance(fotos, list):
-        raise ValueError("A coluna fotos deve conter uma lista JSON.")
-    resultado = []
-    for indice, foto in enumerate(fotos, start=1):
-        if not isinstance(foto, dict):
-            raise ValueError(f"A foto {indice} da sequência é inválida.")
-        nome = str(foto.get("nome", "")).strip()
-        imagem = str(foto.get("imagem_base64", "")).strip()
-        if not nome or not imagem:
-            raise ValueError(f"A foto {indice} precisa ter nome e imagem.")
-        item = dict(foto)
-        item.setdefault("arquivo_nome", re.sub(r"[^A-Za-z0-9._-]+", "_", nome) + ".jpg")
-        item["ordem"] = indice
-        resultado.append(item)
-    return resultado
-
-
-def contar_fotos_patrimonio(numero_patrimonio: str, unidade: str) -> Tuple[Optional[int], str]:
-    """Consulta somente a quantidade de fotos armazenadas para auditoria."""
+def contar_fotos_patrimonio(
+    numero_patrimonio: str,
+    unidade: str,
+) -> Tuple[Optional[int], str]:
+    """Consulta a quantidade de fotos em patrimonio_fotos."""
     if not _conexao_configurada():
         return None, "PostgreSQL não configurado."
+
     conn = conectar()
     if conn is None:
         return None, "Não foi possível conectar ao PostgreSQL."
+
     try:
         with conn.cursor() as cur:
-            patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
+            patrimonio_id = _obter_patrimonio_id(
+                cur, numero_patrimonio, unidade
+            )
             if patrimonio_id is None:
-                return None, f"Patrimônio `{numero_patrimonio}` não encontrado."
+                return None, (
+                    f"Patrimônio \`{numero_patrimonio}\` não encontrado."
+                )
+
             cur.execute(
-                "SELECT jsonb_array_length(COALESCE(fotos, '[]'::jsonb)) FROM patrimonios WHERE id = %s",
+                """SELECT COUNT(*)
+                     FROM patrimonio_fotos
+                    WHERE patrimonio_id = %s""",
                 (patrimonio_id,),
             )
             row = cur.fetchone()
@@ -257,73 +254,211 @@ def contar_fotos_patrimonio(numero_patrimonio: str, unidade: str) -> Tuple[Optio
         conn.close()
 
 
-def listar_fotos_patrimonio(numero_patrimonio: str, unidade: str) -> Tuple[Optional[list], str]:
-    """Retorna somente metadados das fotos, sem carregar os bytes da imagem."""
+def listar_fotos_patrimonio(
+    numero_patrimonio: str,
+    unidade: str,
+) -> Tuple[Optional[list], str]:
+    """Retorna metadados + URL assinada temporária para exibição."""
     if not _conexao_configurada():
         return None, "PostgreSQL não configurado."
+
     conn = conectar()
     if conn is None:
         return None, "Não foi possível conectar ao PostgreSQL."
+
     try:
         with conn.cursor() as cur:
-            patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
+            patrimonio_id = _obter_patrimonio_id(
+                cur, numero_patrimonio, unidade
+            )
             if patrimonio_id is None:
-                return None, f"Patrimônio `{numero_patrimonio}` não encontrado."
+                return None, (
+                    f"Patrimônio \`{numero_patrimonio}\` não encontrado."
+                )
+
             cur.execute(
-                "SELECT COALESCE(fotos, '[]'::jsonb) FROM patrimonios WHERE id = %s",
+                """SELECT ordem,
+                          arquivo_nome,
+                          mime_type,
+                          tamanho_bytes,
+                          largura,
+                          altura,
+                          sha256,
+                          storage_bucket,
+                          storage_path,
+                          criado_em
+                     FROM patrimonio_fotos
+                    WHERE patrimonio_id = %s
+                    ORDER BY ordem""",
                 (patrimonio_id,),
             )
-            row = cur.fetchone()
-            fotos = normalizar_sequencia_fotos(row[0] if row and row[0] else [])
-            return [
+            linhas = cur.fetchall()
+
+        resultado = []
+        for (
+            ordem,
+            arquivo_nome,
+            mime_type,
+            tamanho_bytes,
+            largura,
+            altura,
+            sha256,
+            storage_bucket,
+            storage_path,
+            criado_em,
+        ) in linhas:
+            url_assinada = create_signed_url(
+                storage_bucket or FOTO_BUCKET,
+                storage_path,
+                expires_in=3600,
+            )
+            resultado.append(
                 {
-                    "ordem": foto["ordem"],
-                    "nome": foto["nome"],
-                    "arquivo_nome": foto.get("arquivo_nome", ""),
-                    "tamanho_bytes": foto.get("tamanho_bytes", 0),
-                    "largura": foto.get("largura"),
-                    "altura": foto.get("altura"),
-                    "sha256": foto.get("sha256", ""),
+                    "ordem": ordem,
+                    "nome": arquivo_nome.rsplit(".", 1)[0],
+                    "arquivo_nome": arquivo_nome,
+                    "mime_type": mime_type,
+                    "tamanho_bytes": tamanho_bytes,
+                    "largura": largura,
+                    "altura": altura,
+                    "sha256": sha256,
+                    "storage_bucket": storage_bucket,
+                    "storage_path": storage_path,
+                    "criado_em": criado_em,
+                    "url_assinada": url_assinada,
                 }
-                for foto in fotos
-            ], ""
+            )
+        return resultado, ""
     except Exception as exc:
         conn.rollback()
         return None, f"Erro ao consultar fotos: {exc}"
     finally:
         conn.close()
 
-def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file, serial: str = "") -> Tuple[bool, str]:
-    """Acrescenta uma foto à coluna fotos do próprio patrimônio."""
+
+def salvar_foto_patrimonio(
+    numero_patrimonio: str,
+    unidade: str,
+    image_file,
+    serial: str = "",
+) -> Tuple[bool, str]:
+    """Envia a foto ao Storage e grava somente seus metadados no PostgreSQL.
+
+    O PostgreSQL não recebe bytes/Base64 da imagem. O fluxo é:
+      1. preparar JPEG e calcular SHA-256;
+      2. localizar patrimonio_id;
+      3. definir a próxima ordem;
+      4. fazer upload para patrimonio-fotos;
+      5. inserir os metadados em patrimonio_fotos;
+      6. commit PostgreSQL.
+
+    Se o INSERT/commit falhar após o upload, o objeto é removido do Storage.
+    """
     if not _conexao_configurada():
-        return False, "PostgreSQL não configurado; a foto não pode ser armazenada na tabela de patrimônios."
+        return False, (
+            "PostgreSQL não configurado; a foto não pode ser armazenada."
+        )
+
     try:
         dados, largura, altura, sha256 = preparar_foto_patrimonio(image_file)
-        registro = montar_registro_foto(serial or numero_patrimonio, dados, largura, altura, sha256)
     except Exception as exc:
         return False, f"Não foi possível preparar a foto: {exc}"
+
+    serial_original = str(serial or numero_patrimonio or "").strip()
+    if not serial_original:
+        return False, "O número serial da etiqueta é obrigatório."
+
+    nome_seguro = re.sub(
+        r"[^A-Za-z0-9._-]+",
+        "_",
+        serial_original,
+    ).strip("._")
+    if not nome_seguro:
+        return False, "O número serial informado não gerou um nome de arquivo válido."
+
     conn = conectar()
     if conn is None:
-        return False, "Não foi possível conectar ao PostgreSQL para armazenar a foto."
+        return False, (
+            "Não foi possível conectar ao PostgreSQL para armazenar a foto."
+        )
+
+    storage_path = None
     try:
         with conn.cursor() as cur:
-            patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
+            patrimonio_id = _obter_patrimonio_id(
+                cur, numero_patrimonio, unidade
+            )
             if patrimonio_id is None:
-                return False, f"Patrimônio `{numero_patrimonio}` não encontrado na unidade `{unidade}`."
-            cur.execute("SELECT COALESCE(fotos, '[]'::jsonb) FROM patrimonios WHERE id = %s FOR UPDATE", (patrimonio_id,))
-            row = cur.fetchone()
-            fotos = normalizar_sequencia_fotos(row[0] if row and row[0] else [])
-            fotos.append(registro)
-            fotos = normalizar_sequencia_fotos(fotos)
-            cur.execute("UPDATE patrimonios SET fotos = %s::jsonb, atualizado_em = NOW() WHERE id = %s", (json.dumps(fotos, ensure_ascii=False), patrimonio_id))
+                return False, (
+                    f"Patrimônio \`{numero_patrimonio}\` não encontrado "
+                    f"na unidade \`{unidade}\`."
+                )
+
+            cur.execute(
+                """SELECT COALESCE(MAX(ordem), 0) + 1
+                     FROM patrimonio_fotos
+                    WHERE patrimonio_id = %s""",
+                (patrimonio_id,),
+            )
+            ordem = int(cur.fetchone()[0])
+
+            storage_path = (
+                f"patrimonios/{patrimonio_id}/"
+                f"{ordem}-{sha256}.jpg"
+            )
+
+            upload_bytes(
+                FOTO_BUCKET,
+                storage_path,
+                dados,
+                mime_type="image/jpeg",
+            )
+
+            cur.execute(
+                """INSERT INTO patrimonio_fotos
+                     (patrimonio_id,
+                      ordem,
+                      storage_bucket,
+                      storage_path,
+                      arquivo_nome,
+                      mime_type,
+                      tamanho_bytes,
+                      largura,
+                      altura,
+                      sha256)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    patrimonio_id,
+                    ordem,
+                    FOTO_BUCKET,
+                    storage_path,
+                    f"{nome_seguro}.jpg",
+                    "image/jpeg",
+                    len(dados),
+                    largura,
+                    altura,
+                    sha256,
+                ),
+            )
+
         conn.commit()
-        return True, f"Foto `{registro['nome']}` armazenada na ficha do patrimônio como foto {len(fotos)} ({len(dados) // 1024} KiB)."
+        return True, (
+            f"Foto \`{serial_original}\` armazenada como foto "
+            f"{ordem} ({len(dados) // 1024} KiB)."
+        )
     except Exception as exc:
         conn.rollback()
-        return False, f"Falha ao armazenar a foto no PostgreSQL: {exc}"
+        if storage_path:
+            try:
+                delete_object(FOTO_BUCKET, storage_path)
+            except Exception as cleanup_exc:
+                st.warning(
+                    "A gravação falhou e o objeto do Storage não pôde "
+                    f"ser removido automaticamente: {cleanup_exc}"
+                )
+        return False, f"Falha ao armazenar a foto: {exc}"
     finally:
         conn.close()
-
 
 
 def salvar_patrimonios_em_lote(registros, unidade: str) -> Tuple[bool, str]:
