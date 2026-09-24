@@ -45,3 +45,28 @@ def test_classificacao_detecta_divergencia_com_postgresql():
     resultado = _classificar_migracao_legacy(df, pg)
     assert len(resultado["divergentes_pg"]) == 1
     assert "fabricante" in resultado["divergentes_pg"][0]["campos"]
+
+
+
+def test_auditoria_identificadores_detecta_campos_iguais_e_ausentes():
+    from Tabela_de_dados_Inventario_7_2 import _resumir_identificadores
+    resultado = _resumir_identificadores([
+        ("100", "100"),
+        ("200", ""),
+        ("300", "ABC300"),
+    ])
+    assert resultado["postgresql"] == 3
+    assert resultado["sem_codigo_barras"] == 1
+    assert resultado["iguais"] == 1
+    assert resultado["codigos_duplicados"] == 0
+
+
+def test_auditoria_identificadores_detecta_codigo_duplicado():
+    from Tabela_de_dados_Inventario_7_2 import _resumir_identificadores
+    resultado = _resumir_identificadores([
+        ("100", "ABC"),
+        ("200", "ABC"),
+        ("300", "DEF"),
+    ])
+    assert resultado["codigos_duplicados"] == 1
+    assert resultado["codigos_duplicados_detalhes"] == [{"codigo_barras": "abc", "ocorrencias": 2}]
