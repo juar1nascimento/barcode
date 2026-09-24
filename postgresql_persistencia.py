@@ -256,6 +256,43 @@ def contar_fotos_patrimonio(numero_patrimonio: str, unidade: str) -> Tuple[Optio
     finally:
         conn.close()
 
+
+def listar_fotos_patrimonio(numero_patrimonio: str, unidade: str) -> Tuple[Optional[list], str]:
+    """Retorna somente metadados das fotos, sem carregar os bytes da imagem."""
+    if not _conexao_configurada():
+        return None, "PostgreSQL não configurado."
+    conn = conectar()
+    if conn is None:
+        return None, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            patrimonio_id = _obter_patrimonio_id(cur, numero_patrimonio, unidade)
+            if patrimonio_id is None:
+                return None, f"Patrimônio `{numero_patrimonio}` não encontrado."
+            cur.execute(
+                "SELECT COALESCE(fotos, '[]'::jsonb) FROM patrimonios WHERE id = %s",
+                (patrimonio_id,),
+            )
+            row = cur.fetchone()
+            fotos = normalizar_sequencia_fotos(row[0] if row and row[0] else [])
+            return [
+                {
+                    "ordem": foto["ordem"],
+                    "nome": foto["nome"],
+                    "arquivo_nome": foto.get("arquivo_nome", ""),
+                    "tamanho_bytes": foto.get("tamanho_bytes", 0),
+                    "largura": foto.get("largura"),
+                    "altura": foto.get("altura"),
+                    "sha256": foto.get("sha256", ""),
+                }
+                for foto in fotos
+            ], ""
+    except Exception as exc:
+        conn.rollback()
+        return None, f"Erro ao consultar fotos: {exc}"
+    finally:
+        conn.close()
+
 def salvar_foto_patrimonio(numero_patrimonio: str, unidade: str, image_file, serial: str = "") -> Tuple[bool, str]:
     """Acrescenta uma foto à coluna fotos do próprio patrimônio."""
     if not _conexao_configurada():
