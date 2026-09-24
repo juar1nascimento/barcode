@@ -55,3 +55,10 @@ def test_normalizar_sequencia_fotos_vazia():
 def test_normalizar_sequencia_fotos_rejeita_item_invalido():
     with pytest.raises(ValueError):
         pg.normalizar_sequencia_fotos([{"nome": "", "imagem_base64": "AAA"}])
+
+
+def test_normalizar_sequencia_fotos_adiciona_ordem_a_registros_legados():
+    fotos = [{"nome": "SERIAL-X", "imagem_base64": "AAA", "arquivo_nome": "SERIAL-X.jpg"}]
+    resultado = pg.normalizar_sequencia_fotos(fotos)
+    assert resultado[0]["ordem"] == 1
+    assert resultado[0]["arquivo_nome"] == "SERIAL-X.jpg"
