@@ -453,6 +453,19 @@ def salvar_foto_patrimonio(
                     f"na unidade \`{unidade}\`."
                 )
 
+            # Serializa a escolha da próxima ordem por patrimônio.
+            # A restrição UNIQUE(patrimonio_id, ordem) continua sendo a
+            # proteção final do banco em caso de concorrência inesperada.
+            cur.execute(
+                """SELECT id
+                     FROM patrimonios
+                    WHERE id = %s
+                    FOR UPDATE""",
+                (patrimonio_id,),
+            )
+            if cur.fetchone() is None:
+                raise RuntimeError("O patrimônio não está mais disponível.")
+
             cur.execute(
                 """SELECT COALESCE(MAX(ordem), 0) + 1
                      FROM patrimonio_fotos
