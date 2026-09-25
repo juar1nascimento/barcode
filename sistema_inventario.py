@@ -174,15 +174,15 @@ def renderizar_portal_principal(lista_urs: Optional[List[str]] = None, lista_ubs
 # CAPTURA E PREPARAÇÃO DA FOTO DO PATRIMÔNIO
 # ==============================================================================
 def renderizar_captura_foto_patrimonio() -> None:
-    """Captura a foto e a prepara localmente, sem upload nesta etapa.
+    """Captura, processa e deixa a foto pronta para persistência automática.
 
     A imagem original não é mantida no estado da aplicação. Somente a versão
-    JPEG processada é mantida para a próxima etapa de persistência.
+    JPEG processada é mantida até o cadastro do patrimônio concluir.
     """
     st.markdown("##### 📷 Foto do Patrimônio")
     st.caption(
-        "Tire a foto do patrimônio. Nesta etapa ela será automaticamente "
-        "corrigida, redimensionada e comprimida antes do futuro envio ao Supabase."
+        "Tire a foto do patrimônio. Ela será automaticamente corrigida, "
+        "redimensionada e comprimida antes do envio ao Supabase."
     )
 
     foto_camera = st.camera_input("Fotografar patrimônio", key="camera_foto_patrimonio")
@@ -218,8 +218,8 @@ def renderizar_captura_foto_patrimonio() -> None:
         f"{foto_atual.largura}×{foto_atual.altura}px | JPEG"
     )
     st.info(
-        "ℹ️ Validação concluída. O envio para o Supabase e o registro em "
-        "patrimonio_fotos serão feitos na próxima etapa, após fecharmos a autorização."
+        "ℹ️ Foto processada. Após o cadastro do patrimônio, o sistema fará "
+        "automaticamente o envio ao Supabase e o registro em patrimonio_fotos."
     )
 
 
