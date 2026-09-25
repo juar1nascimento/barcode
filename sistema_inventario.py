@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import pandas as pd
@@ -473,8 +474,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
             if foto_capturada is not None:
                 bruto_foto = foto_capturada.getvalue()
-                hash_captura = __import__("hashlib").sha256(bruto_foto).hexdigest()
-                chave_captura = f"{numero_foto_pendente}:{hash_captura}"
+                hash_captura = hashlib.sha256(bruto_foto).hexdigest()
+                chave_captura = f"{numero_foto_pendente}:{st.session_state.foto_contador}:{hash_captura}"
 
                 if st.session_state.get("ultima_foto_captura_processada") != chave_captura:
                     st.session_state["ultima_foto_captura_processada"] = chave_captura
