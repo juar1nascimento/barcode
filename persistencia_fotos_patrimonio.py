@@ -51,12 +51,13 @@ def _patrimonio_existe(cliente, patrimonio_id: int) -> bool:
     return bool(resposta.data)
 
 
-def _remover_objeto(cliente, path: str) -> None:
+def _remover_objeto(cliente, path: str) -> bool:
     try:
         cliente.storage.from_(BUCKET).remove([path])
+        return True
     except Exception:
         # O erro original é mais importante; a rotina nunca expõe segredo.
-        pass
+        return False
 
 
 def salvar_foto_patrimonio(
@@ -127,9 +128,16 @@ def salvar_foto_patrimonio(
             mensagem = str(exc).lower()
             if "uq_patrimonio_fotos_ordem" in mensagem or "duplicate key" in mensagem:
                 continue
+            if objeto_removido:
+                detalhe = "O objeto foi removido para evitar arquivo órfão."
+            else:
+                detalhe = (
+                    "Não foi possível remover o objeto; será necessário verificar "
+                    "o Storage para evitar arquivo órfão."
+                )
             raise FotoPatrimonioPersistenciaError(
                 "A foto foi enviada, mas o registro dos metadados falhou. "
-                "O objeto foi removido para evitar arquivo órfão."
+                + detalhe
             ) from exc
 
         return ResultadoFotoPatrimonio(
