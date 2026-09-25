@@ -10,6 +10,7 @@ from Tabela_de_dados_Inventario_7_2 import (
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
     carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
 )
+from processamento_fotos_patrimonio import FotoPatrimonioError, processar_foto_patrimonio
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
@@ -168,6 +169,59 @@ def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs:
 
 def renderizar_portal_principal(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
     renderizar_card_inventario(lista_urs=lista_urs, lista_ubs=lista_ubs, lista_almoxarifado=lista_almoxarifado, *args, **kwargs)
+
+# ==============================================================================
+# CAPTURA E PREPARAÇÃO DA FOTO DO PATRIMÔNIO
+# ==============================================================================
+def renderizar_captura_foto_patrimonio() -> None:
+    """Captura, processa e deixa a foto pronta para persistência automática.
+
+    A imagem original não é mantida no estado da aplicação. Somente a versão
+    JPEG processada é mantida até o cadastro do patrimônio concluir.
+    """
+    st.markdown("##### 📷 Foto do Patrimônio")
+    st.caption(
+        "Tire a foto do patrimônio. Ela será automaticamente corrigida, "
+        "redimensionada e comprimida antes do envio ao Supabase."
+    )
+
+    foto_camera = st.camera_input("Fotografar patrimônio", key="camera_foto_patrimonio")
+    if foto_camera is None:
+        return
+
+    try:
+        foto = processar_foto_patrimonio(foto_camera)
+    except FotoPatrimonioError as exc:
+        st.error(f"❌ Não foi possível preparar a foto: {exc}")
+        return
+    except Exception as exc:
+        st.error(f"❌ Erro inesperado ao preparar a foto: {exc}")
+        return
+
+    sha_anterior = st.session_state.get("foto_patrimonio_sha256")
+    if sha_anterior != foto.sha256:
+        st.session_state["foto_patrimonio_processada"] = foto
+        st.session_state["foto_patrimonio_sha256"] = foto.sha256
+
+    foto_atual = st.session_state.get("foto_patrimonio_processada")
+    if foto_atual is None:
+        return
+
+    st.image(
+        foto_atual.conteudo,
+        caption="Foto preparada para persistência",
+        use_container_width=True,
+    )
+    tamanho_kb = foto_atual.tamanho_bytes / 1024
+    st.success(
+        f"✅ Foto preparada: {tamanho_kb:.1f} KB | "
+        f"{foto_atual.largura}×{foto_atual.altura}px | JPEG"
+    )
+    st.info(
+        "ℹ️ Foto processada. Após o cadastro do patrimônio, o sistema fará "
+        "automaticamente o envio ao Supabase e o registro em patrimonio_fotos."
+    )
+
 
 # ==============================================================================
 # PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
@@ -340,6 +394,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 </script>
                 """
                 st.components.v1.html(html_scanner, height=390)
+
+            renderizar_captura_foto_patrimonio()
 
             with col_usb:
                 st.markdown("##### 🔌 Entrada Manual / Scanner USB")
