@@ -149,7 +149,8 @@ def garantir_setor(cur, unidade_id: int, setor: str) -> int:
 
 MAX_FOTO_DIMENSAO = 1600
 MAX_FOTO_BYTES = 1024 * 1024
-FOTO_QUALIDADE_JPEG = 78
+FOTO_QUALIDADE_JPEG = 82
+FOTO_QUALIDADE_MINIMA = 62
 FOTO_BUCKET = "patrimonio-fotos"
 
 
@@ -186,9 +187,9 @@ def preparar_foto_patrimonio(image_file) -> Tuple[bytes, int, int, str]:
                 optimize=True,
             )
             dados = buffer.getvalue()
-            if len(dados) <= MAX_FOTO_BYTES or qualidade <= 55:
+            if len(dados) <= MAX_FOTO_BYTES or qualidade <= FOTO_QUALIDADE_MINIMA:
                 break
-            qualidade -= 8
+            qualidade -= 5
 
         largura, altura = imagem.size
 
@@ -346,6 +347,54 @@ def listar_fotos_patrimonio(
     finally:
         conn.close()
 
+
+
+def listar_fotos_colunas_patrimonios(unidade: str) -> Tuple[dict, str]:
+    """Retorna todas as fotos da unidade agrupadas por patrimônio e ordem."""
+    if not _conexao_configurada():
+        return {}, "PostgreSQL não configurado."
+
+    conn = conectar()
+    if conn is None:
+        return {}, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT p.numero_patrimonio,
+                          pf.ordem,
+                          pf.storage_bucket,
+                          pf.storage_path
+                     FROM patrimonios p
+                     JOIN unidades u ON u.id = p.unidade_id
+                     JOIN patrimonio_fotos pf ON pf.patrimonio_id = p.id
+                    WHERE u.nome = %s
+                    ORDER BY p.id, pf.ordem ASC""",
+                (str(unidade or "").strip(),),
+            )
+            linhas = cur.fetchall()
+
+        resultado = {}
+        for numero_patrimonio, ordem, storage_bucket, storage_path in linhas:
+            try:
+                url_assinada = create_signed_url(
+                    storage_bucket or FOTO_BUCKET,
+                    storage_path,
+                    expires_in=3600,
+                )
+            except Exception:
+                url_assinada = ""
+
+            if url_assinada:
+                chave = str(numero_patrimonio).strip().casefold()
+                resultado.setdefault(chave, []).append(url_assinada)
+
+        return resultado, ""
+    except Exception as exc:
+        conn.rollback()
+        return {}, f"Erro ao consultar colunas de fotos: {exc}"
+    finally:
+        conn.close()
 
 
 def listar_fotos_capa_patrimonios(unidade: str) -> Tuple[dict, str]:
