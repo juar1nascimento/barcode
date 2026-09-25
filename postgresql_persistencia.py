@@ -1957,15 +1957,15 @@ def salvar_patrimonio(
     unidade: str,
     fabricante: str = "",
     numero_patrimonio: str = "",
-) -> Tuple[bool, str]:
-    """Grava um patrimônio no PostgreSQL e retorna (sucesso, mensagem).
+) -> Tuple[bool, str, Optional[int]]:
+    """Grava um patrimônio no PostgreSQL e retorna (sucesso, mensagem, patrimonio_id).
 
     A transação é atômica. Duplicidades são tratadas pelo banco e não geram
     segunda linha. Esta função não grava no Google Sheets; o chamador faz o
     espelhamento separadamente para manter as duas persistências independentes.
     """
     if not _conexao_configurada():
-        return False, "PostgreSQL não configurado. Cadastros foram bloqueados para evitar gravação somente no Google Sheets."
+        return False, "PostgreSQL não configurado. Cadastros foram bloqueados para evitar gravação somente no Google Sheets.", None
 
     numero = str(numero_patrimonio or "").strip() or str(codigo_barras or "").strip()
     codigo = str(codigo_barras or "").strip() or None
@@ -1975,11 +1975,11 @@ def salvar_patrimonio(
     fabricante = str(fabricante or "").strip() or None
 
     if not numero or not tipo or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
-        return False, "Dados insuficientes ou inválidos para o PostgreSQL."
+        return False, "Dados insuficientes ou inválidos para o PostgreSQL.", None
 
     conn = conectar()
     if conn is None:
-        return False, "Não foi possível conectar ao PostgreSQL."
+        return False, "Não foi possível conectar ao PostgreSQL.", None
 
     try:
         with conn.cursor() as cur:
@@ -1989,16 +1989,18 @@ def salvar_patrimonio(
                 """INSERT INTO patrimonios
                      (unidade_id, setor_id, tipo, numero_patrimonio,
                       codigo_barras, fabricante, data_cadastro, atualizado_em)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                   RETURNING id""",
                 (unidade_id, setor_id, tipo, numero, codigo, fabricante, datetime.now()),
             )
+            patrimonio_id = cur.fetchone()[0]
         conn.commit()
-        return True, "Patrimônio gravado no PostgreSQL."
+        return True, "Patrimônio gravado no PostgreSQL.", patrimonio_id
     except Exception as exc:
         conn.rollback()
         texto = str(exc)
         if "duplicate key" in texto.lower() or "unique" in texto.lower():
-            return False, f"O patrimônio `{numero}` já existe no PostgreSQL."
-        return False, f"Falha ao gravar no PostgreSQL: {texto}"
+            return False, f"O patrimônio `{numero}` já existe no PostgreSQL.", None
+        return False, f"Falha ao gravar no PostgreSQL: {texto}", None
     finally:
         conn.close()
