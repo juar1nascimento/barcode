@@ -31,12 +31,23 @@ def usuario_app_autorizado() -> bool:
 
 
 def _ler_segredo(nome: str) -> str:
-    """Lê uma configuração obrigatória sem expor seu valor em logs/UI."""
+    """Lê uma configuração obrigatória sem expor seu valor em logs/UI.
 
+    Aceita tanto uma chave plana (supabase.url) quanto uma seção TOML
+    [supabase] com a chave url.
+    """
+    valor: Any = None
     try:
-        valor: Any = st.secrets[nome]
+        valor = st.secrets[nome]
     except (KeyError, FileNotFoundError):
-        valor = None
+        pass
+
+    if valor is None and "." in nome:
+        secao, chave = nome.split(".", 1)
+        try:
+            valor = st.secrets[secao][chave]
+        except (KeyError, FileNotFoundError, TypeError):
+            valor = None
 
     if valor is None or not str(valor).strip():
         raise SupabaseFotosConfigError(
@@ -44,7 +55,6 @@ def _ler_segredo(nome: str) -> str:
         )
 
     return str(valor).strip()
-
 
 def criar_cliente_supabase_servidor() -> Client:
     """Cria um cliente Supabase exclusivamente no servidor.
