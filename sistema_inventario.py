@@ -450,56 +450,76 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         st.rerun()
 
     st.divider()
-    # Foto do patrimônio: habilitada no Almoxarifado Central SESA.
-    # A imagem é redimensionada/comprimida antes do envio para evitar picos de memória.
+    # Foto do patrimônio: captura + upload automático no Almoxarifado Central SESA.
+    # A captura já autoriza o fluxo de persistência: não existe mais botão
+    # intermediário. A imagem é tratada no backend e gravada no Storage,
+    # enquanto os metadados entram em patrimonio_fotos com a próxima ordem.
     if unidade.casefold() == "almoxarifado central sesa".casefold():
         numero_foto_pendente = st.session_state.get("patrimonio_foto_pendente")
         if numero_foto_pendente:
             st.markdown("### 📸 Fotos do patrimônio")
-            st.caption(f"Você pode registrar várias fotos para **{numero_foto_pendente}**. Elas serão armazenadas em sequência na última coluna da ficha do patrimônio.")
-            st.session_state.setdefault("foto_contador", 0)
-            serial_foto = st.text_input(
-                "Número serial contido na etiqueta:",
-                value=numero_foto_pendente,
-                key=f"serial_foto_{numero_foto_pendente}_{st.session_state.foto_contador}",
-                help="O nome da foto será este número serial, com extensão .jpg no armazenamento.",
+            st.caption(
+                f"📷 Tire a foto de {numero_foto_pendente}. "
+                "O envio será automático e cada nova foto receberá a próxima ordem."
             )
+            st.session_state.setdefault("foto_contador", 0)
+
             foto_capturada = st.camera_input(
                 "Tire a foto do patrimônio",
                 key=f"camera_patrimonio_{numero_foto_pendente}_{st.session_state.foto_contador}",
                 resolution="720p",
+                help="Ao concluir a captura, o sistema comprime a imagem e inicia o upload automaticamente.",
             )
-            fotos_existentes, erro_fotos = postgresql_persistencia.listar_fotos_patrimonio(numero_foto_pendente, unidade)
+
+            if foto_capturada is not None:
+                bruto_foto = foto_capturada.getvalue()
+                hash_captura = __import__("hashlib").sha256(bruto_foto).hexdigest()
+                chave_captura = f"{numero_foto_pendente}:{hash_captura}"
+
+                if st.session_state.get("ultima_foto_captura_processada") != chave_captura:
+                    st.session_state["ultima_foto_captura_processada"] = chave_captura
+                    with st.spinner("📤 Tratando e enviando a foto automaticamente..."):
+                        ok_foto, msg_foto = postgresql_persistencia.salvar_foto_patrimonio(
+                            numero_patrimonio=numero_foto_pendente,
+                            unidade=unidade,
+                            serial=numero_foto_pendente,
+                            image_file=foto_capturada,
+                        )
+
+                    if ok_foto:
+                        st.session_state.foto_contador += 1
+                        st.session_state["ultima_foto_upload_ok"] = msg_foto
+                        st.rerun()
+                    else:
+                        st.session_state["ultima_foto_upload_erro"] = msg_foto
+
+            if st.session_state.get("ultima_foto_upload_ok"):
+                st.success(f"✅ {st.session_state.pop('ultima_foto_upload_ok')}")
+            if st.session_state.get("ultima_foto_upload_erro"):
+                st.error(
+                    "❌ O upload automático não foi concluído: "
+                    f"{st.session_state.pop('ultima_foto_upload_erro')}"
+                )
+                st.info("Tire uma nova foto para tentar novamente.")
+
+            fotos_existentes, erro_fotos = postgresql_persistencia.listar_fotos_patrimonio(
+                numero_foto_pendente, unidade
+            )
             if erro_fotos:
                 st.caption("ℹ️ A quantidade de fotos será exibida após a conexão com o PostgreSQL.")
             else:
-                st.info(f"📷 Fotos já armazenadas para este patrimônio: **{len(fotos_existentes or [])}**")
+                st.info(
+                    f"📷 Fotos já armazenadas para este patrimônio: "
+                    f"**{len(fotos_existentes or [])}**"
+                )
                 if fotos_existentes:
                     st.dataframe(
-                        pd.DataFrame(fotos_existentes)[["ordem", "nome", "arquivo_nome", "tamanho_bytes", "largura", "altura"]],
+                        pd.DataFrame(fotos_existentes)[
+                            ["ordem", "nome", "arquivo_nome", "tamanho_bytes", "largura", "altura"]
+                        ],
                         use_container_width=True,
                         hide_index=True,
                     )
-
-            if foto_capturada is not None and st.button(
-                "💾 Enviar e adicionar esta foto", type="primary", use_container_width=True,
-                key=f"salvar_foto_{numero_foto_pendente}_{st.session_state.foto_contador}",
-            ):
-                if not serial_foto.strip():
-                    st.error("❌ Informe o número serial contido na etiqueta.")
-                else:
-                    ok_foto, msg_foto = postgresql_persistencia.salvar_foto_patrimonio(
-                        numero_patrimonio=numero_foto_pendente,
-                        unidade=unidade,
-                        serial=serial_foto.strip(),
-                        image_file=foto_capturada,
-                    )
-                    if ok_foto:
-                        st.success(f"✅ {msg_foto}")
-                        st.session_state.foto_contador += 1
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {msg_foto}")
 
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
 
@@ -510,17 +530,29 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
-        # A foto de capa ocupa a última coluna da tabela somente no
-        # Almoxarifado Central SESA. As demais fotos continuam acessíveis
-        # pelo gerenciador de fotos acima.
-        coluna_foto = "📷 Foto"
+        # As fotos ficam no final da tabela, em colunas sequenciais:
+        # Foto 1, Foto 2, ... Cada coluna representa a ordem gravada
+        # em patrimonio_fotos. Novas fotos nunca sobrescrevem as anteriores.
+        colunas_foto = []
         if unidade.casefold() == "almoxarifado central sesa".casefold():
-            mapa_fotos, erro_mapa_fotos = postgresql_persistencia.listar_fotos_capa_patrimonios(unidade)
+            mapa_fotos, erro_mapa_fotos = postgresql_persistencia.listar_fotos_colunas_patrimonios(unidade)
             if erro_mapa_fotos:
-                st.caption(f"ℹ️ A coluna de fotos será exibida após a conexão com o PostgreSQL: {erro_mapa_fotos}")
-            df_atual[coluna_foto] = df_atual["Nº de Patrimônio"].map(
-                lambda valor: mapa_fotos.get(str(valor).strip().casefold(), "")
-            )
+                st.caption(
+                    "ℹ️ As colunas de fotos serão exibidas após a conexão com o PostgreSQL: "
+                    f"{erro_mapa_fotos}"
+                )
+            else:
+                max_fotos = max((len(fotos) for fotos in mapa_fotos.values()), default=0)
+                for ordem in range(1, max_fotos + 1):
+                    coluna = f"📷 Foto {ordem}"
+                    colunas_foto.append(coluna)
+                    df_atual[coluna] = df_atual["Nº de Patrimônio"].map(
+                        lambda valor, ordem=ordem: (
+                            mapa_fotos.get(str(valor).strip().casefold(), [])[ordem - 1]
+                            if len(mapa_fotos.get(str(valor).strip().casefold(), [])) >= ordem
+                            else ""
+                        )
+                    )
 
         df_styled = df_atual.style.set_properties(**{
             'font-family': "'Inter', 'Segoe UI', -apple-system, sans-serif",
@@ -546,15 +578,16 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             {'selector': 'td:first-child', 'props': [('font-weight', '700'), ('background-color', '#F1F5F9'), ('color', '#0F172A'), ('border-right', '2px solid #CBD5E1')]}
         ])
 
-        if coluna_foto in df_atual.columns:
+        if colunas_foto:
             st.dataframe(
                 df_atual,
                 column_config={
-                    coluna_foto: st.column_config.ImageColumn(
-                        coluna_foto,
-                        help="Primeira foto registrada do patrimônio.",
+                    coluna: st.column_config.ImageColumn(
+                        coluna,
+                        help=f"Foto {indice} do patrimônio, armazenada na ordem {indice}.",
                         width="small",
-                    ),
+                    )
+                    for indice, coluna in enumerate(colunas_foto, start=1)
                 },
                 use_container_width=True,
                 hide_index=True,
