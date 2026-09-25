@@ -83,8 +83,12 @@ def processar_foto_patrimonio(
                     continue
 
                 width, height = image.size
-                next_width = max(min_dimension, int(width * 0.85))
-                next_height = max(min_dimension, int(height * 0.85))
+                menor_lado = min(width, height)
+                escala = max(0.85, min_dimension / menor_lado)
+                if escala >= 1:
+                    break
+                next_width = max(1, int(round(width * escala)))
+                next_height = max(1, int(round(height * escala)))
                 if (next_width, next_height) == (width, height):
                     break
                 image = image.resize((next_width, next_height), Image.Resampling.LANCZOS)
