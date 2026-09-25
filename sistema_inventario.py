@@ -429,6 +429,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         if adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade, fabricante_input.strip()):
                             if unidade.casefold() == "almoxarifado central sesa".casefold():
                                 st.session_state.patrimonio_foto_pendente = codigo_input.strip()
+                                st.session_state.patrimonio_foto_pendente_id = st.session_state.get("ultimo_patrimonio_id")
                             st.session_state.mensagem_sucesso = f"✅ Código `{codigo_input.strip()}` registrado na coluna `{header_patrimonio}` no setor `{setor_input}` ({unidade})."
                         st.rerun()
 
@@ -442,10 +443,15 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         st.image(img_processada, caption="Imagem Analisada", use_container_width=True)
                 with col_img2:
                     if codigos_encontrados:
-                        codigos_registrados = [item["codigo"] for item in codigos_encontrados if adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade, fabricante_input.strip())]
+                        codigos_registrados = []
+                        for item in codigos_encontrados:
+                            codigo_lido = item["codigo"]
+                            if adicionar_e_salvar(codigo_lido, descricao_final, setor_input, unidade, fabricante_input.strip()):
+                                codigos_registrados.append(codigo_lido)
+                                if unidade.casefold() == "almoxarifado central sesa".casefold() and len(codigos_registrados) == 1:
+                                    st.session_state.patrimonio_foto_pendente = codigo_lido
+                                    st.session_state.patrimonio_foto_pendente_id = st.session_state.get("ultimo_patrimonio_id")
                         if codigos_registrados:
-                            if unidade.casefold() == "almoxarifado central sesa".casefold():
-                                st.session_state.patrimonio_foto_pendente = codigos_registrados[0]
                             st.session_state.mensagem_sucesso = f"✅ {len(codigos_registrados)} código(s) registrado(s) com sucesso na coluna `{header_patrimonio}`!"
                         st.rerun()
 
