@@ -149,13 +149,21 @@ def garantir_setor(cur, unidade_id: int, setor: str) -> int:
 
 MAX_FOTO_DIMENSAO = 1600
 MAX_FOTO_BYTES = 1024 * 1024
+MAX_FOTO_PIXELS = 24_000_000
+MAX_FOTO_ENTRADA_BYTES = 15 * 1024 * 1024
 FOTO_QUALIDADE_JPEG = 82
 FOTO_QUALIDADE_MINIMA = 62
 FOTO_BUCKET = "patrimonio-fotos"
 
 
 def preparar_foto_patrimonio(image_file) -> Tuple[bytes, int, int, str]:
-    """Reduz e comprime a foto antes do envio ao Supabase Storage."""
+    """Prepara a foto com baixo pico de memória antes do upload.
+
+    O ponto crítico é não decodificar uma foto de câmera de alta resolução
+    em seu tamanho original. Para JPEG, draft() pede ao decoder uma versão
+    reduzida antes do load; depois fazemos apenas a correção EXIF e o resize
+    final. Isso evita o pico de RAM que estava derrubando o upload.
+    """
     from PIL import Image, ImageOps
 
     if hasattr(image_file, "getvalue"):
@@ -167,39 +175,65 @@ def preparar_foto_patrimonio(image_file) -> Tuple[bytes, int, int, str]:
 
     if not bruto:
         raise ValueError("A foto está vazia.")
+    if len(bruto) > MAX_FOTO_ENTRADA_BYTES:
+        raise ValueError("A foto original excede 15 MiB; reduza a resolução da câmera.")
 
-    with Image.open(io.BytesIO(bruto)) as original:
-        imagem = ImageOps.exif_transpose(original)
-        imagem.thumbnail(
-            (MAX_FOTO_DIMENSAO, MAX_FOTO_DIMENSAO),
-            Image.Resampling.LANCZOS,
-        )
-        if imagem.mode not in ("RGB", "L"):
-            imagem = imagem.convert("RGB")
+    try:
+        with Image.open(io.BytesIO(bruto)) as original:
+            formato = (original.format or "").upper()
+            largura_original, altura_original = original.size
+            pixels = largura_original * altura_original
+            if pixels > MAX_FOTO_PIXELS:
+                # JPEG: reduz durante a decodificação, antes de criar uma
+                # imagem RGB grande. Isso é muito mais econômico em RAM.
+                if formato in {"JPEG", "JPG"}:
+                    original.draft("RGB", (MAX_FOTO_DIMENSAO, MAX_FOTO_DIMENSAO))
+                else:
+                    raise ValueError(
+                        f"A imagem possui {pixels:,} pixels; a câmera precisa "
+                        "fornecer uma resolução menor para este tipo de arquivo."
+                    )
 
-        qualidade = FOTO_QUALIDADE_JPEG
-        while True:
-            buffer = io.BytesIO()
-            imagem.save(
-                buffer,
-                format="JPEG",
-                quality=qualidade,
-                optimize=True,
+            imagem = ImageOps.exif_transpose(original)
+            imagem.thumbnail(
+                (MAX_FOTO_DIMENSAO, MAX_FOTO_DIMENSAO),
+                Image.Resampling.LANCZOS,
             )
-            dados = buffer.getvalue()
-            if len(dados) <= MAX_FOTO_BYTES or qualidade <= FOTO_QUALIDADE_MINIMA:
-                break
-            qualidade -= 5
+            if imagem.mode != "RGB":
+                imagem = imagem.convert("RGB")
 
-        largura, altura = imagem.size
+            qualidade = FOTO_QUALIDADE_JPEG
+            dados = b""
+            while True:
+                buffer = io.BytesIO()
+                imagem.save(
+                    buffer,
+                    format="JPEG",
+                    quality=qualidade,
+                    optimize=False,
+                    progressive=True,
+                    subsampling="4:2:0",
+                )
+                dados = buffer.getvalue()
+                buffer.close()
+                if len(dados) <= MAX_FOTO_BYTES or qualidade <= FOTO_QUALIDADE_MINIMA:
+                    break
+                qualidade -= 5
+
+            largura, altura = imagem.size
+
+    except MemoryError:
+        raise ValueError(
+            "A memória disponível não foi suficiente para processar esta foto. "
+            "O sistema já limita a decodificação, mas a câmera deve usar uma resolução menor."
+        )
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Imagem inválida ou incompatível: {exc}") from exc
 
     if len(dados) > MAX_FOTO_BYTES:
-        raise ValueError(
-            "A foto continua maior que 1 MiB após a compressão."
-        )
+        raise ValueError("A foto continua maior que 1 MiB após a compressão.")
 
     return dados, largura, altura, hashlib.sha256(dados).hexdigest()
-
 
 def _obter_patrimonio_id(cur, numero_patrimonio: str, unidade: str):
     cur.execute(
