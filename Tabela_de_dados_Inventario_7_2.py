@@ -354,7 +354,7 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     # PostgreSQL passa a ser a persistência principal. O Google Sheets permanece
     # como espelho operacional e só recebe o registro depois da confirmação do DB.
     import postgresql_persistencia as pg
-    salvo_pg, mensagem_pg = pg.salvar_patrimonio(
+    salvo_pg, mensagem_pg, patrimonio_id = pg.salvar_patrimonio(
         codigo_barras=codigo,
         tipo=tipo,
         setor=setor_limpo,
@@ -365,6 +365,9 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     if not salvo_pg:
         st.error(f"⚠️ Cadastro não concluído: {mensagem_pg}")
         return False
+
+    # Preserva o ID real gerado pelo PostgreSQL para o vínculo posterior com patrimonio_fotos.
+    st.session_state["ultimo_patrimonio_id"] = patrimonio_id
 
     sucesso_google = _anexar_no_google(
         pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
