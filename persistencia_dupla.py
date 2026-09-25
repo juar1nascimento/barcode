@@ -22,10 +22,12 @@ def ativar():
     _original = sistema_inventario.adicionar_e_salvar
 
     def wrapper(codigo, patrimonio, setor, unidade, fabricante=""):
+        st.session_state["ultimo_patrimonio_id"] = None
+
         if not postgresql_persistencia._conexao_configurada():
             return _original(codigo, patrimonio, setor, unidade, fabricante)
 
-        ok_pg, msg_pg = postgresql_persistencia.salvar_patrimonio(
+        ok_pg, patrimonio_id, msg_pg = postgresql_persistencia.salvar_patrimonio(
             codigo_barras=codigo,
             tipo=patrimonio,
             setor=setor,
@@ -35,6 +37,8 @@ def ativar():
         if not ok_pg:
             st.error(f"❌ Cadastro não concluído: {msg_pg}")
             return False
+
+        st.session_state["ultimo_patrimonio_id"] = patrimonio_id
 
         ok_sheets = _original(codigo, patrimonio, setor, unidade, fabricante)
         if not ok_sheets:
