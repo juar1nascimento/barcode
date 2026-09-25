@@ -8,6 +8,7 @@ o comportamento existente do Google Sheets permanece inalterado.
 import streamlit as st
 
 import postgresql_persistencia
+from persistencia_fotos_patrimonio import FotoPatrimonioPersistenciaError, salvar_foto_patrimonio
 
 _original = None
 
@@ -39,6 +40,24 @@ def ativar():
             return False
 
         st.session_state["ultimo_patrimonio_id"] = patrimonio_id
+
+        foto = st.session_state.get("foto_patrimonio_processada")
+        if foto is not None and patrimonio_id is not None:
+            try:
+                resultado_foto = salvar_foto_patrimonio(int(patrimonio_id), foto)
+            except (FotoPatrimonioPersistenciaError, PermissionError) as exc:
+                st.error(f"❌ O patrimônio foi gravado, mas a foto não foi armazenada: {exc}")
+                return False
+            except Exception as exc:
+                st.error(f"❌ O patrimônio foi gravado, mas a foto não foi armazenada: {exc}")
+                return False
+            else:
+                st.session_state["foto_patrimonio_ultima_ordem"] = resultado_foto.ordem
+                st.session_state.pop("foto_patrimonio_processada", None)
+                st.session_state.pop("foto_patrimonio_sha256", None)
+                st.success(
+                    f"📷 Foto {resultado_foto.ordem} armazenada automaticamente no patrimônio."
+                )
 
         ok_sheets = _original(codigo, patrimonio, setor, unidade, fabricante)
         if not ok_sheets:
