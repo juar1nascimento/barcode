@@ -7,6 +7,7 @@ from consultorio_contexto import ativar as ativar_contexto_consultorio, desativa
 from persistencia_dupla import ativar as ativar_persistencia_dupla, desativar as desativar_persistencia_dupla
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
 from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso_storage
+from teste_upload_foto import renderizar_teste_upload_foto
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 
@@ -65,6 +66,9 @@ with st.sidebar:
             st.rerun()
         if st.button("🔐 Preflight Supabase"):
             st.session_state.pagina_atual = "preflight_supabase"
+            st.rerun()
+        if st.button("🧪 Teste upload de foto"):
+            st.session_state.pagina_atual = "teste_upload_foto"
             st.rerun()
 
     if st.button("🚪 Sair do Sistema"):
@@ -178,8 +182,15 @@ secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
                 "do bucket e, depois, o primeiro upload controlado."
             )
 
+elif st.session_state.pagina_atual == "teste_upload_foto":
+    if not is_admin:
+        st.error("Acesso não autorizado.")
+        st.session_state.pagina_atual = "portal"
+        st.stop()
+    renderizar_teste_upload_foto()
+
 elif st.session_state.pagina_atual == "entrada":
-    renderizar_sistema_entrada()
+      renderizar_sistema_entrada()
 
 elif st.session_state.pagina_atual == "saida":
     renderizar_sistema_saida()
