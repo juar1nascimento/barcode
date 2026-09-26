@@ -6,7 +6,7 @@ from sistema_inventario import renderizar_card_inventario, renderizar_sistema_in
 from consultorio_contexto import ativar as ativar_contexto_consultorio, desativar as desativar_contexto_consultorio
 from persistencia_dupla import ativar as ativar_persistencia_dupla, desativar as desativar_persistencia_dupla
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
-from preflight_supabase_secrets import verificar_secrets_supabase
+from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso_storage
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 
@@ -132,13 +132,28 @@ elif st.session_state.pagina_atual == "preflight_supabase":
         st.error("Acesso não autorizado.")
         st.session_state.pagina_atual = "portal"
         st.stop()
+
     st.title("🔐 Preflight seguro do Supabase")
     st.caption("Esta tela não exibe nem registra credenciais.")
+
     status = verificar_secrets_supabase()
     for item, ok in status.items():
         st.write(("✅ " if ok else "❌ ") + item.replace("_", " ").capitalize())
+
     if status["configuracao_pronta"]:
-        st.success("Configuração mínima das Secrets está presente. Nenhum upload foi executado.")
+        st.success("Configuração mínima das Secrets está presente.")
+
+        if st.button("🔎 Testar acesso somente leitura ao Storage"):
+            ok_storage, mensagem_storage = testar_acesso_storage()
+            if ok_storage:
+                st.success(mensagem_storage)
+            else:
+                st.error(mensagem_storage)
+
+        st.info(
+            "Este teste somente consulta o bucket patrimônio-fotos. "
+            "Não cria, envia, altera ou exclui arquivos."
+        )
     else:
         st.warning("A configuração ainda não está pronta. Nenhuma credencial foi exibida.")
 
