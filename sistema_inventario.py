@@ -10,6 +10,7 @@ from Tabela_de_dados_Inventario_7_2 import (
     LISTA_URS_PADRAO, LISTA_UBS_PADRAO, LISTA_ALMOXARIFADO_PADRAO, formatar_nome_patrimonio, formatar_nome_fabricante,
     carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
 )
+from fotos_patrimonio import renderizar_fotos_patrimonio
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
@@ -60,6 +61,18 @@ def adicionar_e_salvar_sem_sobrescrever(
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
+
+
+def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
+    """Exibe as fotografias do último patrimônio gravado nesta unidade."""
+    patrimonio_id = st.session_state.get("ultimo_patrimonio_id")
+    patrimonio_unidade = st.session_state.get("ultimo_patrimonio_unidade", "")
+    if not patrimonio_id or patrimonio_unidade != unidade:
+        return
+
+    st.divider()
+    renderizar_fotos_patrimonio(int(patrimonio_id))
+
 
 # ==============================================================================
 # VISÃO COMPUTACIONAL / LEITURA DE IMAGEM
@@ -348,6 +361,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
                         if adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade, fabricante_input.strip()):
                             st.session_state.mensagem_sucesso = f"✅ Código `{codigo_input.strip()}` registrado na coluna `{header_patrimonio}` no setor `{setor_input}` ({unidade})."
+                            st.session_state.ultimo_patrimonio_numero = codigo_input.strip()
+                            st.session_state.ultimo_patrimonio_unidade = unidade
                         st.rerun()
 
         with tab_upload:
@@ -363,7 +378,11 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         codigos_registrados = [item["codigo"] for item in codigos_encontrados if adicionar_e_salvar(item["codigo"], descricao_final, setor_input, unidade, fabricante_input.strip())]
                         if codigos_registrados:
                             st.session_state.mensagem_sucesso = f"✅ {len(codigos_registrados)} código(s) registrado(s) com sucesso na coluna `{header_patrimonio}`!"
+                            st.session_state.ultimo_patrimonio_numero = codigos_registrados[-1]
+                            st.session_state.ultimo_patrimonio_unidade = unidade
                         st.rerun()
+
+    _renderizar_fotos_ultimo_patrimonio(unidade)
 
     st.divider()
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
