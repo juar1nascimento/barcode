@@ -78,24 +78,60 @@ def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
 # VISÃO COMPUTACIONAL / LEITURA DE IMAGEM
 # ==============================================================================
 def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[str, str]]]:
+    """Lê código de barras sem decodificar a foto original em resolução integral.
+
+    Fotos de smartphones podem ter dezenas de megapixels. A rotina anterior
+    mantinha simultaneamente bytes, BGR e RGB em resolução original, o que
+    podia derrubar o processo Streamlit por excesso de memória.
+    """
     try:
+        import io
+        import gc
         import cv2
         import zxingcpp
+        from PIL import Image, ImageOps, UnidentifiedImageError
+
+        MAX_INPUT_BYTES = 20 * 1024 * 1024
+        MAX_SCAN_DIMENSION = 1600
 
         if hasattr(image_file, "getvalue"):
-            file_bytes = np.frombuffer(image_file.getvalue(), dtype=np.uint8)
+            raw = image_file.getvalue()
         else:
-            file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
+            raw = image_file.read()
 
+        if not raw:
+            return None, []
+        if len(raw) > MAX_INPUT_BYTES:
+            return None, []
+
+        # PIL faz a primeira decodificação e reduz a imagem antes de criar
+        # qualquer matriz OpenCV grande.
+        with Image.open(io.BytesIO(raw)) as original:
+            original = ImageOps.exif_transpose(original).convert("RGB")
+            original.thumbnail((MAX_SCAN_DIMENSION, MAX_SCAN_DIMENSION), Image.Resampling.LANCZOS)
+            buffer = io.BytesIO()
+            original.save(buffer, format="JPEG", quality=82, optimize=True)
+            scan_bytes = buffer.getvalue()
+            preview_width, preview_height = original.size
+
+        del raw
+        gc.collect()
+
+        file_bytes = np.frombuffer(scan_bytes, dtype=np.uint8)
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        del file_bytes, scan_bytes
         if img is None:
             return None, []
 
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        del img
         barcodes = zxingcpp.read_barcodes(img_rgb)
         resultados = []
 
         for barcode in barcodes:
+            codigo = str(getattr(barcode, "text", "") or "").strip()
+            if not codigo:
+                continue
             if hasattr(barcode, "position") and barcode.position:
                 try:
                     pos = barcode.position
@@ -104,17 +140,32 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
                             [int(pos.top_left.x), int(pos.top_left.y)],
                             [int(pos.top_right.x), int(pos.top_right.y)],
                             [int(pos.bottom_right.x), int(pos.bottom_right.y)],
-                            [int(pos.bottom_left.x), int(pos.bottom_left.y)]
+                            [int(pos.bottom_left.x), int(pos.bottom_left.y)],
                         ]
                     else:
-                        pts_list = [[int(getattr(pt, "x", pt[0])), int(getattr(pt, "y", pt[1]))] for pt in pos]
+                        pts_list = [
+                            [int(getattr(pt, "x", pt[0])), int(getattr(pt, "y", pt[1]))]
+                            for pt in pos
+                        ]
                     if pts_list:
                         pts = np.array(pts_list, np.int32).reshape((-1, 1, 2))
                         cv2.polylines(img_rgb, [pts], True, (0, 255, 0), 3)
                 except Exception:
                     pass
-            resultados.append({"codigo": barcode.text, "tipo": str(barcode.format).replace("BarcodeFormat.", "")})
+            resultados.append({
+                "codigo": codigo,
+                "tipo": str(barcode.format).replace("BarcodeFormat.", ""),
+            })
+
+        # Garante que a imagem devolvida à UI também permanece limitada.
+        if img_rgb.shape[1] != preview_width or img_rgb.shape[0] != preview_height:
+            img_rgb = cv2.resize(img_rgb, (preview_width, preview_height), interpolation=cv2.INTER_AREA)
+
+        gc.collect()
         return img_rgb, resultados
+
+    except (UnidentifiedImageError, OSError, ValueError):
+        return None, []
     except Exception:
         return None, []
 
