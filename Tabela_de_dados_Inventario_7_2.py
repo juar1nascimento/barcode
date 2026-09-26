@@ -124,10 +124,27 @@ def _inferir_tipo_fabricante(cabecalho: str) -> Optional[str]:
 
 
 def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza qualquer fonte tabular sem permitir rótulos duplicados.
+
+    O erro "cannot reindex on an axis with duplicate labels" ocorre quando
+    uma planilha possui cabeçalhos repetidos e o pandas recebe um reindex
+    antes de eliminar essas duplicidades. O inventário não usa o índice do
+    DataFrame como chave, portanto também o tornamos sempre simples e único.
+    """
     if df is None or df.empty:
         return pd.DataFrame(columns=COLUNAS_INVENTARIO)
     df = df.fillna("").copy()
-    df.columns = [str(c).strip() for c in df.columns]
+    colunas = [str(c).strip() for c in df.columns]
+    vistos = {}
+    colunas_unicas = []
+    for coluna in colunas:
+        base = coluna or "Coluna"
+        numero = vistos.get(base, 0) + 1
+        vistos[base] = numero
+        colunas_unicas.append(base if numero == 1 else f"{base}__duplicada_{numero}")
+    df.columns = colunas_unicas
+    if not df.index.is_unique:
+        df = df.reset_index(drop=True)
     if "Tipo de Patrimônio" in df.columns and "Nº de Patrimônio" in df.columns:
         normalizado = df.reindex(columns=COLUNAS_INVENTARIO, fill_value="").fillna("").astype(str)
         for coluna in COLUNAS_INVENTARIO:
