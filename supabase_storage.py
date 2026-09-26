@@ -133,12 +133,20 @@ def _delete_storage(base_url: str, key: str, path: str) -> None:
 
 
 def _proxima_ordem(conn, patrimonio_id: int) -> int:
+    # Bloqueia o patrimônio durante a escolha da ordem, evitando duas fotos
+    # concorrentes receberem a mesma ordem.
     with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM public.patrimonios WHERE id = %s FOR UPDATE",
+            (patrimonio_id,),
+        )
+        if cur.fetchone() is None:
+            raise ValueError("Patrimônio não encontrado.")
+
         cur.execute(
             """SELECT COALESCE(MAX(ordem), 0) + 1
                  FROM public.patrimonio_fotos
-                WHERE patrimonio_id = %s
-                FOR UPDATE OF patrimonio_fotos""",
+                WHERE patrimonio_id = %s""",
             (patrimonio_id,),
         )
         return int(cur.fetchone()[0])
@@ -171,7 +179,7 @@ def salvar_foto_patrimonio(
             if cur.fetchone() is None:
                 return False, None, "Patrimônio não encontrado."
 
-            ordem = _proxima_ordem(conn, patrimonio_id)
+        ordem = _proxima_ordem(conn, patrimonio_id)
 
         nome_base = f"foto-{ordem:03d}-{uuid.uuid4().hex}.jpg"
         storage_path = f"{patrimonio_id}/{nome_base}"
