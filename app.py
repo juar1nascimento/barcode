@@ -6,6 +6,7 @@ from sistema_inventario import renderizar_card_inventario, renderizar_sistema_in
 from consultorio_contexto import ativar as ativar_contexto_consultorio, desativar as desativar_contexto_consultorio
 from persistencia_dupla import ativar as ativar_persistencia_dupla, desativar as desativar_persistencia_dupla
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
+from preflight_supabase_secrets import verificar_secrets_supabase
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 
@@ -61,6 +62,9 @@ with st.sidebar:
         st.markdown("### 🔐 Administração")
         if st.button("🔎 Auditoria pré-migração"):
             st.session_state.pagina_atual = "auditoria_pre_migracao"
+            st.rerun()
+        if st.button("🔐 Preflight Supabase"):
+            st.session_state.pagina_atual = "preflight_supabase"
             st.rerun()
 
     if st.button("🚪 Sair do Sistema"):
@@ -122,6 +126,21 @@ elif st.session_state.pagina_atual == "auditoria_pre_migracao":
         st.session_state.pagina_atual = "portal"
         st.stop()
     renderizar_auditoria_pre_migracao()
+
+elif st.session_state.pagina_atual == "preflight_supabase":
+    if not is_admin:
+        st.error("Acesso não autorizado.")
+        st.session_state.pagina_atual = "portal"
+        st.stop()
+    st.title("🔐 Preflight seguro do Supabase")
+    st.caption("Esta tela não exibe nem registra credenciais.")
+    status = verificar_secrets_supabase()
+    for item, ok in status.items():
+        st.write(("✅ " if ok else "❌ ") + item.replace("_", " ").capitalize())
+    if status["configuracao_pronta"]:
+        st.success("Configuração mínima das Secrets está presente. Nenhum upload foi executado.")
+    else:
+        st.warning("A configuração ainda não está pronta. Nenhuma credencial foi exibida.")
 
 elif st.session_state.pagina_atual == "entrada":
     renderizar_sistema_entrada()
