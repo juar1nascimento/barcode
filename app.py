@@ -190,7 +190,7 @@ elif st.session_state.pagina_atual == "teste_upload_foto":
     renderizar_teste_upload_foto()
 
 elif st.session_state.pagina_atual == "entrada":
-      renderizar_sistema_entrada()
+    renderizar_sistema_entrada()
 
 elif st.session_state.pagina_atual == "saida":
     renderizar_sistema_saida()
