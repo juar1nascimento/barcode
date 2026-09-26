@@ -155,7 +155,28 @@ elif st.session_state.pagina_atual == "preflight_supabase":
             "Não cria, envia, altera ou exclui arquivos."
         )
     else:
-        st.warning("A configuração ainda não está pronta. Nenhuma credencial foi exibida.")
+        st.error(
+            "O ambiente publicado está sem a configuração [supabase]. "
+            "A correção deve ser feita nas Secrets do aplicativo, não no código."
+        )
+
+        with st.expander("📋 Como corrigir com segurança"):
+            st.markdown(
+                "No Streamlit Community Cloud, abra **Manage app → Settings → Secrets** "
+                "e cadastre o bloco abaixo, substituindo somente os valores de exemplo. "
+                "Não envie a chave pelo chat nem para o GitHub."
+            )
+            st.code(
+                '''[supabase]
+url = "https://vgabxdprocwmpmhoxrgt.supabase.co"
+secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
+                language="toml",
+            )
+            st.markdown(
+                "Depois de salvar as Secrets, aguarde o aplicativo reiniciar e volte a esta tela. "
+                "O preflight deverá mostrar **4 itens verdes**. Só então faremos o teste de leitura "
+                "do bucket e, depois, o primeiro upload controlado."
+            )
 
 elif st.session_state.pagina_atual == "entrada":
     renderizar_sistema_entrada()
