@@ -7,6 +7,8 @@ from auditoria_integridade_google import normalizar_data_hora
 from zoneinfo import ZoneInfo
 from typing import Optional, Tuple
 
+from postgresql_persistencia import salvar_patrimonio
+
 import gspread
 import pandas as pd
 import streamlit as st
@@ -352,8 +354,30 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
         st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
         return False
+    pg_ok, pg_id, pg_mensagem = salvar_patrimonio(
+        codigo_barras=codigo,
+        tipo=tipo,
+        setor=setor_limpo,
+        unidade=unidade_limpa,
+        fabricante=fabricante_limpo,
+        numero_patrimonio=numero,
+    )
+    if not pg_ok:
+        st.error(pg_mensagem)
+        return False
+
     nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro()}
-    return _anexar_no_google(pd.DataFrame([nova], columns=COLUNAS_INVENTARIO), unidade_limpa)
+    sucesso_sheets = _anexar_no_google(
+        pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
+        unidade_limpa,
+    )
+
+    if sucesso_sheets and pg_id is not None:
+        st.session_state["ultimo_patrimonio_id"] = int(pg_id)
+        st.session_state["ultimo_patrimonio_numero"] = numero
+        st.session_state["ultimo_patrimonio_unidade"] = unidade_limpa
+
+    return sucesso_sheets
 
 
 @_serializar_persistencia
