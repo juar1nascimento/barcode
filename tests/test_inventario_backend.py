@@ -20,6 +20,15 @@ def _mock_persistencia(monkeypatch, estado):
     monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))
     monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
     monkeypatch.setattr(backend, "_anexar_no_google", lambda df, unidade: estado.__setitem__("df", pd.concat([estado["df"], df], ignore_index=True)) or True)
+    def _salvar_lote_mock(registros):
+        novos = pd.DataFrame([{
+            "Setor": x["setor"], "Tipo de Patrimônio": x["tipo_patrimonio"],
+            "Nº de Patrimônio": x["numero_patrimonio"], "Fabricante": x.get("fabricante", ""),
+            "Data Cadastro": backend._data_hora_cadastro(),
+        } for x in registros], columns=COLUNAS)
+        estado["df"] = pd.concat([estado["df"], novos], ignore_index=True)
+        return True, list(range(1, len(registros) + 1)), "mock"
+    monkeypatch.setattr(backend, "salvar_patrimonios_em_lote", _salvar_lote_mock)
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: None)
 
 
