@@ -22,33 +22,14 @@ def ativar():
     _original = sistema_inventario.adicionar_e_salvar
 
     def wrapper(codigo, patrimonio, setor, unidade, fabricante=""):
-        st.session_state["ultimo_patrimonio_id"] = None
+        """Delega para a rotina canônica de persistência.
 
-        if not postgresql_persistencia._conexao_configurada():
-            return _original(codigo, patrimonio, setor, unidade, fabricante)
-
-        ok_pg, patrimonio_id, msg_pg = postgresql_persistencia.salvar_patrimonio(
-            codigo_barras=codigo,
-            tipo=patrimonio,
-            setor=setor,
-            unidade=unidade,
-            fabricante=fabricante,
-        )
-        if not ok_pg:
-            st.error(f"❌ Cadastro não concluído: {msg_pg}")
-            return False
-
-        st.session_state["ultimo_patrimonio_id"] = patrimonio_id
-
-        ok_sheets = _original(codigo, patrimonio, setor, unidade, fabricante)
-        if not ok_sheets:
-            st.warning(
-                "⚠️ O patrimônio foi gravado no PostgreSQL, mas o Google Sheets "
-                "não confirmou o espelhamento. O registro não foi descartado. "
-                "Será necessário sincronizar o Sheets posteriormente."
-            )
-            return False
-        return True
+        registrar_patrimonio() já grava PostgreSQL de forma atômica e depois
+        confirma o espelhamento no Google Sheets. A versão anterior gravava
+        PostgreSQL duas vezes: a segunda tentativa encontrava a chave única
+        já criada e impedia a gravação no Sheets.
+        """
+        return _original(codigo, patrimonio, setor, unidade, fabricante)
 
     sistema_inventario.adicionar_e_salvar = wrapper
 
