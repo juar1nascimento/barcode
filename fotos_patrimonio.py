@@ -9,7 +9,7 @@ from supabase_storage import salvar_foto_patrimonio
 
 
 EXTENSOES_IMAGEM = ["jpg", "jpeg", "png", "webp"]
-MAX_UPLOAD_MB = 20
+MAX_UPLOAD_MB = 8
 
 
 def _fechar_conexao(conn: Any) -> None:
@@ -235,18 +235,12 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
         key=f"foto_patrimonio_{patrimonio_id}",
         help=(
             f"Formatos aceitos: JPG, JPEG, PNG e WEBP. "
-            f"Limite de entrada: {MAX_UPLOAD_MB} MB. "
-            "A rotina do Storage realiza o tratamento final da imagem."
+            f"Limite de entrada: {MAX_UPLOAD_MB} MB e limite de resolução aplicado no processamento. "
+            "A rotina do Storage reduz a imagem antes do upload."
         ),
     )
 
     if arquivo is not None:
-        st.image(
-            arquivo,
-            caption=arquivo.name,
-            use_container_width=True,
-        )
-
         st.caption(
             f"Arquivo selecionado: {arquivo.name} — "
             f"{_formatar_tamanho(arquivo.size)} antes do tratamento."
