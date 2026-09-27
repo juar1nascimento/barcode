@@ -1,7 +1,11 @@
 -- GTI-SESA / Sistema de Inventários
--- Schema definitivo para PostgreSQL em nuvem (Supabase).
+-- Schema canônico observado no PostgreSQL/Supabase.
 -- O Google Sheets permanece como tabela operacional/espelho.
--- Este arquivo cria apenas a estrutura; NÃO migra dados históricos.
+-- Este arquivo descreve a estrutura; NÃO migra dados históricos.
+--
+-- IMPORTANTE:
+-- A sincronização deste arquivo com o banco existente é documental.
+-- Nenhum CREATE/ALTER/DROP/RLS foi executado no Supabase nesta etapa.
 
 CREATE TABLE IF NOT EXISTS unidades (
     id BIGSERIAL PRIMARY KEY,
@@ -29,7 +33,7 @@ CREATE TABLE IF NOT EXISTS setores (
     )
 );
 
--- Regras de unicidade sem depender da semântica de NULL do PostgreSQL:
+-- Regras de unicidade:
 -- 1) setor normal: uma ocorrência por unidade/nome;
 -- 2) consultório: uma ocorrência por unidade/número/especialidade.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_setor_normal
@@ -56,10 +60,43 @@ CREATE TABLE IF NOT EXISTS patrimonios (
     CONSTRAINT uq_patrimonio_codigo_barras UNIQUE (codigo_barras)
 );
 
+CREATE TABLE IF NOT EXISTS patrimonio_fotos (
+    id BIGSERIAL PRIMARY KEY,
+    patrimonio_id BIGINT NOT NULL REFERENCES patrimonios(id) ON DELETE CASCADE,
+    ordem INTEGER NOT NULL,
+    storage_bucket VARCHAR NOT NULL DEFAULT 'patrimonio-fotos',
+    storage_path VARCHAR NOT NULL,
+    arquivo_nome VARCHAR NOT NULL,
+    mime_type VARCHAR NOT NULL,
+    tamanho_bytes INTEGER NOT NULL,
+    largura INTEGER,
+    altura INTEGER,
+    sha256 CHAR(64) NOT NULL,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_patrimonio_fotos_ordem CHECK (
+        ordem > 0
+    ),
+    CONSTRAINT ck_patrimonio_fotos_tamanho CHECK (
+        tamanho_bytes > 0
+    ),
+    CONSTRAINT ck_patrimonio_fotos_dimensoes CHECK (
+        (largura IS NULL AND altura IS NULL)
+        OR
+        (largura > 0 AND altura > 0)
+    ),
+    CONSTRAINT ck_patrimonio_fotos_sha256 CHECK (
+        sha256 ~ '^[0-9a-fA-F]{64}$'
+    ),
+    CONSTRAINT uq_patrimonio_fotos_ordem UNIQUE (patrimonio_id, ordem),
+    CONSTRAINT uq_patrimonio_fotos_storage_path UNIQUE (storage_bucket, storage_path)
+);
+
 CREATE INDEX IF NOT EXISTS idx_setores_unidade ON setores(unidade_id);
 CREATE INDEX IF NOT EXISTS idx_patrimonios_unidade ON patrimonios(unidade_id);
 CREATE INDEX IF NOT EXISTS idx_patrimonios_setor ON patrimonios(setor_id);
 CREATE INDEX IF NOT EXISTS idx_patrimonios_tipo ON patrimonios(tipo);
+CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_patrimonio ON patrimonio_fotos(patrimonio_id);
+CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_sha256 ON patrimonio_fotos(sha256);
 
 -- Compatibilidade operacional: a coluna Setor do Google Sheets pode continuar
 -- exibindo "Consultório 5 - Odontologia", enquanto o PostgreSQL mantém os
