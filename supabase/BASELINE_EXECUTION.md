@@ -18,7 +18,7 @@ Projeto: `vgabxdprocwmpmhoxrgt`
 ```bash
 supabase init
 supabase link --project-ref vgabxdprocwmpmhoxrgt
-supabase db pull
+supabase db pull --linked
 ```
 
 No primeiro `db pull`, aceitar o registro do baseline como já aplicado quando o CLI solicitar.
@@ -49,6 +49,19 @@ Validar:
 ```bash
 supabase migration list
 ```
+
+### Critério objetivo de aprovação do baseline
+
+O baseline só será considerado aprovado se, após o `db pull --linked`:
+
+- existir exatamente uma migration inicial em `supabase/migrations/` representando o estado remoto;
+- o histórico remoto deixar de estar vazio e registrar essa migration como aplicada;
+- o SQL gerado não tentar recriar, apagar ou migrar os dados atuais;
+- as quatro tabelas públicas auditadas, FKs, checks, índices e RLS permanecerem compatíveis com o estado remoto;
+- nenhuma policy nova for inventada: hoje existem 4 tabelas com RLS habilitado e 0 policies;
+- o Storage não for tratado como se os 2 objetos existentes fossem dados de migration.
+
+Depois disso, a validação local deve ser feita com `supabase db reset`, e o arquivo gerado deve ser comparado com `postgresql_schema.sql` antes de qualquer nova migration.
 
 ## Validação local
 
