@@ -10,6 +10,7 @@ retornada, exibida ou registrada em log.
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import io
 import uuid
@@ -23,6 +24,8 @@ BUCKET = "patrimonio-fotos"
 MAX_STORAGE_BYTES = 1_048_576
 TARGET_BYTES = 900_000
 MAX_DIMENSION = 1600
+MAX_INPUT_BYTES = 8 * 1024 * 1024
+MAX_INPUT_PIXELS = 20_000_000
 JPEG_QUALITY_START = 85
 JPEG_QUALITY_MIN = 55
 
@@ -47,10 +50,26 @@ def _config_supabase() -> dict:
 def _normalizar_jpeg(image_bytes: bytes) -> Tuple[bytes, int, int]:
     if not image_bytes:
         raise ValueError("A imagem recebida está vazia.")
+    if len(image_bytes) > MAX_INPUT_BYTES:
+        raise ValueError(
+            f"A imagem original excede o limite de {MAX_INPUT_BYTES // (1024 * 1024)} MB."
+        )
 
     with Image.open(io.BytesIO(image_bytes)) as original:
-        image = ImageOps.exif_transpose(original).convert("RGB")
+        largura_original, altura_original = original.size
+        if largura_original * altura_original > MAX_INPUT_PIXELS:
+            raise ValueError(
+                "A imagem possui resolução excessiva para processamento seguro. "
+                f"Limite: {MAX_INPUT_PIXELS:,} pixels."
+            )
+
+        if original.format == "JPEG":
+            original.draft("RGB", (MAX_DIMENSION, MAX_DIMENSION))
+
+        image = ImageOps.exif_transpose(original)
         image.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.Resampling.LANCZOS)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
 
         qualidade = JPEG_QUALITY_START
         melhor = b""
@@ -89,7 +108,9 @@ def _normalizar_jpeg(image_bytes: bytes) -> Tuple[bytes, int, int]:
                 "Não foi possível comprimir a imagem abaixo do limite de 1 MB."
             )
 
-        return melhor, image.width, image.height
+        resultado = (melhor, image.width, image.height)
+        gc.collect()
+        return resultado
 
 
 def _headers(key: str, content_type: Optional[str] = None) -> dict:
