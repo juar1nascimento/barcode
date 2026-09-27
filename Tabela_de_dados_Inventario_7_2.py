@@ -244,7 +244,15 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
             "Fabricante", "Data Cadastro", "_postgresql_id"
         ]).drop(columns=["_postgresql_id"], errors="ignore")
         return df.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), origem_pg
-    return _carregar_dados_google(unidade)
+
+    # Só usa Sheets como fallback quando PostgreSQL não está configurado.
+    # Uma falha de conexão não pode ser mascarada por dados potencialmente
+    # desatualizados do espelho.
+    if origem_pg == "PostgreSQL não configurado.":
+        return _carregar_dados_google(unidade)
+
+    st.error(origem_pg or "Não foi possível consultar o PostgreSQL.")
+    return pd.DataFrame(columns=COLUNAS_INVENTARIO), "PostgreSQL (indisponível)"
 
 def _obter_aba_gravacao(planilha, nome_aba: str, linhas_necessarias: int):
     try: return planilha.worksheet(nome_aba)
