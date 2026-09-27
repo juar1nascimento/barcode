@@ -47,6 +47,16 @@ jobs:
       - name: Show CLI version
         run: supabase --version
 
+      # The first baseline was already recorded remotely, but its generated
+      # SQL was not committed because the validation step failed. Temporarily
+      # remove only that history marker so db pull can regenerate the exact
+      # baseline; db pull will restore the marker after capture.
+      - name: Reopen one-time baseline capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase migration repair 20260927143219 --status reverted --db-url "$SUPABASE_DB_URL"
+
       - name: Capture remote baseline
         shell: bash
         run: |
@@ -69,16 +79,12 @@ jobs:
           test -s "$baseline"
           echo "Generated baseline: $baseline"
 
-          # A baseline must describe the already-existing schema. It must not
-          # contain data migration or destructive statements.
           if grep -Eiq '(^|[[:space:];])(DROP[[:space:]]+(TABLE|SCHEMA|DATABASE|INDEX|FUNCTION|TRIGGER)|TRUNCATE[[:space:]]+|INSERT[[:space:]]+INTO|COPY[[:space:]]+)' "$baseline"; then
             echo "Baseline contains a forbidden destructive/data statement."
             grep -Ein 'DROP[[:space:]]+(TABLE|SCHEMA|DATABASE|INDEX|FUNCTION|TRIGGER)|TRUNCATE[[:space:]]+|INSERT[[:space:]]+INTO|COPY[[:space:]]+' "$baseline" || true
             exit 1
           fi
 
-          # Validate the four application tables without brittle quote/bracket
-          # matching. The generated SQL is reviewed separately for exact DDL.
           for table in unidades setores patrimonios patrimonio_fotos; do
             if ! grep -Eiq "CREATE[[:space:]]+TABLE.*public.*${table}" "$baseline"; then
               echo "Baseline is missing expected public table: $table"
