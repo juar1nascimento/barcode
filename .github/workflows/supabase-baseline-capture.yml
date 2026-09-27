@@ -2,6 +2,9 @@ name: Supabase Baseline Capture
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/supabase-source-of-truth
 
 permissions:
   contents: read
