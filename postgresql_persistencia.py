@@ -7,7 +7,7 @@ PostgreSQL e, separadamente, no Google Sheets.
 
 import re
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import streamlit as st
 
@@ -196,5 +196,109 @@ def salvar_patrimonio(
         if "duplicate key" in texto.lower() or "unique" in texto.lower():
             return False, None, f"O patrimônio `{numero}` já existe no PostgreSQL."
         return False, None, f"Falha ao gravar no PostgreSQL: {texto}"
+    finally:
+        conn.close()
+
+
+def listar_patrimonios(unidade: str = "") -> Tuple[bool, List[Dict[str, Any]], str]:
+    """Lê o inventário diretamente do PostgreSQL."""
+    if not _conexao_configurada():
+        return False, [], "PostgreSQL não configurado."
+    unidade = str(unidade or "").strip()
+    conn = conectar()
+    if conn is None:
+        return False, [], "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            sql = """
+                SELECT p.id, u.nome AS unidade, s.nome AS setor_nome,
+                       s.numero_consultorio, s.especialidade, p.tipo,
+                       p.numero_patrimonio, COALESCE(p.codigo_barras, ''),
+                       COALESCE(p.fabricante, ''), p.data_cadastro
+                  FROM public.patrimonios p
+                  JOIN public.unidades u ON u.id = p.unidade_id
+                  JOIN public.setores s ON s.id = p.setor_id
+            """
+            params: List[Any] = []
+            if unidade:
+                sql += " WHERE u.nome = %s"
+                params.append(unidade)
+            sql += " ORDER BY p.id"
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        dados: List[Dict[str, Any]] = []
+        for row in rows:
+            setor_nome = str(row[2] or "").strip()
+            if setor_nome.casefold() == "consultório" and row[3] is not None:
+                setor = f"Consultório {row[3]}"
+                if row[4]:
+                    setor += f" - {str(row[4]).strip()}"
+            else:
+                setor = setor_nome
+            data_cadastro = row[9]
+            if hasattr(data_cadastro, "astimezone"):
+                try:
+                    from zoneinfo import ZoneInfo
+                    data_cadastro = data_cadastro.astimezone(
+                        ZoneInfo("America/Sao_Paulo")
+                    ).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    data_cadastro = str(data_cadastro)
+            dados.append({
+                "Setor": setor,
+                "Tipo de Patrimônio": str(row[5] or ""),
+                "Nº de Patrimônio": str(row[6] or ""),
+                "Fabricante": str(row[8] or ""),
+                "Data Cadastro": str(data_cadastro or ""),
+                "_postgresql_id": int(row[0]),
+            })
+        return True, dados, "PostgreSQL"
+    except Exception as exc:
+        return False, [], f"Falha ao consultar o PostgreSQL: {exc}"
+    finally:
+        conn.close()
+
+
+def salvar_patrimonios_em_lote(registros: List[Dict[str, str]]) -> Tuple[bool, List[int], str]:
+    """Grava um lote inteiro em uma única transação PostgreSQL."""
+    if not _conexao_configurada():
+        return False, [], "PostgreSQL não configurado."
+    registros = list(registros or [])
+    if not registros:
+        return False, [], "O lote está vazio."
+    conn = conectar()
+    if conn is None:
+        return False, [], "Não foi possível conectar ao PostgreSQL."
+    ids: List[int] = []
+    try:
+        with conn.cursor() as cur:
+            for item in registros:
+                numero = str(item.get("numero_patrimonio", "") or "").strip()
+                codigo = str(item.get("codigo_barras", "") or "").strip() or None
+                tipo = str(item.get("tipo_patrimonio", "") or "").strip()
+                setor = re.sub(r"\s+", " ", str(item.get("setor", "") or "").strip())
+                unidade = str(item.get("unidade", "") or "").strip()
+                fabricante = str(item.get("fabricante", "") or "").strip() or None
+                if not numero or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
+                    raise ValueError(f"Dados inválidos para o patrimônio `{numero}`.")
+                unidade_id = garantir_unidade(cur, unidade)
+                setor_id = garantir_setor(cur, unidade_id, setor)
+                cur.execute(
+                    """INSERT INTO patrimonios
+                         (unidade_id, setor_id, tipo, numero_patrimonio,
+                          codigo_barras, fabricante, data_cadastro, atualizado_em)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                       RETURNING id""",
+                    (unidade_id, setor_id, tipo, numero, codigo, fabricante, datetime.now()),
+                )
+                ids.append(int(cur.fetchone()[0]))
+        conn.commit()
+        return True, ids, "Lote gravado no PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        texto = str(exc)
+        if "duplicate key" in texto.lower() or "unique" in texto.lower():
+            return False, [], "O lote contém patrimônio ou código de barras já existente no PostgreSQL."
+        return False, [], f"Falha ao gravar o lote no PostgreSQL: {texto}"
     finally:
         conn.close()
