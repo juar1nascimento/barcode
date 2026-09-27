@@ -16,10 +16,14 @@ def _estado_vazio():
     return {"df": pd.DataFrame(columns=COLUNAS)}
 
 
-def _mock_persistencia(monkeypatch, estado):
+def _mock_persistencia(monkeypatch, estado, usar_google_real=False):
     monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))
     monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
-    monkeypatch.setattr(backend, "_anexar_no_google", lambda df, unidade: estado.__setitem__("df", pd.concat([estado["df"], df], ignore_index=True)) or True)
+    if not usar_google_real:
+        monkeypatch.setattr(backend, "_anexar_no_google", lambda df, unidade: estado.__setitem__("df", pd.concat([estado["df"], df], ignore_index=True)) or True)
+    def _salvar_lote_mock(registros):
+        return True, list(range(1, len(registros) + 1)), "mock"
+    monkeypatch.setattr(backend, "salvar_patrimonios_em_lote", _salvar_lote_mock)
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: None)
 
 
@@ -386,11 +390,15 @@ def test_carga_em_lote_anexa_apenas_novas_linhas(monkeypatch, tmp_path):
     planilha = _FakeSpreadsheet()
     aba = planilha.add_worksheet(title="UBS Teste", rows=100, cols=len(COLUNAS))
     aba.update(values=[COLUNAS, ["Farmacia", "CPU", "BASE-001", "Dell", "2026-09-09 10:00:00"]], range_name="A1")
+    _mock_persistencia(monkeypatch, _estado_vazio(), usar_google_real=True)
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: planilha)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)
-    backend.carregar_dados_excel.clear()
+    try:
+        backend.carregar_dados_excel.clear()
+    except AttributeError:
+        pass
     registros = [
         {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": "LOTE-001", "fabricante": "Dell"},
         {"tipo_patrimonio": "Mouse", "setor": "Farmacia", "numero_patrimonio": "LOTE-002", "fabricante": "HP"},

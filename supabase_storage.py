@@ -224,3 +224,24 @@ def salvar_foto_patrimonio(
         except Exception:
             pass
         return False, None, f"Falha ao salvar foto: {exc}"
+
+
+def remover_fotos_patrimonio(conn, patrimonio_id: int) -> None:
+    """Remove objetos do Storage e metadados de um patrimônio sem commit."""
+    config = _config_supabase()
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT storage_path
+                 FROM public.patrimonio_fotos
+                WHERE patrimonio_id = %s
+                ORDER BY ordem""",
+            (patrimonio_id,),
+        )
+        paths = [str(row[0]) for row in cur.fetchall() if row[0]]
+    for path in paths:
+        _delete_storage(config["url"], config["key"], path)
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM public.patrimonio_fotos WHERE patrimonio_id = %s",
+            (patrimonio_id,),
+        )

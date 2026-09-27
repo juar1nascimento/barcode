@@ -1,0 +1,54 @@
+name: Supabase Remote Schema Snapshot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-remote-schema-snapshot
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    name: Read-only remote schema snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate required secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "Missing required GitHub Actions secret: SUPABASE_DB_URL"
+            exit 1
+          fi
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Show CLI version
+        run: supabase --version
+
+      - name: Dump remote schema
+        run: |
+          set -euo pipefail
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f remote_schema.sql
+
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-remote-schema
+          path: remote_schema.sql
+          if-no-files-found: error
+          retention-days: 7
