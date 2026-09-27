@@ -47,21 +47,27 @@ jobs:
       - name: Show CLI version
         run: supabase --version
 
+      - name: Verify db pull diff-engine support
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db pull --help | grep -F -- "--diff-engine"
+
       # The first baseline was already recorded remotely, but its generated
-      # SQL was not committed because the validation step failed. Temporarily
-      # remove only that history marker so db pull can regenerate the exact
-      # baseline; db pull will restore the marker after capture.
+      # SQL was rejected because the legacy diff path proposed a destructive
+      # extension drop. Temporarily remove only that history marker so db pull
+      # can regenerate the baseline with pg-delta; db pull restores the marker.
       - name: Reopen one-time baseline capture
         shell: bash
         run: |
           set -euo pipefail
           supabase migration repair 20260927143219 --status reverted --db-url "$SUPABASE_DB_URL"
 
-      - name: Capture remote baseline
+      - name: Capture remote baseline with pg-delta
         shell: bash
         run: |
           set -euo pipefail
-          supabase db pull --db-url "$SUPABASE_DB_URL"
+          supabase db pull --diff-engine pg-delta --db-url "$SUPABASE_DB_URL"
 
       - name: Validate generated baseline
         shell: bash
@@ -79,9 +85,10 @@ jobs:
           test -s "$baseline"
           echo "Generated baseline: $baseline"
 
-          if grep -Eiq '(^|[[:space:];])(DROP[[:space:]]+(TABLE|SCHEMA|DATABASE|INDEX|FUNCTION|TRIGGER)|TRUNCATE[[:space:]]+|INSERT[[:space:]]+INTO|COPY[[:space:]]+)' "$baseline"; then
+          forbidden='(^|[[:space:];])(DROP[[:space:]]+(TABLE|SCHEMA|DATABASE|INDEX|FUNCTION|TRIGGER|EXTENSION)|TRUNCATE[[:space:]]+|INSERT[[:space:]]+INTO|COPY[[:space:]]+|ALTER[[:space:]]+TABLE[[:space:]]+.*DROP[[:space:]]+CONSTRAINT)'
+          if grep -Eiq "$forbidden" "$baseline"; then
             echo "Baseline contains a forbidden destructive/data statement."
-            grep -Ein 'DROP[[:space:]]+(TABLE|SCHEMA|DATABASE|INDEX|FUNCTION|TRIGGER)|TRUNCATE[[:space:]]+|INSERT[[:space:]]+INTO|COPY[[:space:]]+' "$baseline" || true
+            grep -Ein "$forbidden" "$baseline" || true
             exit 1
           fi
 
