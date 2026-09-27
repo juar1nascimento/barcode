@@ -58,8 +58,20 @@ jobs:
             printf '%s\n' "${migrations[@]:-<none>}"
             exit 1
           fi
-          test -s "${migrations[0]}"
-          echo "Generated baseline: ${migrations[0]}"
+
+          baseline="${migrations[0]}"
+          test -s "$baseline"
+          echo "Generated baseline: $baseline"
+
+          # A baseline must describe the already-existing schema. It must not
+          # contain data migration or destructive statements.
+          if grep -Eiq '(^|[[:space:];])(DROP[[:space:]]+(TABLE|SCHEMA|DATABASE|INDEX|FUNCTION|TRIGGER)|TRUNCATE[[:space:]]+|INSERT[[:space:]]+INTO|COPY[[:space:]]+)' "$baseline"; then
+            echo "Baseline contains a forbidden destructive/data statement."
+            grep -Ein 'DROP[[:space:]]+(TABLE|SCHEMA|DATABASE|INDEX|FUNCTION|TRIGGER)|TRUNCATE[[:space:]]+|INSERT[[:space:]]+INTO|COPY[[:space:]]+' "$baseline" || true
+            exit 1
+          fi
+
+          echo "Baseline passed destructive/data-statement guard."
 
       - name: Upload baseline artifact
         uses: actions/upload-artifact@v4
