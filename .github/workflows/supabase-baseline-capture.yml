@@ -77,11 +77,10 @@ jobs:
             exit 1
           fi
 
-          # The baseline must contain the four application tables already
-          # verified in the remote project. This prevents an incomplete pull
-          # from being accepted as the official baseline.
+          # Validate the four application tables without brittle quote/bracket
+          # matching. The generated SQL is reviewed separately for exact DDL.
           for table in unidades setores patrimonios patrimonio_fotos; do
-            if ! grep -Eiq 'CREATE[[:space:]]+TABLE[[:space:]]+(IF[[:space:]]+NOT[[:space:]]+EXISTS[[:space:]]+)?["' ]*public["' ]*[.]["' ]*'"$table" "$baseline"; then
+            if ! grep -Eiq "CREATE[[:space:]]+TABLE.*public.*${table}" "$baseline"; then
               echo "Baseline is missing expected public table: $table"
               exit 1
             fi
