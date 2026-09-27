@@ -4,74 +4,73 @@
 
 Sincronizar o histórico de migrations do repositório com o schema já existente no projeto Supabase sem recriar tabelas, sem alterar dados e sem reaplicar a migration legada.
 
-## Estado confirmado antes do baseline
+## Estado confirmado
 
-- O banco publicado já possui as tabelas unidades, setores, patrimonios e patrimonio_fotos.
+- Projeto Supabase: `vgabxdprocwmpmhoxrgt`.
+- O banco publicado possui as tabelas `unidades`, `setores`, `patrimonios` e `patrimonio_fotos`.
 - As estruturas, FKs, checks, índices e regras de unicidade auditadas estão coerentes com o código.
-- A constraint de unidades.tipo já aceita UBS, URS e ALMOX.
-- O histórico de migrations consultado no projeto está vazio.
-- Existe migrations/001_almoxarifado_tipo.sql, mas ela é uma alteração incremental legada e não é o baseline do banco atual.
+- A constraint de `unidades.tipo` já aceita `UBS`, `URS` e `ALMOX`.
+- O histórico remoto de migrations consultado está vazio.
+- `migrations/001_almoxarifado_tipo.sql` é uma alteração incremental legada e não representa o estado completo atual do banco.
+- O checkpoint de integridade anterior ao baseline foi capturado em 2026-09-27T10:14:25.169447+00:00:
+  - unidades: 2
+  - setores: 3
+  - patrimonios: 3
+  - fotos: 2
+  - registros órfãos/inconsistentes: 0
+- A validação não destrutiva está versionada em `supabase/verify_schema.sql`.
 
-## Regra de segurança
+## Estado desta etapa
 
-Nesta fase não executar no banco:
+**Baseline oficial ainda não capturado.**
 
-- CREATE TABLE, ALTER TABLE ou DROP TABLE;
-- criação/remoção de índices;
-- alteração ou recriação de constraints;
-- alterações de RLS/policies;
-- INSERT/UPDATE/DELETE/TRUNCATE de dados;
-- aplicação da 001_almoxarifado_tipo.sql.
+O ambiente disponível para esta execução não expõe a Supabase CLI. As ferramentas disponíveis permitem consultar e alterar o banco, mas não fornecem o fluxo oficial `supabase db pull` necessário para gerar o arquivo de baseline e registrar corretamente a migration remota.
 
-## Estratégia para a próxima execução
+Por segurança, não será criado um baseline manualmente e não será usada uma migration inventada para preencher o histórico.
 
-A documentação atual do Supabase orienta que, quando o banco remoto já contém mudanças que não estão nas migrations locais, o primeiro passo é usar supabase db pull para capturar o schema remoto em uma migration de baseline. A documentação também informa que esse pull pode registrar o baseline como já aplicado no histórico remoto, evitando que o SQL seja executado novamente. citeturn0search0turn0search1
+## Procedimento oficial pendente
 
-A execução operacional deverá seguir esta ordem:
+Em um ambiente com a Supabase CLI instalada:
 
-1. Verificar a versão da Supabase CLI com supabase --version.
-2. Verificar os comandos/flags disponíveis com supabase --help e supabase db pull --help.
-3. Inicializar/validar a estrutura local supabase/ somente se necessário.
-4. Vincular o projeto correto (vgabxdprocwmpmhoxrgt) somente no ambiente local.
-5. Executar supabase db pull para gerar o baseline a partir do estado remoto.
-6. Revisar integralmente o SQL gerado antes de qualquer push.
-7. Confirmar que o baseline representa o estado já existente e não contém alterações indesejadas.
-8. Se o CLI solicitar atualização do histórico remoto para marcar o baseline como aplicado, essa etapa será tratada separadamente e somente após revisão explícita do resultado. A operação de migration repair, quando necessária, altera apenas o registro de histórico e não executa/reverte o SQL, conforme a documentação atual. citeturn0search0
-9. Só depois validar supabase migration list e a consistência local/remota.
-10. A partir daí, migrations futuras serão incrementais e representarão somente mudanças novas.
+1. Verificar a CLI:
+   `supabase --version`
+2. Verificar os comandos disponíveis:
+   `supabase --help`
+   `supabase db pull --help`
+3. Inicializar a estrutura local somente se necessário:
+   `supabase init`
+4. Vincular o projeto:
+   `supabase link --project-ref vgabxdprocwmpmhoxrgt`
+5. Capturar o estado remoto:
+   `supabase db pull`
+6. Revisar integralmente o SQL gerado em `supabase/migrations/*_remote_schema.sql`.
+7. Confirmar que o arquivo representa o estado já existente e não introduz alterações indevidas.
+8. Conferir o histórico:
+   `supabase migration list`
+9. Somente depois do baseline validado, criar migrations incrementais para mudanças novas.
+10. Antes de qualquer aplicação futura, usar `supabase db push --dry-run` e revisar o resultado.
 
-## Ponto importante sobre postgresql_schema.sql
+## Regras para a migration legada 001
 
-O arquivo continua sendo a documentação humana/canônica do schema observado. Ele não deve ser usado como migration de baseline executável neste momento, porque contém definições de tabelas e índices que não são necessárias para registrar o histórico do banco existente.
+Não executar `migrations/001_almoxarifado_tipo.sql` como baseline.
 
-O baseline operacional deve ser gerado pelo mecanismo oficial do Supabase CLI a partir do banco remoto, em vez de ser inventado manualmente. A documentação atual indica que o db pull inicial cria uma migration representando o schema remoto e que esse arquivo passa a ser a base das alterações futuras. citeturn0search1
+O banco atual já possui `unidades.tipo` compatível com `UBS`, `URS` e `ALMOX`. Portanto, aplicar essa migration agora seria uma alteração histórica desnecessária e poderia produzir divergência entre o estado real e a sequência de migrations.
 
-## Sobre migrations/001_almoxarifado_tipo.sql
+A disposição definitiva desse arquivo deve ser tratada somente depois de o baseline oficial existir e de a cadeia histórica poder ser reconciliada com segurança.
 
-Não renomear, reaplicar ou promover automaticamente esse arquivo a baseline.
+## Próximo passo técnico
 
-Depois que o baseline oficial for gerado e revisado, a migration 001 deverá ser tratada como histórico legado separado. Se ela não representar uma mudança que ainda precise ser executada sobre o estado atual, sua disposição será decidida em uma etapa própria, sem modificar o banco.
+O próximo passo que realmente fecha a lacuna de sincronização é executar o `supabase db pull` oficial no ambiente que tenha a CLI e acesso ao projeto.
 
-## Critério de conclusão do baseline
+Até essa captura, **não executar `db push`, `apply_migration`, `migration repair` ou alterações DDL no banco** apenas para tentar fabricar o histórico.
 
-A etapa somente será considerada concluída quando houver evidência de que:
+## Critério de conclusão
 
-- o baseline local descreve o estado remoto auditado;
-- o banco não recebeu DDL ou alteração de dados durante a captura;
-- o histórico remoto e os arquivos locais estiverem coerentes;
-- não houver tentativa de reaplicar objetos já existentes;
-- a migration 001 não tiver sido executada como baseline;
-- o próximo passo puder ser uma migration incremental controlada.
+A etapa será considerada concluída quando houver evidência de que:
 
-## Observação sobre o Data API
-
-A Supabase anunciou mudança de exposição automática de novas tabelas no Data API, com aplicação a projetos existentes em 30 de outubro de 2026. Isso não altera o baseline atual, mas deverá ser considerado na futura revisão de grants/exposição das tabelas do GTI-SESA. citeturn0search4
-
-## Fontes oficiais consultadas
-
-- Supabase — Database Migrations.
-- Supabase — Local development workflow / db pull.
-- Supabase — Diff engines.
-- Supabase — Changelog sobre exposição do Data API.
-
-Nenhuma dessas referências autoriza, por si só, a execução de db push neste estágio. O baseline deve ser capturado e revisado antes de qualquer aplicação de migration.
+- existe um arquivo de baseline gerado pelo `supabase db pull`;
+- o SQL do baseline foi revisado;
+- o estado remoto permaneceu íntegro;
+- o histórico local/remoto está coerente;
+- a migration 001 não foi reaplicada como baseline;
+- a próxima mudança puder ser representada por uma migration incremental controlada.
