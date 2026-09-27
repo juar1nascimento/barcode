@@ -1,0 +1,70 @@
+name: Supabase Baseline Capture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-baseline-capture
+  cancel-in-progress: true
+
+jobs:
+  baseline:
+    name: Capture remote schema as migration baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      CI: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate required secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "Missing required GitHub Actions secret: SUPABASE_DB_URL"
+            exit 1
+          fi
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Show CLI version
+        run: supabase --version
+
+      - name: Capture remote baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db pull --db-url "$SUPABASE_DB_URL"
+
+      - name: Validate generated baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          migrations=(supabase/migrations/*_remote_schema.sql)
+          if [ "${#migrations[@]}" -ne 1 ]; then
+            echo "Expected exactly one generated *_remote_schema.sql baseline; found ${#migrations[@]}."
+            printf '%s\n' "${migrations[@]:-<none>}"
+            exit 1
+          fi
+          test -s "${migrations[0]}"
+          echo "Generated baseline: ${migrations[0]}"
+
+      - name: Upload baseline artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-baseline-migration
+          path: supabase/migrations/*_remote_schema.sql
+          if-no-files-found: error
+          retention-days: 14
