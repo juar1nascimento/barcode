@@ -390,6 +390,7 @@ def test_carga_em_lote_anexa_apenas_novas_linhas(monkeypatch, tmp_path):
     planilha = _FakeSpreadsheet()
     aba = planilha.add_worksheet(title="UBS Teste", rows=100, cols=len(COLUNAS))
     aba.update(values=[COLUNAS, ["Farmacia", "CPU", "BASE-001", "Dell", "2026-09-09 10:00:00"]], range_name="A1")
+    _mock_persistencia(monkeypatch, _estado_vazio(), usar_google_real=True)
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: planilha)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
