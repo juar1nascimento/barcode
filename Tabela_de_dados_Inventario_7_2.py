@@ -452,7 +452,10 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
     ], columns=COLUNAS_INVENTARIO)
     if not _anexar_no_google(df_novos, unidade_limpa):
         st.warning("Lote salvo no PostgreSQL, mas o espelho do Google Sheets não foi confirmado.")
-    carregar_dados_excel.clear()
+    try:
+        carregar_dados_excel.clear()
+    except AttributeError:
+        pass
     return True, []
 
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
@@ -506,7 +509,10 @@ def excluir_setor(setor: str, unidade: str) -> bool:
             st.warning("Setor excluído no PostgreSQL, mas o espelho do Google Sheets não foi confirmado.")
     except Exception as exc:
         st.warning(f"Setor excluído no PostgreSQL; falha no espelho Google Sheets: {exc}")
-    carregar_dados_excel.clear()
+    try:
+        carregar_dados_excel.clear()
+    except AttributeError:
+        pass
     return True
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
