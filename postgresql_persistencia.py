@@ -302,3 +302,94 @@ def salvar_patrimonios_em_lote(registros: List[Dict[str, str]]) -> Tuple[bool, L
         return False, [], f"Falha ao gravar o lote no PostgreSQL: {texto}"
     finally:
         conn.close()
+
+
+def _alvo_setor_sql(cur, unidade: str, setor: str):
+    nome, numero, especialidade = _dividir_setor(setor)
+    cur.execute(
+        """SELECT s.id
+             FROM public.setores s
+             JOIN public.unidades u ON u.id = s.unidade_id
+            WHERE u.nome = %s
+              AND s.nome = %s
+              AND s.numero_consultorio IS NOT DISTINCT FROM %s
+              AND s.especialidade IS NOT DISTINCT FROM %s
+            LIMIT 1""",
+        (str(unidade).strip(), nome, numero, especialidade),
+    )
+    row = cur.fetchone()
+    return int(row[0]) if row else None
+
+
+def excluir_patrimonio_db(numero_patrimonio: str, unidade: str, setor: str = "") -> Tuple[bool, str]:
+    """Exclui um patrimônio e suas fotos do PostgreSQL/Storage."""
+    if not _conexao_configurada():
+        return False, "PostgreSQL não configurado."
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+    try:
+        from supabase_storage import remover_fotos_patrimonio
+        nome_setor, numero_setor, especialidade = _dividir_setor(setor)
+        with conn.cursor() as cur:
+            sql = """
+                SELECT p.id
+                  FROM public.patrimonios p
+                  JOIN public.unidades u ON u.id = p.unidade_id
+                  JOIN public.setores s ON s.id = p.setor_id
+                 WHERE p.numero_patrimonio = %s
+                   AND u.nome = %s
+            """
+            params: List[Any] = [str(numero_patrimonio).strip(), str(unidade).strip()]
+            if setor:
+                sql += """ AND s.nome = %s
+                           AND s.numero_consultorio IS NOT DISTINCT FROM %s
+                           AND s.especialidade IS NOT DISTINCT FROM %s"""
+                params.extend([nome_setor, numero_setor, especialidade])
+            sql += " LIMIT 1"
+            cur.execute(sql, params)
+            row = cur.fetchone()
+            if not row:
+                return False, "Patrimônio não encontrado no PostgreSQL."
+            patrimonio_id = int(row[0])
+            remover_fotos_patrimonio(conn, patrimonio_id)
+            cur.execute("DELETE FROM public.patrimonios WHERE id = %s", (patrimonio_id,))
+        conn.commit()
+        return True, "Patrimônio excluído do PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        return False, f"Falha ao excluir patrimônio no PostgreSQL: {exc}"
+    finally:
+        conn.close()
+
+
+def excluir_setor_db(setor: str, unidade: str) -> Tuple[bool, str]:
+    """Exclui um setor e seus patrimônios do PostgreSQL/Storage."""
+    if not _conexao_configurada():
+        return False, "PostgreSQL não configurado."
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+    try:
+        from supabase_storage import remover_fotos_patrimonio
+        with conn.cursor() as cur:
+            setor_id = _alvo_setor_sql(cur, unidade, setor)
+            if setor_id is None:
+                return False, "Setor não encontrado no PostgreSQL."
+            cur.execute(
+                "SELECT id FROM public.patrimonios WHERE setor_id = %s ORDER BY id",
+                (setor_id,),
+            )
+            ids = [int(row[0]) for row in cur.fetchall()]
+            for patrimonio_id in ids:
+                remover_fotos_patrimonio(conn, patrimonio_id)
+            if ids:
+                cur.execute("DELETE FROM public.patrimonios WHERE setor_id = %s", (setor_id,))
+            cur.execute("DELETE FROM public.setores WHERE id = %s", (setor_id,))
+        conn.commit()
+        return True, "Setor e patrimônios associados excluídos do PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        return False, f"Falha ao excluir setor no PostgreSQL: {exc}"
+    finally:
+        conn.close()
