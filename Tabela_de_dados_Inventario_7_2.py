@@ -203,17 +203,9 @@ def _nome_aba(unidade: str) -> str:
     return _normalizar_unidade_aba(unidade)[:90].strip()
 
 
-@st.cache_data(ttl=2)
-def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
-    """PostgreSQL é a fonte oficial quando configurado; Sheets é fallback."""
+def _carregar_dados_google(unidade: str) -> Tuple[pd.DataFrame, str]:
+    """Lê o espelho Google Sheets sem consultar PostgreSQL."""
     unidade = _normalizar_unidade_aba(unidade)
-    pg_ok, registros_pg, origem_pg = listar_patrimonios(unidade)
-    if pg_ok:
-        df = pd.DataFrame(registros_pg, columns=[
-            "Setor", "Tipo de Patrimônio", "Nº de Patrimônio",
-            "Fabricante", "Data Cadastro", "_postgresql_id"
-        ]).drop(columns=["_postgresql_id"], errors="ignore")
-        return df.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), origem_pg
     planilha = conectar_google_sheets()
     nome_aba = _nome_aba(unidade)
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
@@ -240,6 +232,19 @@ def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
         try: return _normalizar_legacy_dataframe(pd.read_excel(nome_arquivo_local, dtype=str)), nome_arquivo_local
         except Exception: pass
     return pd.DataFrame(columns=COLUNAS_INVENTARIO), nome_arquivo_local
+
+@st.cache_data(ttl=2)
+def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
+    """PostgreSQL é a fonte oficial quando configurado; Sheets é fallback."""
+    unidade = _normalizar_unidade_aba(unidade)
+    pg_ok, registros_pg, origem_pg = listar_patrimonios(unidade)
+    if pg_ok:
+        df = pd.DataFrame(registros_pg, columns=[
+            "Setor", "Tipo de Patrimônio", "Nº de Patrimônio",
+            "Fabricante", "Data Cadastro", "_postgresql_id"
+        ]).drop(columns=["_postgresql_id"], errors="ignore")
+        return df.reindex(columns=COLUNAS_INVENTARIO, fill_value=""), origem_pg
+    return _carregar_dados_google(unidade)
 
 def _obter_aba_gravacao(planilha, nome_aba: str, linhas_necessarias: int):
     try: return planilha.worksheet(nome_aba)
@@ -486,32 +491,36 @@ def excluir_setor(setor: str, unidade: str) -> bool:
     if not pg_ok:
         st.error(pg_msg)
         return False
-    # PostgreSQL é a fonte oficial; Sheets é apenas espelho.
     try:
-        planilha = conectar_google_sheets()
-        if planilha:
-            df_sheet, _ = carregar_dados_excel.__wrapped__(unidade)
-            novo, alterado = _aplicar_exclusao_setor(df_sheet, setor)
-            if alterado and not salvar_no_excel(novo, unidade):
-                st.warning("Setor excluído no PostgreSQL, mas o espelho do Google Sheets não foi confirmado.")
+        df_sheet, _ = _carregar_dados_google(unidade)
+        novo, alterado = _aplicar_exclusao_setor(df_sheet, setor)
+        if alterado and not salvar_no_excel(novo, unidade):
+            st.warning("Setor excluído no PostgreSQL, mas o espelho do Google Sheets não foi confirmado.")
     except Exception as exc:
         st.warning(f"Setor excluído no PostgreSQL; falha no espelho Google Sheets: {exc}")
     carregar_dados_excel.clear()
     return True
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
+    df_sheet, _ = _carregar_dados_google(unidade)
+    linha = df_sheet[df_sheet["Setor"].map(_chave_texto) == _chave_texto(setor)]
     numero = _valor_texto(coluna)
+    if not linha.empty:
+        if _chave_texto(coluna) in {"nº de patrimônio", "numero de patrimonio"} or _chave_texto(coluna) == "nº de patrimônio":
+            numero = _valor_texto(linha.iloc[0]["Nº de Patrimônio"])
+        elif not (linha["Nº de Patrimônio"].map(_chave_texto) == _chave_texto(coluna)).any():
+            numero = _valor_texto(linha.iloc[0]["Nº de Patrimônio"])
+    if not numero:
+        st.error("Não foi possível determinar o número do patrimônio para exclusão.")
+        return False
     pg_ok, pg_msg = excluir_patrimonio_db(numero, unidade, setor)
     if not pg_ok:
         st.error(pg_msg)
         return False
     try:
-        planilha = conectar_google_sheets()
-        if planilha:
-            df_sheet, _ = carregar_dados_excel.__wrapped__(unidade)
-            novo, alterado = _aplicar_exclusao_patrimonio(df_sheet, setor, numero)
-            if alterado and not salvar_no_excel(novo, unidade):
-                st.warning("Patrimônio excluído no PostgreSQL, mas o espelho do Google Sheets não foi confirmado.")
+        novo, alterado = _aplicar_exclusao_patrimonio(df_sheet, setor, numero)
+        if alterado and not salvar_no_excel(novo, unidade):
+            st.warning("Patrimônio excluído no PostgreSQL, mas o espelho do Google Sheets não foi confirmado.")
     except Exception as exc:
         st.warning(f"Patrimônio excluído no PostgreSQL; falha no espelho Google Sheets: {exc}")
     carregar_dados_excel.clear()
