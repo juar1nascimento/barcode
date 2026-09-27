@@ -395,7 +395,10 @@ def test_carga_em_lote_anexa_apenas_novas_linhas(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)
-    backend.carregar_dados_excel.clear()
+    try:
+        backend.carregar_dados_excel.clear()
+    except AttributeError:
+        pass
     registros = [
         {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": "LOTE-001", "fabricante": "Dell"},
         {"tipo_patrimonio": "Mouse", "setor": "Farmacia", "numero_patrimonio": "LOTE-002", "fabricante": "HP"},
