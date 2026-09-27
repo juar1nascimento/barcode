@@ -71,7 +71,17 @@ jobs:
             exit 1
           fi
 
-          echo "Baseline passed destructive/data-statement guard."
+          # The baseline must contain the four application tables already
+          # verified in the remote project. This prevents an incomplete pull
+          # from being accepted as the official baseline.
+          for table in unidades setores patrimonios patrimonio_fotos; do
+            if ! grep -Eiq 'CREATE[[:space:]]+TABLE[[:space:]]+(IF[[:space:]]+NOT[[:space:]]+EXISTS[[:space:]]+)?["'\'' ]*public["'\'' ]*[.]["'\'' ]*'"$table" "$baseline"; then
+              echo "Baseline is missing expected public table: $table"
+              exit 1
+            fi
+          done
+
+          echo "Baseline passed destructive/data-statement and completeness guards."
 
       - name: Upload baseline artifact
         uses: actions/upload-artifact@v4
