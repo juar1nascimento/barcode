@@ -41,21 +41,60 @@ def _config() -> dict:
     }
 
 
+@st.cache_resource(ttl=300, show_spinner=False)
+def _pool():
+    """Cria um pool global para as conexões PostgreSQL."""
+    from psycopg_pool import ConnectionPool
+
+    sec = st.secrets["postgresql"]
+    url = str(sec.get("url") or "").strip()
+    if url:
+        return ConnectionPool(
+            conninfo=url,
+            min_size=1,
+            max_size=5,
+            open=True,
+            name="gti-sesa-postgresql",
+        )
+
+    cfg = _config()
+    obrigatorios = ("host", "dbname", "user", "password")
+    if any(not cfg.get(k) for k in obrigatorios):
+        raise ValueError("Secret [postgresql] incompleta.")
+
+    return ConnectionPool(
+        kwargs=cfg,
+        min_size=1,
+        max_size=5,
+        open=True,
+        name="gti-sesa-postgresql",
+    )
+
+
+class _PoolConnection:
+    """Compatibilidade: close() devolve a conexão ao pool."""
+
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+        self._released = False
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        if not self._released:
+            self._released = True
+            self._pool.putconn(self._conn)
+
+
 def conectar() -> Optional[object]:
+    """Obtém uma conexão do pool sem expor o pool ao restante da aplicação."""
     if not _conexao_configurada():
         return None
     try:
-        import psycopg
-        sec = st.secrets["postgresql"]
-        url = str(sec.get("url") or "").strip()
-        if url:
-            return psycopg.connect(url)
-
-        cfg = _config()
-        obrigatorios = ("host", "dbname", "user", "password")
-        if any(not cfg.get(k) for k in obrigatorios):
-            return None
-        return psycopg.connect(**cfg)
+        pool = _pool()
+        return _PoolConnection(pool, pool.getconn())
     except Exception:
         st.warning("PostgreSQL indisponível. Verifique a Secret [postgresql].")
         return None
