@@ -198,6 +198,39 @@ def _logo_uri() -> str:
         return ""
 
 
+def sessao_autenticada() -> bool:
+    """Retorna True somente para uma sessão autenticada e com usuário válido."""
+    usuario = str(st.session_state.get("usuario_logado", "")).strip().lower()
+    return bool(st.session_state.get("autenticado", False) and usuario)
+
+
+def sessao_admin() -> bool:
+    """Verifica o perfil administrativo a partir da identidade da sessão."""
+    if not sessao_autenticada():
+        return False
+    usuario = str(st.session_state.get("usuario_logado", "")).strip().lower()
+    admin = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
+    return bool(usuario and admin and hmac.compare_digest(usuario, admin))
+
+
+def encerrar_sessao() -> None:
+    """Encerra a sessão e remove contexto operacional sensível."""
+    for chave in (
+        "autenticado",
+        "usuario_logado",
+        "unidade_selecionada",
+        "saved_setor",
+        "ultimo_patrimonio_id",
+        "ultimo_patrimonio_numero",
+        "ultimo_patrimonio_unidade",
+        "reconciliacao_pendente",
+        "reconciliacao_pendente_detalhes",
+    ):
+        st.session_state.pop(chave, None)
+    st.session_state["autenticado"] = False
+    st.session_state["usuario_logado"] = ""
+
+
 def renderizar_login() -> bool:
     processar_acao_via_url()
     st.session_state.setdefault("autenticado", False)
