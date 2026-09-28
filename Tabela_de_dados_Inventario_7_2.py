@@ -389,7 +389,10 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         unidade_limpa,
     )
 
-    if sucesso_sheets and pg_id is not None:
+    # O ID do PostgreSQL nasce antes do espelhamento no Google Sheets.
+    # Guardá-lo imediatamente preserva o vínculo com as fotografias mesmo
+    # quando o espelhamento secundário falha ou precisa ser repetido.
+    if pg_id is not None:
         st.session_state["ultimo_patrimonio_id"] = int(pg_id)
         st.session_state["ultimo_patrimonio_numero"] = numero
         st.session_state["ultimo_patrimonio_unidade"] = unidade_limpa
