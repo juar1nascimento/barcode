@@ -222,6 +222,52 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
     except Exception:
         return None, []
 
+
+@st.dialog("⚠️ Confirmar exclusão do setor", width="small")
+def _dialog_confirmar_exclusao_setor(setor: str, unidade: str) -> None:
+    st.warning(f"Esta operação removerá o setor **{setor}** e seus patrimônios da unidade **{unidade}**.")
+    st.caption("As validações de integridade e o preflight do Storage continuam sendo executados pelo backend.")
+    col_cancelar, col_confirmar = st.columns(2, gap="small")
+    with col_cancelar:
+        if st.button("Cancelar", use_container_width=True, key=f"cancelar_setor_{unidade}_{setor}"):
+            st.rerun()
+    with col_confirmar:
+        if st.button("Excluir setor", type="primary", use_container_width=True, key=f"confirmar_setor_{unidade}_{setor}"):
+            sucesso = excluir_setor(setor, unidade)
+            carregar_dados_excel.clear()
+            st.session_state.mensagem_sucesso = (
+                f"🗑️ Setor '{setor}' excluído com sucesso." if sucesso
+                else f"⚠️ Nenhum registro foi excluído para o setor '{setor}'."
+            )
+            st.session_state.gerenciador_exclusao_aberto = True
+            st.session_state.reset_del_setor = bool(sucesso)
+            st.session_state.del_setor_patrimonio = None
+            st.session_state.reset_del_coluna_patrimonio = bool(sucesso)
+            st.rerun()
+
+
+@st.dialog("⚠️ Confirmar exclusão do patrimônio", width="small")
+def _dialog_confirmar_exclusao_patrimonio(setor: str, coluna: str, unidade: str) -> None:
+    st.warning(f"Será removido o patrimônio **{coluna}** do setor **{setor}** na unidade **{unidade}**.")
+    st.caption("O fluxo mantém o preflight do Storage e a exclusão física pela API quando houver fotos.")
+    col_cancelar, col_confirmar = st.columns(2, gap="small")
+    with col_cancelar:
+        if st.button("Cancelar", use_container_width=True, key=f"cancelar_patrimonio_{unidade}_{setor}_{coluna}"):
+            st.rerun()
+    with col_confirmar:
+        if st.button("Excluir patrimônio", type="primary", use_container_width=True, key=f"confirmar_patrimonio_{unidade}_{setor}_{coluna}"):
+            sucesso = excluir_patrimonio(setor, coluna, unidade)
+            carregar_dados_excel.clear()
+            st.session_state.mensagem_sucesso = (
+                f"❌ Patrimônio '{coluna}' e seu fabricante foram excluídos do setor '{setor}'."
+                if sucesso else f"⚠️ Nenhum patrimônio foi excluído para o setor '{setor}'."
+            )
+            st.session_state.gerenciador_exclusao_aberto = True
+            st.session_state.reset_del_coluna_patrimonio = bool(sucesso)
+            st.session_state.del_setor_patrimonio = setor
+            st.rerun()
+
+
 # ==============================================================================
 # CARD DE INVENTÁRIO E PORTAL DE NAVEGAÇÃO
 # ==============================================================================
@@ -630,23 +676,12 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     st.warning(f"⚠️ A exclusão removerá todas as informações do setor **{setor_para_excluir}** nesta unidade.")
 
                 if setor_para_excluir and st.button(
-                    f"🔥 Confirmar Exclusão do Setor '{setor_para_excluir}'",
+                    f"🔥 Revisar exclusão do setor '{setor_para_excluir}'",
                     type="primary",
                     use_container_width=True,
                     key="btn_excluir_setor",
                 ):
-                    sucesso = excluir_setor(setor_para_excluir, unidade)
-                    carregar_dados_excel.clear()
-                    if sucesso:
-                        st.session_state.mensagem_sucesso = f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso."
-                        st.session_state.gerenciador_exclusao_aberto = True
-                        st.session_state.reset_del_setor = True
-                        st.session_state.del_setor_patrimonio = None
-                        st.session_state.reset_del_coluna_patrimonio = True
-                    else:
-                        st.session_state.mensagem_sucesso = f"⚠️ Nenhum registro foi excluído para o setor '{setor_para_excluir}'."
-                        st.session_state.gerenciador_exclusao_aberto = True
-                    st.rerun()
+                    _dialog_confirmar_exclusao_setor(setor_para_excluir, unidade)
 
             else:
                 setor_patrimonio_del = st.selectbox(
@@ -690,22 +725,14 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     )
 
                 if coluna_patrimonio_del and setor_patrimonio_del and st.button(
-                    f"🗑️ Confirmar Exclusão de '{coluna_patrimonio_del}'",
+                    f"🗑️ Revisar exclusão de '{coluna_patrimonio_del}'",
                     type="secondary",
                     use_container_width=True,
                     key="btn_excluir_patrimonio",
                 ):
-                    sucesso = excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
-                    carregar_dados_excel.clear()
-                    if sucesso:
-                        st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' e seu fabricante foram excluídos do setor '{setor_patrimonio_del}'."
-                        st.session_state.gerenciador_exclusao_aberto = True
-                        st.session_state.reset_del_coluna_patrimonio = True
-                        st.session_state.del_setor_patrimonio = setor_patrimonio_del
-                    else:
-                        st.session_state.mensagem_sucesso = f"⚠️ Nenhum patrimônio foi excluído para o setor '{setor_patrimonio_del}'."
-                        st.session_state.gerenciador_exclusao_aberto = True
-                    st.rerun()
+                    _dialog_confirmar_exclusao_patrimonio(
+                        setor_patrimonio_del, coluna_patrimonio_del, unidade
+                    )
 
 
 
