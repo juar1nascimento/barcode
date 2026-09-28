@@ -7,7 +7,7 @@ from auditoria_integridade_google import normalizar_data_hora
 from zoneinfo import ZoneInfo
 from typing import Optional, Tuple
 
-from postgresql_persistencia import salvar_patrimonio
+from postgresql_persistencia import salvar_patrimonio, salvar_patrimonios_em_lote
 
 import gspread
 import pandas as pd
@@ -426,24 +426,21 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
     if erros: return False, erros
 
     # O PostgreSQL é a persistência primária também no lote.
-    # Cada registro precisa existir antes de ser espelhado no Google Sheets.
-    for posicao, item in enumerate(registros, start=1):
-        numero = _valor_texto(item.get("numero_patrimonio", "")) or _valor_texto(item.get("codigo_barras", ""))
-        tipo = _normalizar_tipo(item.get("tipo_patrimonio", ""))
-        setor = _valor_texto(item.get("setor", ""))
-        fabricante = _valor_texto(item.get("fabricante", ""))
-        codigo = _valor_texto(item.get("codigo_barras", ""))
-
-        pg_ok, pg_id, pg_mensagem = salvar_patrimonio(
-            codigo_barras=codigo,
-            tipo=tipo,
-            setor=setor,
-            unidade=unidade_limpa,
-            fabricante=fabricante,
-            numero_patrimonio=numero,
-        )
-        if not pg_ok:
-            return False, [f"Registro {posicao}: {pg_mensagem}"]
+    # A função usa uma única transação para evitar lote parcialmente gravado.
+    registros_pg = [
+        {
+            "codigo_barras": _valor_texto(item.get("codigo_barras", "")),
+            "tipo": _normalizar_tipo(item.get("tipo_patrimonio", "")),
+            "setor": _valor_texto(item.get("setor", "")),
+            "unidade": unidade_limpa,
+            "fabricante": _valor_texto(item.get("fabricante", "")),
+            "numero_patrimonio": _valor_texto(item.get("numero_patrimonio", "")) or _valor_texto(item.get("codigo_barras", "")),
+        }
+        for item in registros
+    ]
+    pg_ok, _, pg_mensagem = salvar_patrimonios_em_lote(registros_pg)
+    if not pg_ok:
+        return False, [pg_mensagem]
 
     sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)
     if not sucesso:
