@@ -67,104 +67,48 @@ is_admin = bool(usuario_logado and admin_configurado and usuario_logado == admin
 reconciliacao_pendente = bool(st.session_state.get("reconciliacao_pendente"))
 
 # ==========================================
-# BARRA LATERAL (MENU E LOGOUT)
+# PÁGINAS E NAVEGAÇÃO
 # ==========================================
-with st.sidebar:
-    st.markdown("### 👤 Usuário Autenticado")
-
-    if st.session_state.pagina_atual != "portal":
-        if st.button("🏠 Voltar ao Portal"):
-            st.session_state.pagina_atual = "portal"
-            st.rerun()
-
-    if is_admin and reconciliacao_pendente:
-        st.warning("⚠️ Há uma persistência no PostgreSQL aguardando confirmação/reconciliação no Google Sheets.")
-        if st.button("🔄 Abrir reconciliação pendente"):
-            st.session_state.pagina_atual = "auditoria_reconciliacao"
-            st.rerun()
-
-    if is_admin:
-        st.divider()
-        st.markdown("### 🔐 Administração")
-        if st.button("🔎 Auditoria pré-migração"):
-            st.session_state.pagina_atual = "auditoria_pre_migracao"
-            st.rerun()
-        if st.button("🔐 Preflight Supabase"):
-            st.session_state.pagina_atual = "preflight_supabase"
-            st.rerun()
-        if st.button("🧪 Teste upload de foto"):
-            st.session_state.pagina_atual = "teste_upload_foto"
-            st.rerun()
-        if st.button("🔄 Reconciliação Sheets × PostgreSQL"):
-            st.session_state.pagina_atual = "auditoria_reconciliacao"
-            st.rerun()
-
-    if st.button("🚪 Sair do Sistema"):
-        st.session_state.autenticado = False
-        st.session_state.usuario_logado = ""
-        st.session_state.pagina_atual = "portal"
-        st.rerun()
-
-# ==========================================
-# ROTEAMENTO DAS PÁGINAS
-# ==========================================
-lista_urs = [
-    "Selecione uma URS...", "URS Boa Vista", "URS Feu Rosa",
-    "URS Jacaraípe", "URS Novo Horizonte", "URS Serra Sede", "URS Serra Dourada"
-]
-
-lista_almoxarifado = ["Almoxarifado Central SESA"]
-
-lista_ubs = [
-    "Selecione uma UBS...", "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa",
-    "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus",
-    "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado",
-    "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha",
-    "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I",
-    "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)",
-    "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos",
-    "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra",
-    "UBS Itinerante (atendimento na área rural)"
-]
-
-if st.session_state.pagina_atual == "portal":
-    st.title("🖥️ Portal de Sistemas GTI-SESA")
-    st.markdown("Bem-vindo ao painel central de aplicações. Escolha o sistema que deseja acessar:")
-    st.divider()
-
-    # Container flexível: mantém os módulos centralizados no PC e ocupa
-    # naturalmente a largura disponível no smartphone.
+def _pagina_portal():
+    st.session_state.pagina_atual = "portal"
     with st.container(width="stretch"):
-        renderizar_card_inventario(lista_urs, lista_ubs, lista_almoxarifado)
+        renderizar_card_inventario(
+            lista_urs,
+            lista_ubs,
+            lista_almoxarifado,
+            navegar_inventario=lambda: st.switch_page(page_inventario),
+        )
         st.write("")
-        renderizar_card_entrada(lista_urs, lista_ubs)
+        renderizar_card_entrada(
+            lista_urs,
+            lista_ubs,
+            navegar_entrada=lambda: st.switch_page(page_entrada),
+        )
         st.write("")
-        renderizar_card_saida(lista_urs, lista_ubs)
+        renderizar_card_saida(
+            lista_urs,
+            lista_ubs,
+            navegar_saida=lambda: st.switch_page(page_saida),
+        )
 
-elif st.session_state.pagina_atual == "inventario":
-    # Ativa somente durante a renderização do inventário para restaurar
-    # Número + Especialidade quando o setor selecionado for Consultório.
+def _pagina_inventario():
+    st.session_state.pagina_atual = "inventario"
     ativar_contexto_consultorio()
     ativar_persistencia_dupla()
     try:
-        renderizar_sistema_inventario()
+        renderizar_sistema_inventario(
+            navegar_portal=lambda: st.switch_page(page_portal)
+        )
     finally:
         desativar_persistencia_dupla()
         desativar_contexto_consultorio()
 
-elif st.session_state.pagina_atual == "auditoria_pre_migracao":
-    if not is_admin:
-        st.error("Acesso não autorizado.")
-        st.session_state.pagina_atual = "portal"
-        st.stop()
+def _pagina_auditoria_pre_migracao():
+    st.session_state.pagina_atual = "auditoria_pre_migracao"
     renderizar_auditoria_pre_migracao()
 
-elif st.session_state.pagina_atual == "preflight_supabase":
-    if not is_admin:
-        st.error("Acesso não autorizado.")
-        st.session_state.pagina_atual = "portal"
-        st.stop()
-
+def _pagina_preflight_supabase():
+    st.session_state.pagina_atual = "preflight_supabase"
     st.title("🔐 Preflight seguro do Supabase")
     st.caption("Esta tela não exibe nem registra credenciais.")
 
@@ -210,22 +154,118 @@ secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
                 "do bucket e, depois, o primeiro upload controlado."
             )
 
-elif st.session_state.pagina_atual == "auditoria_reconciliacao":
-    if not is_admin:
-        st.error("Acesso não autorizado.")
-        st.session_state.pagina_atual = "portal"
-        st.stop()
+def _pagina_reconciliacao():
+    st.session_state.pagina_atual = "auditoria_reconciliacao"
     renderizar_auditoria_reconciliacao()
 
-elif st.session_state.pagina_atual == "teste_upload_foto":
-    if not is_admin:
-        st.error("Acesso não autorizado.")
-        st.session_state.pagina_atual = "portal"
-        st.stop()
+def _pagina_teste_upload():
+    st.session_state.pagina_atual = "teste_upload_foto"
     renderizar_teste_upload_foto()
 
-elif st.session_state.pagina_atual == "entrada":
+def _pagina_entrada():
+    st.session_state.pagina_atual = "entrada"
     renderizar_sistema_entrada()
 
-elif st.session_state.pagina_atual == "saida":
+def _pagina_saida():
+    st.session_state.pagina_atual = "saida"
     renderizar_sistema_saida()
+
+page_portal = st.Page(
+    _pagina_portal,
+    title="Portal",
+    icon=":material/home:",
+    url_path="portal",
+    default=True,
+)
+page_inventario = st.Page(
+    _pagina_inventario,
+    title="Inventário",
+    icon=":material/inventory_2:",
+    url_path="inventario",
+)
+page_entrada = st.Page(
+    _pagina_entrada,
+    title="Entrada",
+    icon=":material/input:",
+    url_path="entrada",
+)
+page_saida = st.Page(
+    _pagina_saida,
+    title="Saída",
+    icon=":material/output:",
+    url_path="saida",
+)
+page_auditoria = st.Page(
+    _pagina_auditoria_pre_migracao,
+    title="Auditoria pré-migração",
+    icon=":material/search:",
+    url_path="auditoria-pre-migracao",
+)
+page_preflight = st.Page(
+    _pagina_preflight_supabase,
+    title="Preflight Supabase",
+    icon=":material/security:",
+    url_path="preflight-supabase",
+)
+page_reconciliacao = st.Page(
+    _pagina_reconciliacao,
+    title="Reconciliação Sheets × PostgreSQL",
+    icon=":material/sync:",
+    url_path="reconciliacao",
+)
+page_teste_upload = st.Page(
+    _pagina_teste_upload,
+    title="Teste upload de foto",
+    icon=":material/photo_camera:",
+    url_path="teste-upload-foto",
+)
+
+paginas = [page_portal, page_inventario, page_entrada, page_saida]
+if is_admin:
+    paginas += [
+        page_auditoria,
+        page_preflight,
+        page_reconciliacao,
+        page_teste_upload,
+    ]
+
+pg = st.navigation(paginas, position="hidden")
+pagina_url_atual = getattr(pg, "url_path", "portal")
+
+# ==========================================
+# BARRA LATERAL (MENU E LOGOUT)
+# ==========================================
+with st.sidebar:
+    st.markdown("### 👤 Usuário Autenticado")
+
+    if pagina_url_atual != page_portal.url_path:
+        if st.button("🏠 Voltar ao Portal"):
+            st.switch_page(page_portal)
+
+    if is_admin and reconciliacao_pendente:
+        st.warning("⚠️ Há uma persistência no PostgreSQL aguardando confirmação/reconciliação no Google Sheets.")
+        if st.button("🔄 Abrir reconciliação pendente"):
+            st.switch_page(page_reconciliacao)
+
+    if is_admin:
+        st.divider()
+        st.markdown("### 🔐 Administração")
+        if st.button("🔎 Auditoria pré-migração"):
+            st.switch_page(page_auditoria)
+        if st.button("🔐 Preflight Supabase"):
+            st.switch_page(page_preflight)
+        if st.button("🧪 Teste upload de foto"):
+            st.switch_page(page_teste_upload)
+        if st.button("🔄 Reconciliação Sheets × PostgreSQL"):
+            st.switch_page(page_reconciliacao)
+
+    if st.button("🚪 Sair do Sistema"):
+        st.session_state.autenticado = False
+        st.session_state.usuario_logado = ""
+        st.session_state.pagina_atual = "portal"
+        st.rerun()
+
+# A execução da página selecionada fica sob controle da arquitetura
+# st.Page/st.navigation. O layout e os componentes das páginas existentes
+# permanecem nos módulos originais.
+pg.run()
