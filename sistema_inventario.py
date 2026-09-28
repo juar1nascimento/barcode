@@ -669,8 +669,9 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
                         primeira_foto = urls.get(fotos[0]["path"], "")
                     linhas_pg.append(
                         {
+                            "Patrimônio ID": registro.get("Patrimônio ID"),
                             "Setor": registro.get("Setor", ""),
-                            "Tipo": registro.get("Tipo", ""),
+                            "Tipo": registro.get("Tipo de Patrimônio", ""),
                             "Nº Patrimônio": numero,
                             "Fabricante": registro.get("Fabricante", ""),
                             "Data Cadastro": registro.get("Data Cadastro", ""),
@@ -679,11 +680,22 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
                     )
 
                 df_detalhado = pd.DataFrame(linhas_pg)
-                st.dataframe(
+                selecao_detalhada = st.dataframe(
                     df_detalhado,
                     use_container_width=True,
                     hide_index=True,
                     row_height=100,
+                    column_order=[
+                        "Setor",
+                        "Tipo",
+                        "Nº Patrimônio",
+                        "Fabricante",
+                        "Data Cadastro",
+                        "Imagem",
+                    ],
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="tabela_patrimonios_imagem",
                     column_config={
                         "Imagem": st.column_config.ImageColumn(
                             "Imagem",
@@ -692,7 +704,27 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
                         )
                     },
                 )
-                st.caption("A imagem é carregada do bucket privado por URL temporária.")
+                st.caption(
+                    "A imagem é carregada do bucket privado por URL temporária. "
+                    "Selecione uma linha para adicionar ou consultar fotografias."
+                )
+
+                linhas_selecionadas = list(
+                    getattr(getattr(selecao_detalhada, "selection", None), "rows", [])
+                    or []
+                )
+                if linhas_selecionadas:
+                    indice = int(linhas_selecionadas[0])
+                    if 0 <= indice < len(linhas_pg):
+                        patrimonio_selecionado = linhas_pg[indice]
+                        patrimonio_id = patrimonio_selecionado.get("Patrimônio ID")
+                        numero_selecionado = patrimonio_selecionado.get("Nº Patrimônio", "")
+                        if patrimonio_id:
+                            with st.expander(
+                                f"📷 Fotos — patrimônio {numero_selecionado}",
+                                expanded=True,
+                            ):
+                                renderizar_fotos_patrimonio(int(patrimonio_id))
             else:
                 st.info("Não foi possível montar o inventário detalhado pelo PostgreSQL.")
 
