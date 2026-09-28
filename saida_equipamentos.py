@@ -1,5 +1,7 @@
 import streamlit as st
 
+from postgresql_persistencia import registrar_movimentacao_patrimonio
+
 def renderizar_card_saida(lista_urs, lista_ubs, navegar_saida=None):
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📤 Saída de Equipamentos</h3>", unsafe_allow_html=True)
@@ -38,13 +40,25 @@ def renderizar_sistema_saida():
     if motivo == "Transferência para outra Unidade":
         st.text_input("Unidade de Destino:", placeholder="Ex: UBS Feu Rosa")
 
-    st.text_area("Observações / Justificativa:", placeholder="Descreva os detalhes da saída...")
+    st.text_area("Observações / Justificativa:", placeholder="Descreva os detalhes da saída...", key="observacoes_saida")
 
     st.subheader("2. Identificação do Equipamento")
     codigo_saida = st.text_input("Bipe ou digite o código de patrimônio para saída:", placeholder="Aguardando bipagem...")
 
     if st.button("🚨 Registrar Saída de Equipamento", type="primary", use_container_width=True):
         if codigo_saida.strip():
-            st.success(f"Saída do equipamento `{codigo_saida.strip()}` registrada com sucesso para o setor **{setor_atual}**!")
+            usuario = str(st.session_state.get("usuario_logado", "")).strip().lower()
+            ok, _, mensagem = registrar_movimentacao_patrimonio(
+                codigo_saida.strip(),
+                "SAIDA",
+                setor_atual,
+                motivo=motivo,
+                observacao=st.session_state.get("observacoes_saida", ""),
+                usuario=usuario,
+            )
+            if ok:
+                st.success(f"Saída do patrimônio `{codigo_saida.strip()}` registrada no PostgreSQL para **{setor_atual}**.")
+            else:
+                st.error(mensagem)
         else:
             st.warning("Informe ou bipe o código do equipamento antes de confirmar.")
