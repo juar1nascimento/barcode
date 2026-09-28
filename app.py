@@ -8,6 +8,7 @@ from persistencia_dupla import ativar as ativar_persistencia_dupla, desativar as
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
 from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso_storage
 from teste_upload_foto import renderizar_teste_upload_foto
+from auditoria_fotos_storage import renderizar_auditoria_fotos
 from Tabela_de_dados_Inventario_7_2 import renderizar_auditoria_reconciliacao
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
@@ -184,6 +185,12 @@ def _pagina_teste_upload():
         st.stop()
     renderizar_teste_upload_foto()
 
+def _pagina_auditoria_fotos():
+    if not sessao_admin():
+        st.error("Acesso administrativo necessário.")
+        st.stop()
+    renderizar_auditoria_fotos()
+
 def _pagina_entrada():
     renderizar_sistema_entrada()
 
@@ -239,6 +246,12 @@ page_teste_upload = st.Page(
     icon=":material/photo_camera:",
     url_path="teste-upload-foto",
 )
+page_auditoria_fotos = st.Page(
+    _pagina_auditoria_fotos,
+    title="Auditoria de fotos",
+    icon=":material/photo_library:",
+    url_path="auditoria-fotos",
+)
 
 paginas = [page_portal, page_inventario, page_entrada, page_saida]
 if is_admin:
@@ -247,6 +260,7 @@ if is_admin:
         page_preflight,
         page_reconciliacao,
         page_teste_upload,
+        page_auditoria_fotos,
     ]
 
 pg = st.navigation(paginas, position="hidden")
@@ -278,6 +292,8 @@ with st.sidebar:
             st.switch_page(page_teste_upload)
         if st.button("🔄 Reconciliação Sheets × PostgreSQL"):
             st.switch_page(page_reconciliacao)
+        if st.button("🔍 Auditoria de fotos"):
+            st.switch_page(page_auditoria_fotos)
 
     if st.button("🚪 Sair do Sistema"):
         st.session_state.autenticado = False
