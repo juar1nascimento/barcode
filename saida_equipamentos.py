@@ -24,7 +24,7 @@ def renderizar_sistema_saida():
     st.markdown("Módulo para controle de movimentação, recolhimento, manutenção ou descarte de equipamentos.")
     st.divider()
 
-    setor_atual = st.session_state.get("saved_setor", "Unidade não selecionada")
+    setor_atual = st.session_state.get("saved_setor_saida", "Unidade não selecionada")
     st.info(f"📍 Unidade de Origem Selecionada: **{setor_atual}**")
 
     st.subheader("1. Motivo da Saída")
