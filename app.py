@@ -132,9 +132,9 @@ if st.session_state.pagina_atual == "portal":
     st.markdown("Bem-vindo ao painel central de aplicações. Escolha o sistema que deseja acessar:")
     st.divider()
 
-    col1, col2, col3 = st.columns([1, 2, 1])
-
-    with col2:
+    # Container flexível: mantém os módulos centralizados no PC e ocupa
+    # naturalmente a largura disponível no smartphone.
+    with st.container(width="stretch"):
         renderizar_card_inventario(lista_urs, lista_ubs, lista_almoxarifado)
         st.write("")
         renderizar_card_entrada(lista_urs, lista_ubs)
