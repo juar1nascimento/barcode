@@ -414,7 +414,17 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.session_state["ultimo_patrimonio_numero"] = numero
         st.session_state["ultimo_patrimonio_unidade"] = unidade_limpa
 
-    return sucesso_sheets
+    # PostgreSQL é a persistência primária. O espelhamento no Google Sheets
+    # é secundário e pode ficar pendente sem invalidar o cadastro já confirmado.
+    # Isso evita que a bipagem seja apresentada como falha quando o patrimônio
+    # já foi gravado com sucesso no banco principal.
+    if not sucesso_sheets:
+        st.warning(
+            "⚠️ Patrimônio gravado no PostgreSQL, mas o Google Sheets ficou "
+            "pendente de reconciliação. O cadastro principal está confirmado."
+        )
+
+    return True
 
 
 @_serializar_persistencia
