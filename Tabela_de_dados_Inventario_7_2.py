@@ -13,6 +13,7 @@ from postgresql_persistencia import (
     obter_dados_exclusao_patrimonio,
     excluir_patrimonio_postgresql,
     obter_dados_exclusao_setor,
+    excluir_setor_postgresql,
 )
 
 import gspread
@@ -509,9 +510,33 @@ def excluir_setor(setor: str, unidade: str) -> bool:
         f"Exclusão do setor preparada: {len({item['patrimonio_id'] for item in dependentes})} "
         f"patrimônio(s) e {sum(item['storage_path'] is not None for item in dependentes)} foto(s) vinculados."
     )
-    # A exclusão física em PostgreSQL/Storage será executada por rotina transacional
-    # própria; esta etapa não altera dados para evitar exclusão parcial.
-    return False
+    if setor_id is None:
+        st.error("PostgreSQL não está configurado para excluir o setor com segurança.")
+        return False
+
+    # O PostgreSQL executa a exclusão dos patrimônios e do setor em uma única
+    # transação. Depois, os objetos do Storage são removidos separadamente.
+    patrimonio_ids = {item["patrimonio_id"] for item in dependentes}
+    fotos = [
+        (item["storage_bucket"], item["storage_path"])
+        for item in dependentes
+        if item["storage_path"] is not None
+    ]
+
+    ok_pg, msg_pg = excluir_setor_postgresql(setor_id)
+    if not ok_pg:
+        st.error(msg_pg)
+        return False
+
+    from supabase_storage import excluir_objetos_patrimonio
+    ok_storage, msg_storage = excluir_objetos_patrimonio(fotos)
+    if not ok_storage:
+        st.warning(
+            "Setor e patrimônios removidos do PostgreSQL, mas alguns objetos "
+            f"do Storage precisam de reconciliação: {msg_storage}"
+        )
+
+    return salvar_no_excel(novo, unidade)
 
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
@@ -533,14 +558,20 @@ def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
 
     if patrimonio_id is not None:
         from supabase_storage import excluir_objetos_patrimonio
-        ok_storage, msg_storage = excluir_objetos_patrimonio(fotos)
-        if not ok_storage:
-            st.error(msg_storage)
-            return False
 
+        # Primeiro remove o registro transacional do PostgreSQL.
+        # Se o Storage falhar depois, os objetos ficam órfãos e podem ser
+        # reconciliados sem deixar o banco apontando para arquivo inexistente.
         ok_pg, msg_pg = excluir_patrimonio_postgresql(patrimonio_id)
         if not ok_pg:
             st.error(msg_pg)
             return False
+
+        ok_storage, msg_storage = excluir_objetos_patrimonio(fotos)
+        if not ok_storage:
+            st.warning(
+                "Patrimônio removido do PostgreSQL, mas a limpeza do Storage "
+                f"precisa ser repetida: {msg_storage}"
+            )
 
     return salvar_no_excel(novo, unidade)
