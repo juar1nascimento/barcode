@@ -14,6 +14,7 @@ from postgresql_persistencia import (
     excluir_patrimonio_postgresql,
     obter_dados_exclusao_setor,
     excluir_setor_postgresql,
+    listar_patrimonios_unidade,
 )
 
 import gspread
@@ -454,6 +455,42 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         return False, ["Patrimônios gravados no PostgreSQL, mas o espelhamento no Google Sheets não foi confirmado."]
 
     return True, []
+
+
+def auditar_reconciliacao_unidade(unidade: str) -> Tuple[bool, dict, str]:
+    """Compara Google Sheets e PostgreSQL sem modificar nenhuma fonte."""
+    unidade_limpa = _normalizar_unidade_aba(unidade)
+    sheets_df, fonte = carregar_dados_excel(unidade_limpa)
+    sheets_df = _normalizar_legacy_dataframe(sheets_df)
+
+    pg_ok, pg_registros, pg_mensagem = listar_patrimonios_unidade(unidade_limpa)
+    if not pg_ok:
+        return False, {}, pg_mensagem
+
+    def chave(registro):
+        return (
+            _chave_texto(registro.get("Setor", "")),
+            _chave_texto(registro.get("Tipo de Patrimônio", "")),
+            _chave_texto(registro.get("Nº de Patrimônio", "")),
+        )
+
+    sheets_registros = sheets_df[COLUNAS_INVENTARIO].to_dict("records")
+    pg_chaves = {chave(item) for item in pg_registros}
+    sheets_chaves = {chave(item) for item in sheets_registros}
+
+    somente_pg = sorted(pg_chaves - sheets_chaves)
+    somente_sheets = sorted(sheets_chaves - pg_chaves)
+
+    resultado = {
+        "unidade": unidade_limpa,
+        "fonte_sheets": fonte,
+        "quantidade_postgresql": len(pg_registros),
+        "quantidade_sheets": len(sheets_registros),
+        "somente_postgresql": somente_pg,
+        "somente_sheets": somente_sheets,
+        "sincronizado": not somente_pg and not somente_sheets,
+    }
+    return True, resultado, "Auditoria de reconciliação concluída."
 
 
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
