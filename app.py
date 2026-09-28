@@ -48,6 +48,8 @@ usuario_logado = str(st.session_state.get("usuario_logado", "")).strip().lower()
 admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
 is_admin = bool(usuario_logado and admin_configurado and usuario_logado == admin_configurado)
 
+reconciliacao_pendente = bool(st.session_state.get("reconciliacao_pendente"))
+
 # ==========================================
 # BARRA LATERAL (MENU E LOGOUT)
 # ==========================================
@@ -57,6 +59,12 @@ with st.sidebar:
     if st.session_state.pagina_atual != "portal":
         if st.button("🏠 Voltar ao Portal"):
             st.session_state.pagina_atual = "portal"
+            st.rerun()
+
+    if reconciliacao_pendente:
+        st.warning("⚠️ Há uma persistência no PostgreSQL aguardando confirmação/reconciliação no Google Sheets.")
+        if st.button("🔄 Abrir reconciliação pendente"):
+            st.session_state.pagina_atual = "auditoria_reconciliacao"
             st.rerun()
 
     if is_admin:
