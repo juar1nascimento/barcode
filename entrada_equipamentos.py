@@ -1,6 +1,6 @@
 import streamlit as st
 
-def renderizar_card_entrada(lista_urs, lista_ubs):
+def renderizar_card_entrada(lista_urs, lista_ubs, navegar_entrada=None):
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📥 Entrada de Equipamentos</h3>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de registro e recebimento de equipamentos nas unidades.</p>", unsafe_allow_html=True)
@@ -19,7 +19,10 @@ def renderizar_card_entrada(lista_urs, lista_ubs):
         
         if st.button("📂 Abrir Entrada nesta Aba", use_container_width=True, type="primary", key="btn_entrada"):
             st.session_state.pagina_atual = "entrada"
-            st.rerun()
+            if navegar_entrada is not None:
+                navegar_entrada()
+            else:
+                st.rerun()
 
 
 def atualizar_numero_patrimonio():
