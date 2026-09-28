@@ -153,6 +153,23 @@ def _delete_storage(base_url: str, key: str, path: str) -> None:
         )
 
 
+def excluir_objetos_patrimonio(fotos) -> Tuple[bool, str]:
+    """Remove objetos de fotos do Storage; não altera o banco de dados."""
+    fotos = list(fotos or [])
+    if not fotos:
+        return True, "Nenhum objeto de foto para remover."
+
+    try:
+        config = _config_supabase()
+        for bucket, path in fotos:
+            if str(bucket) != BUCKET:
+                return False, f"Bucket de foto não permitido: {bucket}."
+            _delete_storage(config["url"], config["key"], str(path))
+        return True, f"{len(fotos)} objeto(s) removido(s) do Storage."
+    except Exception as exc:
+        return False, f"Falha ao remover objetos do Storage: {exc}"
+
+
 def _proxima_ordem(conn, patrimonio_id: int) -> int:
     # Bloqueia o patrimônio durante a escolha da ordem, evitando duas fotos
     # concorrentes receberem a mesma ordem.
