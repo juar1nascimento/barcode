@@ -6,8 +6,9 @@ def renderizar_card_saida(lista_urs, lista_ubs):
         st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de baixa, transferência e saída de equipamentos.</p>", unsafe_allow_html=True)
         st.write("")
 
-        urs_saida = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_saida")
-        ubs_saida = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_saida")
+        with st.container(horizontal=True, wrap=True, gap="small"):
+            urs_saida = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_saida")
+            ubs_saida = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_saida")
 
         if urs_saida != "Selecione uma URS...":
             st.session_state.saved_setor = urs_saida
