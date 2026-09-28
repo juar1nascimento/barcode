@@ -396,6 +396,15 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
         unidade_limpa,
     )
+    st.session_state["reconciliacao_pendente"] = not sucesso_sheets
+    if not sucesso_sheets:
+        st.session_state["reconciliacao_pendente_detalhes"] = {
+            "unidade": unidade_limpa,
+            "numero_patrimonio": numero,
+            "origem": "cadastro_individual",
+        }
+    else:
+        st.session_state.pop("reconciliacao_pendente_detalhes", None)
 
     # O ID do PostgreSQL nasce antes do espelhamento no Google Sheets.
     # Guardá-lo imediatamente preserva o vínculo com as fotografias mesmo
@@ -451,9 +460,16 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         return False, [pg_mensagem]
 
     sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)
+    st.session_state["reconciliacao_pendente"] = not sucesso
     if not sucesso:
+        st.session_state["reconciliacao_pendente_detalhes"] = {
+            "unidade": unidade_limpa,
+            "quantidade": len(novos),
+            "origem": "cadastro_lote",
+        }
         return False, ["Patrimônios gravados no PostgreSQL, mas o espelhamento no Google Sheets não foi confirmado."]
 
+    st.session_state.pop("reconciliacao_pendente_detalhes", None)
     return True, []
 
 
