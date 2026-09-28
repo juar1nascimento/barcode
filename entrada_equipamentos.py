@@ -1,6 +1,6 @@
 import streamlit as st
 
-from postgresql_persistencia import registrar_movimentacao_patrimonio
+from postgresql_persistencia import listar_setores_unidade, registrar_entrada_patrimonio
 
 def renderizar_card_entrada(lista_urs, lista_ubs, navegar_entrada=None):
     with st.container(border=True):
@@ -38,6 +38,11 @@ def renderizar_sistema_entrada():
     st.info(f"📍 Unidade de Destino Selecionada: **{setor_atual}**")
     
     st.subheader("1. Informações do Recebimento")
+    ok_setores, setores, mensagem_setores = listar_setores_unidade(setor_atual)
+    if not ok_setores:
+        st.error(mensagem_setores)
+        return
+    setor_destino = st.selectbox("Setor de destino:", setores, key="setor_destino_entrada")
     with st.container(horizontal=True, wrap=True, gap="medium", vertical_alignment="top"):
         c1 = st.container(width="stretch")
         c2 = st.container(width="stretch")
@@ -53,8 +58,13 @@ def renderizar_sistema_entrada():
         setor_origem = st.text_input("Setor de origem:", placeholder="Ex: Almoxarifado Central")
         
     with c2:
-        st.selectbox("Tipo de Equipamento:", ["Computador (Desktop)", "Monitor/Tela", "Nobreak", "Impressora", "Outros"])
-        st.date_input("Data de Recebimento")
+        tipo_exibicao = st.selectbox(
+            "Tipo de Equipamento:",
+            ["Computador (Desktop)", "Monitor/Tela", "Teclado", "Mouse", "Impressora", "Outros"],
+            key="tipo_entrada",
+        )
+        fabricante = st.text_input("Fabricante:", key="fabricante_entrada")
+        st.date_input("Data de Recebimento", key="data_entrada")
 
     st.subheader("2. Código de Patrimônio do Equipamento")
     # Dispara atualização automática do campo 'Número de Patrimônio' ao bipar
@@ -69,11 +79,21 @@ def renderizar_sistema_entrada():
         valor_final = num_patrimonio.strip() or codigo_entrada.strip()
         if valor_final:
             usuario = str(st.session_state.get("usuario_logado", "")).strip().lower()
-            ok, _, mensagem = registrar_movimentacao_patrimonio(
-                valor_final,
-                "ENTRADA",
-                setor_atual,
-                motivo="Recebimento de equipamento",
+            mapa_tipo = {
+                "Computador (Desktop)": "CPU",
+                "Monitor/Tela": "Monitores",
+                "Teclado": "Teclado",
+                "Mouse": "Mouse",
+                "Impressora": "Imprenssoras",
+                "Outros": "Outros Dispositivos",
+            }
+            ok, _, mensagem = registrar_entrada_patrimonio(
+                numero_patrimonio=valor_final,
+                codigo_barras=codigo_entrada.strip(),
+                tipo=mapa_tipo[tipo_exibicao],
+                unidade=setor_atual,
+                setor=setor_destino,
+                fabricante=fabricante,
                 observacao=str(setor_origem or "").strip(),
                 usuario=usuario,
             )
