@@ -57,9 +57,6 @@ st.markdown("""
 if not renderizar_login():
     st.stop()
 
-if "pagina_atual" not in st.session_state:
-    st.session_state.pagina_atual = "portal"
-
 usuario_logado = str(st.session_state.get("usuario_logado", "")).strip().lower()
 admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
 is_admin = bool(usuario_logado and admin_configurado and usuario_logado == admin_configurado)
@@ -89,7 +86,6 @@ lista_ubs = [
 # PÁGINAS E NAVEGAÇÃO
 # ==========================================
 def _pagina_portal():
-    st.session_state.pagina_atual = "portal"
     with st.container(width="stretch"):
         renderizar_card_inventario(
             lista_urs,
@@ -111,7 +107,6 @@ def _pagina_portal():
         )
 
 def _pagina_inventario():
-    st.session_state.pagina_atual = "inventario"
     ativar_contexto_consultorio()
     ativar_persistencia_dupla()
     try:
@@ -123,11 +118,9 @@ def _pagina_inventario():
         desativar_contexto_consultorio()
 
 def _pagina_auditoria_pre_migracao():
-    st.session_state.pagina_atual = "auditoria_pre_migracao"
     renderizar_auditoria_pre_migracao()
 
 def _pagina_preflight_supabase():
-    st.session_state.pagina_atual = "preflight_supabase"
     st.title("🔐 Preflight seguro do Supabase")
     st.caption("Esta tela não exibe nem registra credenciais.")
 
@@ -174,19 +167,15 @@ secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
             )
 
 def _pagina_reconciliacao():
-    st.session_state.pagina_atual = "auditoria_reconciliacao"
     renderizar_auditoria_reconciliacao()
 
 def _pagina_teste_upload():
-    st.session_state.pagina_atual = "teste_upload_foto"
     renderizar_teste_upload_foto()
 
 def _pagina_entrada():
-    st.session_state.pagina_atual = "entrada"
     renderizar_sistema_entrada()
 
 def _pagina_saida():
-    st.session_state.pagina_atual = "saida"
     renderizar_sistema_saida()
 
 page_portal = st.Page(
