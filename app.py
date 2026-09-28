@@ -270,7 +270,6 @@ with st.sidebar:
     if st.button("🚪 Sair do Sistema"):
         st.session_state.autenticado = False
         st.session_state.usuario_logado = ""
-        st.session_state.pagina_atual = "portal"
         st.rerun()
 
 # A execução da página selecionada fica sob controle da arquitetura
