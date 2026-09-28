@@ -7,7 +7,12 @@ from auditoria_integridade_google import normalizar_data_hora
 from zoneinfo import ZoneInfo
 from typing import Optional, Tuple
 
-from postgresql_persistencia import salvar_patrimonio, salvar_patrimonios_em_lote
+from postgresql_persistencia import (
+    salvar_patrimonio,
+    salvar_patrimonios_em_lote,
+    obter_dados_exclusao_patrimonio,
+    excluir_patrimonio_postgresql,
+)
 
 import gspread
 import pandas as pd
@@ -497,4 +502,32 @@ def excluir_setor(setor: str, unidade: str) -> bool:
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    if not alterado:
+        return False
+
+    alvo = df.loc[
+        (df["Setor"].map(_chave_texto) == _chave_texto(setor))
+        & (df["Nº de Patrimônio"].map(_chave_texto) == _chave_texto(coluna))
+    ]
+    if alvo.empty:
+        return False
+
+    numero = _valor_texto(alvo.iloc[0]["Nº de Patrimônio"])
+    ok, patrimonio_id, fotos, mensagem = obter_dados_exclusao_patrimonio(numero, unidade)
+    if not ok:
+        st.error(mensagem)
+        return False
+
+    if patrimonio_id is not None:
+        from supabase_storage import excluir_objetos_patrimonio
+        ok_storage, msg_storage = excluir_objetos_patrimonio(fotos)
+        if not ok_storage:
+            st.error(msg_storage)
+            return False
+
+        ok_pg, msg_pg = excluir_patrimonio_postgresql(patrimonio_id)
+        if not ok_pg:
+            st.error(msg_pg)
+            return False
+
+    return salvar_no_excel(novo, unidade)
