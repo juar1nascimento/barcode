@@ -290,36 +290,73 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     # Computador, Fabricante Monitor, Fabricante Computador etc. reapareçam.
     opcoes_patrimonio = opcoes_tipo_patrimonio()
 
-    col_desc1, col_desc2, col_desc3, col_desc4 = st.columns([1, 1, 1, 1])
-    with col_desc1:
-        setor_selecionado = st.selectbox("Setor:", opcoes_setor, index=None, placeholder="Selecione um setor...")
+    # No smartphone, a configuração fica em fluxo vertical e só é enviada
+    # ao servidor ao tocar em "Continuar". Isso reduz reruns intermediários
+    # enquanto o usuário ainda está escolhendo setor/tipo/fabricante.
+    with st.form(key="form_configuracao_patrimonio", clear_on_submit=False):
+        setor_selecionado = st.selectbox(
+            "1. Setor:",
+            opcoes_setor,
+            index=None,
+            placeholder="Selecione um setor...",
+            key="setor_inventario_mobile",
+        )
         setor_input = ""
         if setor_selecionado == "Consultório":
             setor_input = "Consultório"
         elif setor_selecionado == "Outro Setor":
-            setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...")
+            setor_input = st.text_input(
+                "Nome do Setor:",
+                placeholder="Digite o nome do setor...",
+                key="nome_setor_inventario_mobile",
+            )
         elif setor_selecionado:
             setor_input = setor_selecionado
-        st.session_state.saved_setor = setor_input
 
-    with col_desc2:
         opcao_selecionada = st.selectbox(
-            "Tipo de patrimônio:",
+            "2. Tipo de patrimônio:",
             opcoes_patrimonio,
             index=None,
             placeholder="Selecione o patrimônio...",
-            key="tipo_patrimonio_oficial_v4"
+            key="tipo_patrimonio_oficial_v4",
         )
-
-    with col_desc3:
         descricao_final = opcao_selecionada or ""
-        st.session_state.saved_descricao = descricao_final
 
-    with col_desc4:
         fabricante_input = ""
         if descricao_final:
             rotulo_fabricante = formatar_nome_fabricante(descricao_final)
-            fabricante_input = st.text_input(f"{rotulo_fabricante}:", placeholder="Ex: Dell, HP, Samsung...")
+            fabricante_input = st.text_input(
+                f"3. {rotulo_fabricante}:",
+                placeholder="Ex: Dell, HP, Samsung...",
+                key="fabricante_inventario_mobile",
+            )
+
+        configurar = st.form_submit_button(
+            "➡️ Continuar para leitura",
+            type="primary",
+            use_container_width=True,
+        )
+
+    # Mantém a última configuração confirmada disponível para as etapas
+    # seguintes, inclusive após reruns causados pelo scanner/cadastro.
+    if configurar:
+        if not setor_input.strip():
+            st.warning("⚠️ Selecione ou informe o setor.")
+        elif not descricao_final:
+            st.warning("⚠️ Selecione o tipo de patrimônio.")
+        else:
+            st.session_state.saved_setor = setor_input.strip()
+            st.session_state.saved_descricao = descricao_final
+            st.session_state.config_patrimonio_confirmada = True
+
+    if st.session_state.get("config_patrimonio_confirmada"):
+        setor_input = st.session_state.get("saved_setor", setor_input)
+        descricao_final = st.session_state.get("saved_descricao", descricao_final)
+        fabricante_input = st.session_state.get("fabricante_inventario_mobile", fabricante_input)
+    else:
+        setor_input = ""
+        descricao_final = ""
+        fabricante_input = ""
 
     st.divider()
 
@@ -333,11 +370,10 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         with tab_unificada:
             info_fab = f" | **{header_fabricante}:** `{fabricante_input.strip()}`" if fabricante_input.strip() else ""
             st.markdown(f"📍 **Unidade:** `{unidade}` | **Setor:** `{setor_input}` | **Cabeçalho:** `{header_patrimonio}`{info_fab}")
-            col_camera, col_usb = st.columns([1.2, 1])
-
-            with col_camera:
-                st.caption("Aponte a câmera para o código de barras.")
-                html_scanner = """
+            # Layout vertical: a câmera ocupa a largura útil do telefone
+            # e a entrada manual fica logo abaixo, sem exigir leitura em duas colunas.
+            st.caption("📷 Aponte a câmera para o código de barras.")
+            html_scanner = """
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
                 <style>
@@ -403,11 +439,10 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     .catch(() => { html5QrCode.start({ facingMode: "user" }, config, onScanSuccess); });
                 </script>
                 """
-                st.components.v1.html(html_scanner, height=390)
+            st.components.v1.html(html_scanner, height=390)
 
-            with col_usb:
-                st.markdown("##### 🔌 Entrada Manual / Scanner USB")
-                with st.form(key="form_bipagem", clear_on_submit=True):
+            st.markdown("##### 🔌 Entrada Manual / Scanner USB")
+            with st.form(key="form_bipagem", clear_on_submit=True):
                     codigo_input = st.text_input("Código Lido / Bipado:", type="search", autocomplete="off", placeholder="Aguardando bipagem...")
                     if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
                         if adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade, fabricante_input.strip()):
