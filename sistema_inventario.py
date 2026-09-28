@@ -757,10 +757,9 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
 
 if __name__ == "__main__":
     st.set_page_config(page_title="Portal GTI-SESA / Inventários", layout="wide")
-    st.session_state.setdefault("pagina_atual", "portal")
     st.session_state.setdefault("unidade_selecionada", "")
 
-    if st.session_state.pagina_atual in ["inventario", "inventario_unidade"] and st.session_state.unidade_selecionada:
+    if st.session_state.get("unidade_selecionada"):
         renderizar_sistema_inventario()
     else:
         renderizar_card_inventario()
