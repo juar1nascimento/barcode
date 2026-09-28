@@ -19,17 +19,33 @@ st.set_page_config(
     page_title="Controle de Patrimônio - GTI-SESA",
     page_icon="📦",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="auto"
 )
 
 # Estilização Responsiva Mobile
 st.markdown("""
     <style>
         @media (max-width: 768px) {
-            .main .block-container { padding-left: 0.6rem !important; padding-right: 0.6rem !important; padding-top: 1rem !important; }
-            h1 { font-size: 1.5rem !important; text-align: center; }
+            .main .block-container {
+                padding-left: 0.65rem !important;
+                padding-right: 0.65rem !important;
+                padding-top: 0.75rem !important;
+                max-width: 100% !important;
+            }
+            h1 { font-size: 1.45rem !important; line-height: 1.2 !important; }
+            h2 { font-size: 1.25rem !important; }
+            h3 { font-size: 1.1rem !important; }
             input, select, textarea { font-size: 16px !important; }
-            .stButton > button, .stDownloadButton > button { width: 100% !important; min-height: 48px !important; font-size: 16px !important; font-weight: bold !important; }
+            .stButton > button, .stDownloadButton > button {
+                width: 100% !important;
+                min-height: 48px !important;
+                font-size: 16px !important;
+                font-weight: 600 !important;
+            }
+            [data-testid="stHorizontalBlock"] { gap: 0.55rem !important; }
+            [data-testid="stMetric"] { padding: 0.5rem !important; }
+            [data-testid="stDataFrame"] { max-width: 100% !important; }
+            section[data-testid="stSidebar"] { width: min(92vw, 360px) !important; }
         }
         .scanner-wrapper { width: 100%; max-width: 100%; margin: auto; }
     </style>
