@@ -483,31 +483,45 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
-        df_styled = df_atual.style.set_properties(**{
-            'font-family': "'Inter', 'Segoe UI', -apple-system, sans-serif",
-            'font-size': '13px',
-            'border-bottom': '1px solid #E2E8F0',
-            'padding': '11px 15px',
-            'color': '#1E293B'
-        }).set_table_styles([
-            {'selector': 'thead th', 'props': [
-                ('background', 'linear-gradient(135deg, #0F172A 0%, #1E293B 60%, #334155 100%)'),
-                ('color', '#F8FAFC'),
-                ('font-weight', '700'),
-                ('font-size', '12px'),
-                ('text-transform', 'uppercase'),
-                ('letter-spacing', '0.06em'),
-                ('padding', '14px 16px'),
-                ('border-bottom', '2px solid #3B82F6'),
-                ('text-align', 'center'),
-                ('box-shadow', '0 2px 4px rgba(0,0,0,0.1)')
-            ]},
-            {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#F8FAFC')]},
-            {'selector': 'tbody tr:hover', 'props': [('background-color', '#EFF6FF'), ('transition', 'background-color 0.2s ease-in-out')]},
-            {'selector': 'td:first-child', 'props': [('font-weight', '700'), ('background-color', '#F1F5F9'), ('color', '#0F172A'), ('border-right', '2px solid #CBD5E1')]}
-        ])
+        # Visualização mobile-first: cada setor vira um cartão legível sem
+        # rolagem horizontal. A tabela completa continua disponível abaixo.
+        st.markdown("#### 📱 Patrimônios por setor")
 
-        st.dataframe(df_styled, use_container_width=True)
+        colunas_dados = [
+            str(col) for col in df_atual.columns
+            if col != COLUNA_CHAVE
+            and col not in COLUNAS_OBSOLETAS
+            and not str(col).startswith("Fabricante ")
+        ]
+
+        if colunas_dados:
+            for _, linha in df_atual.iterrows():
+                setor_card = str(linha.get(COLUNA_CHAVE, "")).strip()
+                if not setor_card:
+                    continue
+
+                itens_card = []
+                for coluna in colunas_dados:
+                    valor = str(linha.get(coluna, "")).strip()
+                    if valor and valor.lower() not in {"nan", "none", "null", "<na>"}:
+                        fabricante = str(linha.get(f"Fabricante {coluna}", "")).strip()
+                        itens_card.append((coluna, valor, fabricante))
+
+                with st.container(border=True):
+                    st.markdown(f"**🏢 {setor_card}**")
+                    if not itens_card:
+                        st.caption("Nenhum patrimônio registrado neste setor.")
+                    else:
+                        cards = st.columns(2, gap="small", vertical_alignment="top")
+                        for indice, (tipo, codigo, fabricante) in enumerate(itens_card):
+                            with cards[indice % 2]:
+                                st.markdown(f"**{tipo}**")
+                                st.code(codigo, language=None)
+                                if fabricante and fabricante.lower() not in {"nan", "none", "null", "<na>"}:
+                                    st.caption(f"Fabricante: {fabricante}")
+
+        with st.expander("🖥️ Visão tabular completa", expanded=False):
+            st.dataframe(df_atual, use_container_width=True)
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
