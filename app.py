@@ -1,7 +1,7 @@
 import streamlit as st
 
 # Importações dos módulos independentes
-from login import renderizar_login
+from login import encerrar_sessao, renderizar_login, sessao_admin
 from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
 from consultorio_contexto import ativar as ativar_contexto_consultorio, desativar as desativar_contexto_consultorio
 from persistencia_dupla import ativar as ativar_persistencia_dupla, desativar as desativar_persistencia_dupla
