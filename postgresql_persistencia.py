@@ -189,6 +189,86 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list, str]:
     finally:
         conn.close()
 
+def obter_dados_exclusao_patrimonio(numero_patrimonio: str, unidade: str) -> Tuple[bool, Optional[int], list, str]:
+    """Localiza um patrimônio e seus objetos de foto sem alterar dados."""
+    if not _conexao_configurada():
+        return True, None, [], "PostgreSQL não configurado."
+
+    numero = str(numero_patrimonio or "").strip()
+    unidade = str(unidade or "").strip()
+    if not numero or not unidade:
+        return False, None, [], "Número de patrimônio e unidade são obrigatórios."
+
+    conn = conectar()
+    if conn is None:
+        return False, None, [], "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT p.id
+                     FROM public.patrimonios AS p
+                     JOIN public.unidades AS u ON u.id = p.unidade_id
+                    WHERE p.numero_patrimonio = %s
+                      AND u.nome = %s
+                    LIMIT 1""",
+                (numero, unidade),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False, None, [], "Patrimônio não encontrado no PostgreSQL."
+
+            patrimonio_id = int(row[0])
+            cur.execute(
+                """SELECT storage_bucket, storage_path
+                     FROM public.patrimonio_fotos
+                    WHERE patrimonio_id = %s
+                    ORDER BY ordem, id""",
+                (patrimonio_id,),
+            )
+            fotos = [(str(bucket), str(path)) for bucket, path in cur.fetchall()]
+        return True, patrimonio_id, fotos, "Patrimônio localizado."
+    except Exception as exc:
+        return False, None, [], f"Falha ao consultar o patrimônio para exclusão: {exc}"
+    finally:
+        conn.close()
+
+
+def excluir_patrimonio_postgresql(patrimonio_id: int) -> Tuple[bool, str]:
+    """Exclui um patrimônio; as fotos em public.patrimonio_fotos sofrem CASCADE."""
+    if not _conexao_configurada():
+        return True, "PostgreSQL não configurado."
+
+    try:
+        patrimonio_id = int(patrimonio_id)
+    except (TypeError, ValueError):
+        return False, "ID de patrimônio inválido."
+
+    if patrimonio_id <= 0:
+        return False, "ID de patrimônio inválido."
+
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.patrimonios WHERE id = %s RETURNING id",
+                (patrimonio_id,),
+            )
+            if cur.fetchone() is None:
+                conn.rollback()
+                return False, "Patrimônio não encontrado no PostgreSQL."
+        conn.commit()
+        return True, "Patrimônio excluído do PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        return False, f"Falha ao excluir o patrimônio no PostgreSQL: {exc}"
+    finally:
+        conn.close()
+
+
 def salvar_patrimonio(
     codigo_barras: str,
     tipo: str,
