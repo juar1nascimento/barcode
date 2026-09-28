@@ -8,6 +8,7 @@ from persistencia_dupla import ativar as ativar_persistencia_dupla, desativar as
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
 from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso_storage
 from teste_upload_foto import renderizar_teste_upload_foto
+from Tabela_de_dados_Inventario_7_2 import renderizar_auditoria_reconciliacao
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 
@@ -69,6 +70,9 @@ with st.sidebar:
             st.rerun()
         if st.button("🧪 Teste upload de foto"):
             st.session_state.pagina_atual = "teste_upload_foto"
+            st.rerun()
+        if st.button("🔄 Reconciliação Sheets × PostgreSQL"):
+            st.session_state.pagina_atual = "auditoria_reconciliacao"
             st.rerun()
 
     if st.button("🚪 Sair do Sistema"):
@@ -181,6 +185,13 @@ secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
                 "O preflight deverá mostrar **4 itens verdes**. Só então faremos o teste de leitura "
                 "do bucket e, depois, o primeiro upload controlado."
             )
+
+elif st.session_state.pagina_atual == "auditoria_reconciliacao":
+    if not is_admin:
+        st.error("Acesso não autorizado.")
+        st.session_state.pagina_atual = "portal"
+        st.stop()
+    renderizar_auditoria_reconciliacao()
 
 elif st.session_state.pagina_atual == "teste_upload_foto":
     if not is_admin:
