@@ -370,7 +370,10 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
         if st.button("⬅️ Trocar de Unidade / Portal", use_container_width=False, key="btn_trocar_unidade_header"):
             st.session_state.unidade_selecionada = ""
             st.session_state.pagina_atual = "portal"
-            st.rerun()
+            if navegar_portal is not None:
+                navegar_portal()
+            else:
+                st.rerun()
 
     st.divider()
 
@@ -583,7 +586,10 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
             if st.button("🏠 Portal", key="btn_portal_bottom", type="secondary"):
                 st.session_state.unidade_selecionada = ""
                 st.session_state.pagina_atual = "portal"
-                st.rerun()
+                if navegar_portal is not None:
+                    navegar_portal()
+                else:
+                    st.rerun()
 
     st.divider()
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
