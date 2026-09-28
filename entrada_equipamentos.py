@@ -18,7 +18,6 @@ def renderizar_card_entrada(lista_urs, lista_ubs, navegar_entrada=None):
         st.write("")
         
         if st.button("📂 Abrir Entrada nesta Aba", use_container_width=True, type="primary", key="btn_entrada"):
-            st.session_state.pagina_atual = "entrada"
             if navegar_entrada is not None:
                 navegar_entrada()
             else:
