@@ -246,6 +246,38 @@ def _proxima_ordem(conn, patrimonio_id: int) -> int:
         return int(cur.fetchone()[0])
 
 
+
+def criar_urls_assinadas_fotos(caminhos, expires_in: int = 900) -> Tuple[bool, dict, str]:
+    """Cria URLs temporárias para fotos do bucket privado."""
+    caminhos = [str(p).strip() for p in (caminhos or []) if str(p).strip()]
+    if not caminhos:
+        return True, {}, "Nenhuma foto."
+    try:
+        config = _config_supabase()
+        response = requests.post(
+            f"{config['url']}/storage/v1/object/sign/{BUCKET}",
+            headers={**_headers(config["key"]), "Content-Type": "application/json"},
+            json={"paths": caminhos, "expiresIn": int(expires_in)},
+            timeout=30,
+        )
+        if not response.ok:
+            raise RuntimeError(f"HTTP {response.status_code}")
+        itens = response.json()
+        urls = {}
+        for item in itens:
+            path = str(item.get("path") or "").strip()
+            token = str(item.get("signedURL") or item.get("signedUrl") or "").strip()
+            if path and token:
+                urls[path] = (
+                    token if token.startswith("http")
+                    else f"{config['url']}/storage/v1{token}"
+                )
+        return True, urls, "URLs temporárias geradas."
+    except Exception as exc:
+        return False, {}, f"Falha ao gerar URLs das fotos: {exc}"
+
+
+
 def salvar_foto_patrimonio(
     conn,
     patrimonio_id: int,
