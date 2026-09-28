@@ -161,11 +161,21 @@ def excluir_objetos_patrimonio(fotos) -> Tuple[bool, str]:
 
     try:
         config = _config_supabase()
+        caminhos = []
         for bucket, path in fotos:
             if str(bucket) != BUCKET:
                 return False, f"Bucket de foto não permitido: {bucket}."
-            _delete_storage(config["url"], config["key"], str(path))
-        return True, f"{len(fotos)} objeto(s) removido(s) do Storage."
+            caminhos.append(str(path))
+
+        response = requests.delete(
+            f"{config['url']}/storage/v1/object/{BUCKET}",
+            headers={**_headers(config["key"]), "Content-Type": "application/json"},
+            json={"prefixes": caminhos},
+            timeout=30,
+        )
+        if not response.ok:
+            raise RuntimeError(f"HTTP {response.status_code}")
+        return True, f"{len(caminhos)} objeto(s) removido(s) do Storage."
     except Exception as exc:
         return False, f"Falha ao remover objetos do Storage: {exc}"
 
