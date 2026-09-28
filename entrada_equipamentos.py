@@ -10,10 +10,14 @@ def renderizar_card_entrada(lista_urs, lista_ubs, navegar_entrada=None):
             urs_entrada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_entrada")
             ubs_entrada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_entrada")
 
-        if urs_entrada != "Selecione uma URS...":
-            st.session_state.saved_setor = urs_entrada
-        elif ubs_entrada != "Selecione uma UBS...":
-            st.session_state.saved_setor = ubs_entrada
+        if st.button("📂 Abrir Entrada nesta Aba", use_container_width=True, type="primary", key="btn_entrada"):
+            if urs_entrada != "Selecione uma URS...":
+                st.session_state.saved_setor_entrada = urs_entrada
+            elif ubs_entrada != "Selecione uma UBS...":
+                st.session_state.saved_setor_entrada = ubs_entrada
+            else:
+                st.warning("⚠️ Selecione a unidade de destino.")
+                return
 
         st.write("")
         
