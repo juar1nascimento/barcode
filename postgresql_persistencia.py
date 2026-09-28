@@ -192,7 +192,7 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list, str]:
     if not registros:
         return False, [], "O lote está vazio."
     if not _conexao_configurada():
-        return True, [None] * len(registros), "PostgreSQL não configurado."
+        return False, [], "PostgreSQL não configurado; o cadastro não pode ser considerado persistido na tabela principal."
 
     conn = conectar()
     if conn is None:
@@ -497,7 +497,7 @@ def salvar_patrimonio(
     espelhamento separadamente para manter as duas persistências independentes.
     """
     if not _conexao_configurada():
-        return True, None, "PostgreSQL não configurado; persistência principal ainda não ativada."
+        return False, None, "PostgreSQL não configurado; o cadastro não pode ser considerado persistido na tabela principal."
 
     numero = str(numero_patrimonio or "").strip() or str(codigo_barras or "").strip()
     codigo = str(codigo_barras or "").strip() or None
