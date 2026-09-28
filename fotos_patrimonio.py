@@ -186,12 +186,14 @@ def _salvar_fotografia(
         )
 
     try:
-        return salvar_foto_patrimonio(
+        resultado = salvar_foto_patrimonio(
             conn,
             patrimonio_id,
             dados,
             arquivo.name,
         )
+        del dados
+        return resultado
     except Exception as exc:
         return (
             False,
@@ -228,6 +230,10 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
             "Nenhuma fotografia cadastrada para este patrimônio."
         )
 
+    if "foto_input_nonce" not in st.session_state:
+        st.session_state["foto_input_nonce"] = 0
+    input_nonce = int(st.session_state["foto_input_nonce"])
+
     modo_foto = st.radio(
         "Origem da fotografia",
         ["📷 Tirar foto", "📁 Selecionar arquivo"],
@@ -238,14 +244,15 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
     if modo_foto == "📷 Tirar foto":
         arquivo = st.camera_input(
             "Capture a fotografia do equipamento",
-            key=f"camera_patrimonio_{patrimonio_id}",
+            resolution="720p",
+            key=f"camera_patrimonio_{patrimonio_id}_{input_nonce}",
         )
     else:
         arquivo = st.file_uploader(
             "Adicionar fotografia do equipamento",
             type=EXTENSOES_IMAGEM,
             accept_multiple_files=False,
-            key=f"foto_patrimonio_{patrimonio_id}",
+            key=f"foto_patrimonio_{patrimonio_id}_{input_nonce}",
         )
 
     if arquivo is not None:
@@ -270,6 +277,7 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
                 )
 
             if ok:
+                st.session_state["foto_input_nonce"] = input_nonce + 1
                 st.success(
                     f"✅ {mensagem} "
                     f"Foto ID: {foto_id}."
