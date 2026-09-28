@@ -234,6 +234,58 @@ def obter_dados_exclusao_patrimonio(numero_patrimonio: str, unidade: str) -> Tup
         conn.close()
 
 
+def listar_patrimonios_unidade(unidade: str) -> Tuple[bool, list, str]:
+    """Lista o estado PostgreSQL de uma unidade sem alterar dados."""
+    unidade = str(unidade or "").strip()
+    if not unidade:
+        return False, [], "Unidade é obrigatória."
+    if not _conexao_configurada():
+        return True, [], "PostgreSQL não configurado."
+
+    conn = conectar()
+    if conn is None:
+        return False, [], "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT
+                       s.nome,
+                       s.numero_consultorio,
+                       s.especialidade,
+                       p.tipo,
+                       p.numero_patrimonio,
+                       COALESCE(p.fabricante, ''),
+                       p.data_cadastro
+                     FROM public.patrimonios AS p
+                     JOIN public.unidades AS u ON u.id = p.unidade_id
+                     JOIN public.setores AS s ON s.id = p.setor_id
+                    WHERE u.nome = %s
+                    ORDER BY s.id, p.id""",
+                (unidade,),
+            )
+            registros = [
+                {
+                    "Setor": (
+                        f"Consultório {numero} - {especialidade}"
+                        if numero is not None and especialidade
+                        else str(setor)
+                    ),
+                    "Tipo de Patrimônio": str(tipo),
+                    "Nº de Patrimônio": str(numero_patrimonio),
+                    "Fabricante": str(fabricante or ""),
+                    "Data Cadastro": data_cadastro.isoformat() if data_cadastro else "",
+                }
+                for setor, numero, especialidade, tipo, numero_patrimonio, fabricante, data_cadastro
+                in cur.fetchall()
+            ]
+        return True, registros, "PostgreSQL consultado."
+    except Exception as exc:
+        return False, [], f"Falha ao consultar o inventário PostgreSQL: {exc}"
+    finally:
+        conn.close()
+
+
 def excluir_patrimonio_postgresql(patrimonio_id: int) -> Tuple[bool, str]:
     """Exclui um patrimônio; as fotos em public.patrimonio_fotos sofrem CASCADE."""
     if not _conexao_configurada():
