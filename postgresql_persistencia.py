@@ -380,7 +380,12 @@ def obter_dados_exclusao_setor(setor: str, unidade: str) -> Tuple[bool, Optional
 
 
 def excluir_setor_postgresql(setor_id: int) -> Tuple[bool, str]:
-    """Exclui um setor e seus patrimônios em uma única transação PostgreSQL."""
+    """Exclui patrimônios dependentes e o setor em uma única transação PostgreSQL.
+
+    A FK patrimonios.setor_id usa ON DELETE RESTRICT, então os patrimônios
+    precisam ser removidos explicitamente antes do setor. As fotos são
+    removidas do banco por CASCADE a partir dos patrimônios.
+    """
     if not _conexao_configurada():
         return True, "PostgreSQL não configurado."
 
@@ -399,16 +404,35 @@ def excluir_setor_postgresql(setor_id: int) -> Tuple[bool, str]:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """DELETE FROM public.setores
-                   WHERE id = %s
-                   RETURNING id""",
+                "SELECT id FROM public.setores WHERE id = %s FOR UPDATE",
                 (setor_id,),
             )
             if cur.fetchone() is None:
                 conn.rollback()
                 return False, "Setor não encontrado no PostgreSQL."
+
+            cur.execute(
+                "DELETE FROM public.patrimonios "
+                "WHERE setor_id = %s "
+                "RETURNING id",
+                (setor_id,),
+            )
+            patrimonios_excluidos = cur.fetchall()
+
+            cur.execute(
+                "DELETE FROM public.setores "
+                "WHERE id = %s "
+                "RETURNING id",
+                (setor_id,),
+            )
+            if cur.fetchone() is None:
+                raise RuntimeError("Setor não foi excluído após remover os patrimônios dependentes.")
+
         conn.commit()
-        return True, "Setor e patrimônios dependentes excluídos do PostgreSQL."
+        return True, (
+            f"Setor excluído do PostgreSQL com {len(patrimonios_excluidos)} "
+            "patrimônio(s) dependente(s)."
+        )
     except Exception as exc:
         conn.rollback()
         return False, f"Falha ao excluir o setor no PostgreSQL: {exc}"
