@@ -516,7 +516,6 @@ def excluir_setor(setor: str, unidade: str) -> bool:
 
     # O PostgreSQL executa a exclusão dos patrimônios e do setor em uma única
     # transação. Depois, os objetos do Storage são removidos separadamente.
-    patrimonio_ids = {item["patrimonio_id"] for item in dependentes}
     fotos = [
         (item["storage_bucket"], item["storage_path"])
         for item in dependentes
