@@ -458,7 +458,12 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
 
 
 def auditar_reconciliacao_unidade(unidade: str) -> Tuple[bool, dict, str]:
-    """Compara Google Sheets e PostgreSQL sem modificar nenhuma fonte."""
+    """Compara Google Sheets e PostgreSQL sem modificar nenhuma fonte.
+
+    O número de patrimônio é a identidade estável da comparação. Setor e tipo
+    são atributos que podem divergir e, nesse caso, são reportados
+    separadamente.
+    """
     unidade_limpa = _normalizar_unidade_aba(unidade)
     sheets_df, fonte = carregar_dados_excel(unidade_limpa)
     sheets_df = _normalizar_legacy_dataframe(sheets_df)
@@ -467,19 +472,44 @@ def auditar_reconciliacao_unidade(unidade: str) -> Tuple[bool, dict, str]:
     if not pg_ok:
         return False, {}, pg_mensagem
 
-    def chave(registro):
-        return (
-            _chave_texto(registro.get("Setor", "")),
-            _chave_texto(registro.get("Tipo de Patrimônio", "")),
-            _chave_texto(registro.get("Nº de Patrimônio", "")),
-        )
-
     sheets_registros = sheets_df[COLUNAS_INVENTARIO].to_dict("records")
-    pg_chaves = {chave(item) for item in pg_registros}
-    sheets_chaves = {chave(item) for item in sheets_registros}
 
-    somente_pg = sorted(pg_chaves - sheets_chaves)
-    somente_sheets = sorted(sheets_chaves - pg_chaves)
+    def chave_numero(registro):
+        return _chave_texto(registro.get("Nº de Patrimônio", ""))
+
+    def atributos(registro):
+        return {
+            "Setor": _chave_texto(registro.get("Setor", "")),
+            "Tipo de Patrimônio": _chave_texto(registro.get("Tipo de Patrimônio", "")),
+        }
+
+    pg_por_numero = {chave_numero(item): item for item in pg_registros if chave_numero(item)}
+    sheets_por_numero = {chave_numero(item): item for item in sheets_registros if chave_numero(item)}
+
+    somente_pg_numeros = sorted(set(pg_por_numero) - set(sheets_por_numero))
+    somente_sheets_numeros = sorted(set(sheets_por_numero) - set(pg_por_numero))
+
+    somente_pg = [
+        (pg_por_numero[n]["Setor"], pg_por_numero[n]["Tipo de Patrimônio"], pg_por_numero[n]["Nº de Patrimônio"])
+        for n in somente_pg_numeros
+    ]
+    somente_sheets = [
+        (sheets_por_numero[n]["Setor"], sheets_por_numero[n]["Tipo de Patrimônio"], sheets_por_numero[n]["Nº de Patrimônio"])
+        for n in somente_sheets_numeros
+    ]
+
+    divergencias_atributos = []
+    for numero in sorted(set(pg_por_numero) & set(sheets_por_numero)):
+        pg_item = pg_por_numero[numero]
+        sheets_item = sheets_por_numero[numero]
+        if atributos(pg_item) != atributos(sheets_item):
+            divergencias_atributos.append({
+                "Nº de Patrimônio": pg_item["Nº de Patrimônio"],
+                "Setor PostgreSQL": pg_item["Setor"],
+                "Setor Google Sheets": sheets_item["Setor"],
+                "Tipo PostgreSQL": pg_item["Tipo de Patrimônio"],
+                "Tipo Google Sheets": sheets_item["Tipo de Patrimônio"],
+            })
 
     resultado = {
         "unidade": unidade_limpa,
@@ -488,19 +518,22 @@ def auditar_reconciliacao_unidade(unidade: str) -> Tuple[bool, dict, str]:
         "quantidade_sheets": len(sheets_registros),
         "somente_postgresql": somente_pg,
         "somente_sheets": somente_sheets,
-        "sincronizado": not somente_pg and not somente_sheets,
+        "divergencias_atributos": divergencias_atributos,
+        "sincronizado": (
+            not somente_pg
+            and not somente_sheets
+            and not divergencias_atributos
+            and len(pg_registros) == len(pg_por_numero)
+            and len(sheets_registros) == len(sheets_por_numero)
+        ),
     }
     return True, resultado, "Auditoria de reconciliação concluída."
-
 
 
 def renderizar_auditoria_reconciliacao() -> None:
     """Interface administrativa somente leitura para Sheets x PostgreSQL."""
     st.title("🔎 Reconciliação Google Sheets × PostgreSQL")
-    st.caption(
-        "Auditoria somente leitura. Nenhum botão desta tela grava, atualiza "
-        "ou exclui dados."
-    )
+    st.caption("Auditoria somente leitura. Nenhum botão desta tela grava, atualiza ou exclui dados.")
 
     unidade = st.selectbox(
         "Unidade para auditar",
@@ -522,32 +555,29 @@ def renderizar_auditoria_reconciliacao() -> None:
     col2.metric("Google Sheets", resultado["quantidade_sheets"])
 
     if resultado["sincronizado"]:
-        st.success("As chaves Setor + Tipo + Nº de Patrimônio estão sincronizadas.")
+        st.success("Os patrimônios estão sincronizados por número, setor e tipo.")
         return
 
     st.warning("Foram encontradas divergências. Nenhuma correção foi aplicada.")
 
     if resultado["somente_postgresql"]:
-        st.markdown("**Somente no PostgreSQL**")
-        st.dataframe(
-            pd.DataFrame(
-                resultado["somente_postgresql"],
-                columns=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"],
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.markdown("**Patrimônios somente no PostgreSQL**")
+        st.dataframe(pd.DataFrame(
+            resultado["somente_postgresql"],
+            columns=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"],
+        ), use_container_width=True, hide_index=True)
 
     if resultado["somente_sheets"]:
-        st.markdown("**Somente no Google Sheets**")
-        st.dataframe(
-            pd.DataFrame(
-                resultado["somente_sheets"],
-                columns=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"],
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.markdown("**Patrimônios somente no Google Sheets**")
+        st.dataframe(pd.DataFrame(
+            resultado["somente_sheets"],
+            columns=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"],
+        ), use_container_width=True, hide_index=True)
+
+    if resultado["divergencias_atributos"]:
+        st.markdown("**Mesmo patrimônio, atributos divergentes**")
+        st.dataframe(pd.DataFrame(resultado["divergencias_atributos"]),
+                     use_container_width=True, hide_index=True)
 
 
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
