@@ -325,7 +325,6 @@ def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs:
                 st.warning("⚠️ Selecione uma unidade para continuar.")
             else:
                 st.session_state.unidade_selecionada = unidade_escolhida
-                st.session_state.pagina_atual = "inventario"
                 if navegar_inventario is not None:
                     navegar_inventario()
                 else:
@@ -341,7 +340,6 @@ def renderizar_portal_principal(lista_urs: Optional[List[str]] = None, lista_ubs
 def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
     unidade = st.session_state.get("unidade_selecionada", "")
     if not unidade:
-        st.session_state.pagina_atual = "portal"
         if navegar_portal is not None:
             navegar_portal()
         else:
@@ -369,7 +367,6 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
             st.subheader(f"🏥 Tabela Exclusiva: **`{unidade}`**")
         if st.button("⬅️ Trocar de Unidade / Portal", use_container_width=False, key="btn_trocar_unidade_header"):
             st.session_state.unidade_selecionada = ""
-            st.session_state.pagina_atual = "portal"
             if navegar_portal is not None:
                 navegar_portal()
             else:
@@ -585,7 +582,6 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
             st.space("stretch")
             if st.button("🏠 Portal", key="btn_portal_bottom", type="secondary"):
                 st.session_state.unidade_selecionada = ""
-                st.session_state.pagina_atual = "portal"
                 if navegar_portal is not None:
                     navegar_portal()
                 else:
