@@ -559,11 +559,6 @@ def excluir_setor(setor: str, unidade: str) -> bool:
         if item["storage_path"] is not None
     ]
 
-    ok_pg, msg_pg = excluir_setor_postgresql(setor_id)
-    if not ok_pg:
-        st.error(msg_pg)
-        return False
-
     from supabase_storage import listar_objetos_bucket, excluir_objetos_patrimonio
 
     # Preflight obrigatório: não prosseguir se o estado do Storage não puder
@@ -587,6 +582,11 @@ def excluir_setor(setor: str, unidade: str) -> bool:
                 f"antes de excluir o setor. Ausentes: {', '.join(faltantes)}"
             )
             return False
+
+    ok_pg, msg_pg = excluir_setor_postgresql(setor_id)
+    if not ok_pg:
+        st.error(msg_pg)
+        return False
 
     ok_storage, msg_storage = excluir_objetos_patrimonio(fotos)
     if not ok_storage:
