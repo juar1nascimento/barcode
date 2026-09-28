@@ -66,6 +66,25 @@ is_admin = bool(usuario_logado and admin_configurado and usuario_logado == admin
 
 reconciliacao_pendente = bool(st.session_state.get("reconciliacao_pendente"))
 
+lista_urs = [
+    "Selecione uma URS...", "URS Boa Vista", "URS Feu Rosa",
+    "URS Jacaraípe", "URS Novo Horizonte", "URS Serra Sede", "URS Serra Dourada"
+]
+
+lista_almoxarifado = ["Almoxarifado Central SESA"]
+
+lista_ubs = [
+    "Selecione uma UBS...", "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa",
+    "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus",
+    "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado",
+    "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha",
+    "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I",
+    "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)",
+    "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos",
+    "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra",
+    "UBS Itinerante (atendimento na área rural)"
+]
+
 # ==========================================
 # PÁGINAS E NAVEGAÇÃO
 # ==========================================
