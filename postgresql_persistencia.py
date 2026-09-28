@@ -536,3 +536,81 @@ def salvar_patrimonio(
         return False, None, f"Falha ao gravar no PostgreSQL: {texto}"
     finally:
         conn.close()
+
+
+def registrar_movimentacao_patrimonio(
+    identificador: str,
+    tipo_movimentacao: str,
+    unidade_nome: str,
+    motivo: str = "",
+    observacao: str = "",
+    usuario: str = "",
+) -> Tuple[bool, Optional[int], str]:
+    """Registra um evento de movimentação sem alterar ainda a localização atual.
+
+    A localização efetiva do patrimônio permanece em public.patrimonios até que
+    o fluxo de transferência/baixa seja implementado com suas validações próprias.
+    """
+    tipos = {"ENTRADA", "SAIDA", "TRANSFERENCIA"}
+    tipo = str(tipo_movimentacao or "").strip().upper()
+    identificador = str(identificador or "").strip()
+    unidade_nome = str(unidade_nome or "").strip()
+    usuario = str(usuario or "").strip()
+    if tipo not in tipos:
+        return False, None, "Tipo de movimentação inválido."
+    if not identificador or not unidade_nome or not usuario:
+        return False, None, "Identificador, unidade e usuário são obrigatórios."
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT p.id
+                       FROM public.patrimonios AS p
+                       JOIN public.unidades AS u ON u.id = p.unidade_id
+                       WHERE (p.numero_patrimonio = %s OR p.codigo_barras = %s)
+                         AND u.nome = %s
+                       LIMIT 1""",
+                    (identificador, identificador, unidade_nome),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return False, None, "Patrimônio não encontrado na unidade informada."
+
+                patrimonio_id = int(row[0])
+                unidade_origem_id = None
+                unidade_destino_id = None
+                if tipo in ("SAIDA", "TRANSFERENCIA"):
+                    cur.execute(
+                        "SELECT id FROM public.unidades WHERE nome = %s LIMIT 1",
+                        (unidade_nome,),
+                    )
+                    unidade_origem_id = int(cur.fetchone()[0])
+                else:
+                    cur.execute(
+                        "SELECT id FROM public.unidades WHERE nome = %s LIMIT 1",
+                        (unidade_nome,),
+                    )
+                    unidade_destino_id = int(cur.fetchone()[0])
+
+                cur.execute(
+                    """INSERT INTO public.movimentacoes_patrimonio
+                       (patrimonio_id, tipo, unidade_origem_id,
+                        unidade_destino_id, motivo, observacao, usuario)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)
+                       RETURNING id""",
+                    (
+                        patrimonio_id,
+                        tipo,
+                        unidade_origem_id,
+                        unidade_destino_id,
+                        str(motivo or "").strip() or None,
+                        str(observacao or "").strip() or None,
+                        usuario,
+                    ),
+                )
+                movimento_id = int(cur.fetchone()[0])
+            conn.commit()
+        return True, movimento_id, "Movimentação registrada no PostgreSQL."
+    except Exception as exc:
+        return False, None, f"Falha ao registrar movimentação: {exc}"
