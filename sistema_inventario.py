@@ -91,7 +91,10 @@ def processar_imagem(image_file: Any) -> Tuple[Optional[np.ndarray], List[Dict[s
         import zxingcpp
         from PIL import Image, ImageOps, UnidentifiedImageError
 
-        MAX_INPUT_BYTES = 20 * 1024 * 1024
+        # O limite de upload do Streamlit está em 8 MB; manter o mesmo
+        # teto aqui evita que a rotina de visão aceite algo que a interface
+        # já deveria bloquear e reduz pressão de memória no smartphone.
+        MAX_INPUT_BYTES = 8 * 1024 * 1024
         MAX_SCAN_DIMENSION = 1600
 
         if hasattr(image_file, "getvalue"):
