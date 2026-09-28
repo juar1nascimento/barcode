@@ -505,13 +505,11 @@ def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
     if not alterado:
         return False
 
-    alvo = df.loc[
-        (df["Setor"].map(_chave_texto) == _chave_texto(setor))
-        & (df["Nº de Patrimônio"].map(_chave_texto) == _chave_texto(coluna))
-    ]
-    if alvo.empty:
+    indices_excluidos = df.index.difference(novo.index)
+    if len(indices_excluidos) != 1:
         return False
 
+    alvo = df.loc[indices_excluidos]
     numero = _valor_texto(alvo.iloc[0]["Nº de Patrimônio"])
     ok, patrimonio_id, fotos, mensagem = obter_dados_exclusao_patrimonio(numero, unidade)
     if not ok:
