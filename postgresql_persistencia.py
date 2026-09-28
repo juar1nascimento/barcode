@@ -538,6 +538,62 @@ def salvar_patrimonio(
         conn.close()
 
 
+
+def registrar_entrada_patrimonio(
+    numero_patrimonio: str, codigo_barras: str, tipo: str,
+    unidade: str, setor: str, fabricante: str = "",
+    observacao: str = "", usuario: str = "",
+) -> Tuple[bool, Optional[int], str]:
+    """Cadastra o patrimônio e registra a entrada na mesma transação."""
+    numero = str(numero_patrimonio or "").strip() or str(codigo_barras or "").strip()
+    codigo = str(codigo_barras or "").strip() or None
+    tipo = str(tipo or "").strip()
+    unidade = str(unidade or "").strip()
+    setor = re.sub(r"\s+", " ", str(setor or "").strip())
+    usuario = str(usuario or "").strip()
+    fabricante = str(fabricante or "").strip() or None
+    if not all((numero, tipo, unidade, setor, usuario)):
+        return False, None, "Número, tipo, unidade, setor e usuário são obrigatórios."
+    if tipo not in TIPOS_PATRIMONIO:
+        return False, None, "Tipo de patrimônio inválido."
+    conn = conectar()
+    if conn is None:
+        return False, None, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            unidade_id = garantir_unidade(cur, unidade)
+            setor_id = garantir_setor(cur, unidade_id, setor)
+            cur.execute(
+                """INSERT INTO public.patrimonios
+                   (unidade_id, setor_id, tipo, numero_patrimonio,
+                    codigo_barras, fabricante, data_cadastro, atualizado_em)
+                   VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                   RETURNING id""",
+                (unidade_id, setor_id, tipo, numero, codigo, fabricante),
+            )
+            patrimonio_id = int(cur.fetchone()[0])
+            cur.execute(
+                """INSERT INTO public.movimentacoes_patrimonio
+                   (patrimonio_id, tipo, unidade_destino_id, setor_destino_id,
+                    motivo, observacao, usuario)
+                   VALUES (%s, 'ENTRADA', %s, %s, %s, %s, %s)
+                   RETURNING id""",
+                (patrimonio_id, unidade_id, setor_id,
+                 "Recebimento de equipamento",
+                 str(observacao or "").strip() or None, usuario),
+            )
+            cur.fetchone()
+            conn.commit()
+        return True, patrimonio_id, "Entrada e patrimônio gravados no PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        texto = str(exc)
+        if "duplicate key" in texto.lower() or "unique" in texto.lower():
+            return False, None, "O patrimônio " + numero + " já existe no PostgreSQL."
+        return False, None, "Falha ao registrar entrada: " + texto
+    finally:
+        conn.close()
+
 def listar_setores_unidade(unidade_nome: str) -> Tuple[bool, list, str]:
     """Lista setores ativos de uma unidade sem alterar dados."""
     unidade = str(unidade_nome or "").strip()
