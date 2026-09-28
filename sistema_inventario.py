@@ -63,6 +63,56 @@ def adicionar_e_salvar_sem_sobrescrever(
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
 
 
+
+@st.fragment(key="leitor_codigo_patrimonio")
+def _renderizar_entrada_codigo_patrimonio(
+    descricao_final: str,
+    setor_input: str,
+    unidade: str,
+    fabricante_input: str,
+    header_patrimonio: str,
+) -> None:
+    """Leitura manual/USB em fragmento para evitar reruns integrais desnecessários.
+
+    A persistência continua sendo executada pelo backend existente. Após uma
+    gravação bem-sucedida, o app inteiro é atualizado explicitamente para
+    refletir a nova linha e manter a reconciliação visual consistente.
+    """
+    with st.form(key="form_bipagem", clear_on_submit=True):
+        codigo_input = st.text_input(
+            "Código Lido / Bipado:",
+            type="search",
+            autocomplete="off",
+            placeholder="Aguardando bipagem...",
+        )
+        registrar = st.form_submit_button(
+            "Registrar Manualmente",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if registrar:
+        codigo = codigo_input.strip()
+        if not codigo:
+            st.warning("⚠️ Informe ou bipar um código antes de registrar.")
+            return
+
+        if adicionar_e_salvar(
+            codigo,
+            descricao_final,
+            setor_input,
+            unidade,
+            fabricante_input.strip(),
+        ):
+            st.session_state.mensagem_sucesso = (
+                f"✅ Código `{codigo}` registrado na coluna "
+                f"`{header_patrimonio}` no setor `{setor_input}` ({unidade})."
+            )
+            st.session_state.ultimo_patrimonio_numero = codigo
+            st.session_state.ultimo_patrimonio_unidade = unidade
+            st.rerun()
+
+
 def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
     """Exibe as fotografias do último patrimônio gravado nesta unidade."""
     patrimonio_id = st.session_state.get("ultimo_patrimonio_id")
@@ -445,14 +495,13 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             st.components.v1.html(html_scanner, height=390)
 
             st.markdown("##### 🔌 Entrada Manual / Scanner USB")
-            with st.form(key="form_bipagem", clear_on_submit=True):
-                    codigo_input = st.text_input("Código Lido / Bipado:", type="search", autocomplete="off", placeholder="Aguardando bipagem...")
-                    if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
-                        if adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade, fabricante_input.strip()):
-                            st.session_state.mensagem_sucesso = f"✅ Código `{codigo_input.strip()}` registrado na coluna `{header_patrimonio}` no setor `{setor_input}` ({unidade})."
-                            st.session_state.ultimo_patrimonio_numero = codigo_input.strip()
-                            st.session_state.ultimo_patrimonio_unidade = unidade
-                        st.rerun()
+            _renderizar_entrada_codigo_patrimonio(
+                descricao_final=descricao_final,
+                setor_input=setor_input,
+                unidade=unidade,
+                fabricante_input=fabricante_input,
+                header_patrimonio=header_patrimonio,
+            )
 
         with tab_upload:
             uploaded_file = st.file_uploader("Envie uma imagem do código de barras", type=["jpg", "png", "jpeg"])
