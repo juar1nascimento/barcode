@@ -153,6 +153,52 @@ def _delete_storage(base_url: str, key: str, path: str) -> None:
         )
 
 
+def listar_objetos_bucket() -> Tuple[bool, list, str]:
+    """Lista recursivamente os arquivos do bucket sem modificar o Storage."""
+    try:
+        config = _config_supabase()
+        encontrados = []
+
+        def listar_prefixo(prefixo: str) -> None:
+            offset = 0
+            while True:
+                response = requests.post(
+                    f"{config['url']}/storage/v1/object/list/{BUCKET}",
+                    headers={**_headers(config["key"]), "Content-Type": "application/json"},
+                    json={
+                        "prefix": prefixo,
+                        "limit": 1000,
+                        "offset": offset,
+                        "sortBy": {"column": "name", "order": "asc"},
+                    },
+                    timeout=30,
+                )
+                if not response.ok:
+                    raise RuntimeError(f"HTTP {response.status_code}")
+                itens = response.json()
+                if not itens:
+                    break
+
+                for item in itens:
+                    nome = str(item.get("name") or "").strip()
+                    if not nome:
+                        continue
+                    caminho = f"{prefixo.rstrip('/')}/{nome}" if prefixo else nome
+                    if item.get("id") is None:
+                        listar_prefixo(caminho)
+                    else:
+                        encontrados.append(caminho)
+
+                if len(itens) < 1000:
+                    break
+                offset += len(itens)
+
+        listar_prefixo("")
+        return True, sorted(set(encontrados)), "Storage consultado."
+    except Exception as exc:
+        return False, [], f"Falha ao listar o Storage: {exc}"
+
+
 def excluir_objetos_patrimonio(fotos) -> Tuple[bool, str]:
     """Remove objetos de fotos do Storage; não altera o banco de dados."""
     fotos = list(fotos or [])
