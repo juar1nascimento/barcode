@@ -33,6 +33,7 @@ pandas==3.0.5
 pillow==12.3.0
 protobuf==7.36.1
 psycopg[binary]==3.2.10
+psycopg-pool==3.3.0
 pyarrow==25.0.1
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
