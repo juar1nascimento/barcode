@@ -327,6 +327,43 @@ def obter_dados_exclusao_setor(setor: str, unidade: str) -> Tuple[bool, Optional
         conn.close()
 
 
+def excluir_setor_postgresql(setor_id: int) -> Tuple[bool, str]:
+    """Exclui um setor e seus patrimônios em uma única transação PostgreSQL."""
+    if not _conexao_configurada():
+        return True, "PostgreSQL não configurado."
+
+    try:
+        setor_id = int(setor_id)
+    except (TypeError, ValueError):
+        return False, "ID de setor inválido."
+
+    if setor_id <= 0:
+        return False, "ID de setor inválido."
+
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """DELETE FROM public.setores
+                   WHERE id = %s
+                   RETURNING id""",
+                (setor_id,),
+            )
+            if cur.fetchone() is None:
+                conn.rollback()
+                return False, "Setor não encontrado no PostgreSQL."
+        conn.commit()
+        return True, "Setor e patrimônios dependentes excluídos do PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        return False, f"Falha ao excluir o setor no PostgreSQL: {exc}"
+    finally:
+        conn.close()
+
+
 def salvar_patrimonio(
     codigo_barras: str,
     tipo: str,
