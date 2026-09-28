@@ -1,5 +1,7 @@
 import streamlit as st
 
+from postgresql_persistencia import registrar_movimentacao_patrimonio
+
 def renderizar_card_entrada(lista_urs, lista_ubs, navegar_entrada=None):
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📥 Entrada de Equipamentos</h3>", unsafe_allow_html=True)
@@ -66,7 +68,19 @@ def renderizar_sistema_entrada():
     if st.button("✅ Confirmar Entrada de Equipamento", type="primary", use_container_width=True):
         valor_final = num_patrimonio.strip() or codigo_entrada.strip()
         if valor_final:
-            st.success(f"Equipamento com Patrimônio `{valor_final}` registrado com sucesso no setor **{setor_atual}**!")
-            st.session_state.numero_patrimonio_val = ""
+            usuario = str(st.session_state.get("usuario_logado", "")).strip().lower()
+            ok, _, mensagem = registrar_movimentacao_patrimonio(
+                valor_final,
+                "ENTRADA",
+                setor_atual,
+                motivo="Recebimento de equipamento",
+                observacao=str(setor_origem or "").strip(),
+                usuario=usuario,
+            )
+            if ok:
+                st.success(f"Entrada do patrimônio `{valor_final}` registrada no PostgreSQL para **{setor_atual}**.")
+                st.session_state.numero_patrimonio_val = ""
+            else:
+                st.error(mensagem)
         else:
             st.warning("Informe ou bipe o código do equipamento antes de confirmar.")
