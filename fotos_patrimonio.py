@@ -237,7 +237,7 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
     modo_foto = st.radio(
         "Origem da fotografia",
         ["📷 Tirar foto", "📁 Selecionar arquivo"],
-        horizontal=True,
+        horizontal=False,
         key=f"modo_foto_{patrimonio_id}",
     )
 
@@ -293,7 +293,8 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
 
     st.markdown("#### Histórico de fotografias")
 
-    colunas = st.columns(min(len(fotos), 3))
+    # Duas colunas no máximo mantêm miniaturas legíveis em telas estreitas.
+    colunas = st.columns(min(len(fotos), 2), gap="small", vertical_alignment="top")
 
     for indice, foto in enumerate(fotos):
         with colunas[indice % len(colunas)]:
