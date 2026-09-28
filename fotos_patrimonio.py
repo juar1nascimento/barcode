@@ -5,7 +5,7 @@ from typing import Any
 import streamlit as st
 
 from postgresql_persistencia import conectar
-from supabase_storage import salvar_foto_patrimonio
+from supabase_storage import criar_urls_assinadas_fotos, salvar_foto_patrimonio
 
 
 EXTENSOES_IMAGEM = ["jpg", "jpeg", "png", "webp"]
@@ -291,7 +291,12 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
     if not fotos:
         return
 
-    st.markdown("#### Histórico de fotografias")
+    st.markdown("#### Galeria de fotografias")
+
+    caminhos = [str(foto["storage_path"]).strip() for foto in fotos if foto.get("storage_path")]
+    ok_urls, urls, _ = criar_urls_assinadas_fotos(caminhos, expires_in=900)
+    if not ok_urls:
+        urls = {}
 
     # Duas colunas no máximo mantêm miniaturas legíveis em telas estreitas.
     colunas = st.columns(min(len(fotos), 2), gap="small", vertical_alignment="top")
@@ -319,6 +324,16 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
 
             if detalhes:
                 st.caption(" • ".join(detalhes))
+
+            url_foto = urls.get(str(foto["storage_path"]).strip(), "")
+            if url_foto:
+                st.image(
+                    url_foto,
+                    caption=f"Foto {foto['ordem']}",
+                    use_container_width=True,
+                )
+            else:
+                st.warning("Não foi possível gerar a URL temporária desta foto.")
 
             st.caption(
                 f"Storage: {foto['bucket']}/{foto['storage_path']}"
