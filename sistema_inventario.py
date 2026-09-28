@@ -344,6 +344,14 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
             navegar_portal()
         else:
             st.rerun()
+        return
+
+    # Contexto de configuração pertence à unidade atual; ao trocar de unidade,
+    # nenhuma configuração da unidade anterior pode ser reutilizada.
+    if st.session_state.get("inventario_contexto_unidade") != unidade:
+        for chave in ("saved_setor", "saved_descricao", "config_patrimonio_confirmada", "ultimo_patrimonio_id", "ultimo_patrimonio_numero", "ultimo_patrimonio_unidade"):
+            st.session_state.pop(chave, None)
+        st.session_state["inventario_contexto_unidade"] = unidade
 
     if st.session_state.get("mensagem_sucesso"):
         st.success(st.session_state.mensagem_sucesso)
@@ -367,6 +375,9 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
             st.subheader(f"🏥 Tabela Exclusiva: **`{unidade}`**")
         if st.button("⬅️ Trocar de Unidade / Portal", use_container_width=False, key="btn_trocar_unidade_header"):
             st.session_state.unidade_selecionada = ""
+            st.session_state.inventario_contexto_unidade = ""
+            for chave in ("saved_setor", "saved_descricao", "config_patrimonio_confirmada", "ultimo_patrimonio_id", "ultimo_patrimonio_numero", "ultimo_patrimonio_unidade"):
+                st.session_state.pop(chave, None)
             if navegar_portal is not None:
                 navegar_portal()
             else:
