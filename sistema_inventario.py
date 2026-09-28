@@ -285,7 +285,7 @@ def _opcoes_unidade_por_categoria(
     return almox_opcoes
 
 
-def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
+def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, navegar_inventario=None, *args, **kwargs) -> None:
     almox_opcoes = [u for u in (lista_almoxarifado if lista_almoxarifado is not None else LISTA_ALMOXARIFADO_PADRAO) if not str(u).startswith("Selecione")]
     urs_opcoes = [u for u in (lista_urs if lista_urs is not None else LISTA_URS_PADRAO) if not str(u).startswith("Selecione")]
     ubs_opcoes = [u for u in (lista_ubs if lista_ubs is not None else LISTA_UBS_PADRAO) if not str(u).startswith("Selecione")]
@@ -326,7 +326,10 @@ def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs:
             else:
                 st.session_state.unidade_selecionada = unidade_escolhida
                 st.session_state.pagina_atual = "inventario"
-                st.rerun()
+                if navegar_inventario is not None:
+                    navegar_inventario()
+                else:
+                    st.rerun()
 
 
 def renderizar_portal_principal(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
@@ -335,11 +338,14 @@ def renderizar_portal_principal(lista_urs: Optional[List[str]] = None, lista_ubs
 # ==============================================================================
 # PÁGINA EXCLUSIVA DE INVENTÁRIO POR UNIDADE (URS / UBS)
 # ==============================================================================
-def renderizar_sistema_inventario(*args, **kwargs) -> None:
+def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
     unidade = st.session_state.get("unidade_selecionada", "")
     if not unidade:
         st.session_state.pagina_atual = "portal"
-        st.rerun()
+        if navegar_portal is not None:
+            navegar_portal()
+        else:
+            st.rerun()
 
     if st.session_state.get("mensagem_sucesso"):
         st.success(st.session_state.mensagem_sucesso)
