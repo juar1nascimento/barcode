@@ -1,6 +1,6 @@
 import streamlit as st
 
-def renderizar_card_saida(lista_urs, lista_ubs):
+def renderizar_card_saida(lista_urs, lista_ubs, navegar_saida=None):
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📤 Saída de Equipamentos</h3>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de baixa, transferência e saída de equipamentos.</p>", unsafe_allow_html=True)
@@ -19,7 +19,10 @@ def renderizar_card_saida(lista_urs, lista_ubs):
         
         if st.button("📂 Abrir Saída nesta Aba", use_container_width=True, type="primary", key="btn_saida"):
             st.session_state.pagina_atual = "saida"
-            st.rerun()
+            if navegar_saida is not None:
+                navegar_saida()
+            else:
+                st.rerun()
 
 def renderizar_sistema_saida():
     st.title("📤 Saída de Equipamentos - GTI-SESA")
