@@ -118,9 +118,15 @@ def _pagina_inventario():
         desativar_contexto_consultorio()
 
 def _pagina_auditoria_pre_migracao():
+    if not sessao_admin():
+        st.error("Acesso administrativo necessário.")
+        st.stop()
     renderizar_auditoria_pre_migracao()
 
 def _pagina_preflight_supabase():
+    if not sessao_admin():
+        st.error("Acesso administrativo necessário.")
+        st.stop()
     st.title("🔐 Preflight seguro do Supabase")
     st.caption("Esta tela não exibe nem registra credenciais.")
 
@@ -167,9 +173,15 @@ secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
             )
 
 def _pagina_reconciliacao():
+    if not sessao_admin():
+        st.error("Acesso administrativo necessário.")
+        st.stop()
     renderizar_auditoria_reconciliacao()
 
 def _pagina_teste_upload():
+    if not sessao_admin():
+        st.error("Acesso administrativo necessário.")
+        st.stop()
     renderizar_teste_upload_foto()
 
 def _pagina_entrada():
