@@ -737,7 +737,7 @@ def registrar_movimentacao_patrimonio(
         with conectar() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT p.id
+                    """SELECT p.id, p.setor_id
                        FROM public.patrimonios AS p
                        JOIN public.unidades AS u ON u.id = p.unidade_id
                        WHERE (p.numero_patrimonio = %s OR p.codigo_barras = %s)
@@ -750,6 +750,7 @@ def registrar_movimentacao_patrimonio(
                     return False, None, "Patrimônio não encontrado na unidade informada."
 
                 patrimonio_id = int(row[0])
+                setor_origem_id = int(row[1])
                 unidade_origem_id = None
                 unidade_destino_id = None
                 if tipo in ("SAIDA", "TRANSFERENCIA"):
@@ -767,7 +768,7 @@ def registrar_movimentacao_patrimonio(
 
                 cur.execute(
                     """INSERT INTO public.movimentacoes_patrimonio
-                       (patrimonio_id, tipo, unidade_origem_id,
+                       (patrimonio_id, tipo, unidade_origem_id, setor_origem_id,
                         unidade_destino_id, motivo, observacao, usuario)
                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                        RETURNING id""",
