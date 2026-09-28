@@ -564,7 +564,30 @@ def excluir_setor(setor: str, unidade: str) -> bool:
         st.error(msg_pg)
         return False
 
-    from supabase_storage import excluir_objetos_patrimonio
+    from supabase_storage import listar_objetos_bucket, excluir_objetos_patrimonio
+
+    # Preflight obrigatório: não prosseguir se o estado do Storage não puder
+    # ser confirmado ou se algum objeto esperado estiver ausente.
+    if fotos:
+        ok_lista, objetos_storage, msg_lista = listar_objetos_bucket()
+        if not ok_lista:
+            st.error(
+                "Exclusão bloqueada: não foi possível confirmar o estado do "
+                f"Storage antes da operação. {msg_lista}"
+            )
+            return False
+
+        caminhos_esperados = {path for bucket, path in fotos if str(bucket) == "patrimonio-fotos"}
+        caminhos_encontrados = set(objetos_storage)
+        faltantes = sorted(caminhos_esperados - caminhos_encontrados)
+        if faltantes:
+            st.error(
+                "Exclusão bloqueada: existem fotos registradas no PostgreSQL "
+                "que não foram encontradas no Storage. Faça a reconciliação "
+                f"antes de excluir o setor. Ausentes: {', '.join(faltantes)}"
+            )
+            return False
+
     ok_storage, msg_storage = excluir_objetos_patrimonio(fotos)
     if not ok_storage:
         st.warning(
