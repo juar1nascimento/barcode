@@ -11,6 +11,8 @@ from Tabela_de_dados_Inventario_7_2 import (
     carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
 )
 from fotos_patrimonio import renderizar_fotos_patrimonio
+from postgresql_persistencia import listar_patrimonios_unidade, listar_fotos_patrimonios_unidade
+from supabase_storage import criar_urls_assinadas_fotos
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
@@ -644,6 +646,55 @@ def renderizar_sistema_inventario(navegar_portal=None, *args, **kwargs) -> None:
                                 st.code(codigo, language=None)
                                 if fabricante and fabricante.lower() not in {"nan", "none", "null", "<na>"}:
                                     st.caption(f"Fabricante: {fabricante}")
+
+        with st.expander("🖼️ Inventário detalhado com imagem", expanded=True):
+            ok_pg, registros_pg, msg_pg = listar_patrimonios_unidade(unidade)
+            if ok_pg and registros_pg:
+                ok_fotos, fotos_pg, _ = listar_fotos_patrimonios_unidade(unidade)
+                urls = {}
+                if ok_fotos:
+                    caminhos = [
+                        item["path"]
+                        for lista in fotos_pg.values()
+                        for item in lista
+                    ]
+                    _, urls, _ = criar_urls_assinadas_fotos(caminhos, expires_in=900)
+
+                linhas_pg = []
+                for registro in registros_pg:
+                    numero = str(registro.get("Nº Patrimônio", "")).strip()
+                    fotos = fotos_pg.get(numero, [])
+                    primeira_foto = ""
+                    if fotos:
+                        primeira_foto = urls.get(fotos[0]["path"], "")
+                    linhas_pg.append(
+                        {
+                            "Setor": registro.get("Setor", ""),
+                            "Tipo": registro.get("Tipo", ""),
+                            "Nº Patrimônio": numero,
+                            "Fabricante": registro.get("Fabricante", ""),
+                            "Data Cadastro": registro.get("Data Cadastro", ""),
+                            "Imagem": primeira_foto,
+                        }
+                    )
+
+                df_detalhado = pd.DataFrame(linhas_pg)
+                st.dataframe(
+                    df_detalhado,
+                    use_container_width=True,
+                    hide_index=True,
+                    row_height=100,
+                    column_config={
+                        "Imagem": st.column_config.ImageColumn(
+                            "Imagem",
+                            width="medium",
+                            help="Foto principal do patrimônio. Clique na miniatura para ampliar.",
+                        )
+                    },
+                )
+                st.caption("A imagem é carregada do bucket privado por URL temporária.")
+            else:
+                st.info("Não foi possível montar o inventário detalhado pelo PostgreSQL.")
 
         with st.expander("🖥️ Visão tabular completa", expanded=False):
             st.dataframe(df_atual, use_container_width=True)
