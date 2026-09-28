@@ -269,6 +269,64 @@ def excluir_patrimonio_postgresql(patrimonio_id: int) -> Tuple[bool, str]:
         conn.close()
 
 
+def obter_dados_exclusao_setor(setor: str, unidade: str) -> Tuple[bool, Optional[int], list, str]:
+    """Localiza um setor e todos os patrimônios/fotos dependentes sem alterar dados."""
+    if not _conexao_configurada():
+        return True, None, [], "PostgreSQL não configurado."
+
+    setor = re.sub(r"\s+", " ", str(setor or "").strip())
+    unidade = str(unidade or "").strip()
+    if not setor or not unidade:
+        return False, None, [], "Setor e unidade são obrigatórios."
+
+    conn = conectar()
+    if conn is None:
+        return False, None, [], "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        nome, numero, especialidade = _dividir_setor(setor)
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT s.id
+                     FROM public.setores AS s
+                     JOIN public.unidades AS u ON u.id = s.unidade_id
+                    WHERE u.nome = %s
+                      AND s.nome = %s
+                      AND s.numero_consultorio IS NOT DISTINCT FROM %s
+                      AND s.especialidade IS NOT DISTINCT FROM %s
+                    LIMIT 1""",
+                (unidade, nome, numero, especialidade),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False, None, [], "Setor não encontrado no PostgreSQL."
+
+            setor_id = int(row[0])
+            cur.execute(
+                """SELECT p.id, p.numero_patrimonio, f.storage_bucket, f.storage_path
+                     FROM public.patrimonios AS p
+                     LEFT JOIN public.patrimonio_fotos AS f
+                       ON f.patrimonio_id = p.id
+                    WHERE p.setor_id = %s
+                    ORDER BY p.id, f.ordem, f.id""",
+                (setor_id,),
+            )
+            dependentes = [
+                {
+                    "patrimonio_id": int(pid),
+                    "numero_patrimonio": str(numero_patrimonio),
+                    "storage_bucket": str(bucket) if bucket is not None else None,
+                    "storage_path": str(path) if path is not None else None,
+                }
+                for pid, numero_patrimonio, bucket, path in cur.fetchall()
+            ]
+        return True, setor_id, dependentes, "Setor localizado."
+    except Exception as exc:
+        return False, None, [], f"Falha ao consultar o setor para exclusão: {exc}"
+    finally:
+        conn.close()
+
+
 def salvar_patrimonio(
     codigo_barras: str,
     tipo: str,
