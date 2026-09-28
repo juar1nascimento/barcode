@@ -12,6 +12,7 @@ from postgresql_persistencia import (
     salvar_patrimonios_em_lote,
     obter_dados_exclusao_patrimonio,
     excluir_patrimonio_postgresql,
+    obter_dados_exclusao_setor,
 )
 
 import gspread
@@ -496,7 +497,21 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
 def excluir_setor(setor: str, unidade: str) -> bool:
     df, _ = carregar_dados_excel(unidade)
     novo, alterado = _aplicar_exclusao_setor(df, setor)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    if not alterado:
+        return False
+
+    ok, setor_id, dependentes, mensagem = obter_dados_exclusao_setor(setor, unidade)
+    if not ok:
+        st.error(mensagem)
+        return False
+
+    st.info(
+        f"Exclusão do setor preparada: {len({item['patrimonio_id'] for item in dependentes})} "
+        f"patrimônio(s) e {sum(item['storage_path'] is not None for item in dependentes)} foto(s) vinculados."
+    )
+    # A exclusão física em PostgreSQL/Storage será executada por rotina transacional
+    # própria; esta etapa não altera dados para evitar exclusão parcial.
+    return False
 
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
