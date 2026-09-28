@@ -776,6 +776,7 @@ def registrar_movimentacao_patrimonio(
                         patrimonio_id,
                         tipo,
                         unidade_origem_id,
+                        setor_origem_id,
                         unidade_destino_id,
                         str(motivo or "").strip() or None,
                         str(observacao or "").strip() or None,
