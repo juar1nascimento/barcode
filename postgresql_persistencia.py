@@ -327,6 +327,7 @@ def listar_patrimonios_unidade(unidade: str) -> Tuple[bool, list, str]:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT
+                       p.id,
                        s.nome,
                        s.numero_consultorio,
                        s.especialidade,
@@ -343,6 +344,7 @@ def listar_patrimonios_unidade(unidade: str) -> Tuple[bool, list, str]:
             )
             registros = [
                 {
+                    "Patrimônio ID": int(patrimonio_id),
                     "Setor": (
                         f"Consultório {numero} - {especialidade}"
                         if numero is not None and especialidade
@@ -353,7 +355,7 @@ def listar_patrimonios_unidade(unidade: str) -> Tuple[bool, list, str]:
                     "Fabricante": str(fabricante or ""),
                     "Data Cadastro": data_cadastro.isoformat() if data_cadastro else "",
                 }
-                for setor, numero, especialidade, tipo, numero_patrimonio, fabricante, data_cadastro
+                for patrimonio_id, setor, numero, especialidade, tipo, numero_patrimonio, fabricante, data_cadastro
                 in cur.fetchall()
             ]
         return True, registros, "PostgreSQL consultado."
