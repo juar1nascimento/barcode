@@ -673,7 +673,31 @@ def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
         return False
 
     if patrimonio_id is not None:
-        from supabase_storage import excluir_objetos_patrimonio
+        from supabase_storage import listar_objetos_bucket, excluir_objetos_patrimonio
+
+        # Preflight obrigatório antes do DELETE: se houver metadata de foto,
+        # todos os objetos esperados precisam estar confirmados no Storage.
+        if fotos:
+            ok_lista, objetos_storage, msg_lista = listar_objetos_bucket()
+            if not ok_lista:
+                st.error(
+                    "Exclusão bloqueada: não foi possível confirmar o estado "
+                    f"do Storage. {msg_lista}"
+                )
+                return False
+
+            caminhos_esperados = {
+                path for bucket, path in fotos
+                if str(bucket) == "patrimonio-fotos"
+            }
+            faltantes = sorted(caminhos_esperados - set(objetos_storage))
+            if faltantes:
+                st.error(
+                    "Exclusão bloqueada: existem fotos registradas no PostgreSQL "
+                    "que não foram encontradas no Storage. Faça a reconciliação "
+                    f"antes de excluir. Ausentes: {', '.join(faltantes)}"
+                )
+                return False
 
         # Primeiro remove o registro transacional do PostgreSQL.
         # Se o Storage falhar depois, os objetos ficam órfãos e podem ser
