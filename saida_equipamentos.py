@@ -18,7 +18,6 @@ def renderizar_card_saida(lista_urs, lista_ubs, navegar_saida=None):
         st.write("")
         
         if st.button("📂 Abrir Saída nesta Aba", use_container_width=True, type="primary", key="btn_saida"):
-            st.session_state.pagina_atual = "saida"
             if navegar_saida is not None:
                 navegar_saida()
             else:
