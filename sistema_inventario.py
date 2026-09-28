@@ -355,13 +355,13 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     st.session_state.setdefault("saved_setor", "")
     st.session_state.setdefault("saved_descricao", "")
 
-    col_titulo, col_voltar = st.columns([3, 1])
-    with col_titulo:
-        st.title("📦 Sistema de Inventários - GTI-SESA")
-        st.subheader(f"🏥 Tabela Exclusiva: **`{unidade}`**")
-    with col_voltar:
-        st.write("")
-        if st.button("⬅️ Trocar de Unidade / Portal", use_container_width=True):
+    # Layout flexível: no PC o título e a ação ficam lado a lado;
+    # no smartphone os elementos quebram naturalmente sem depender de CSS de colunas.
+    with st.container(horizontal=True, wrap=True, vertical_alignment="center", gap="small"):
+        with st.container(width="stretch"):
+            st.title("📦 Sistema de Inventários - GTI-SESA")
+            st.subheader(f"🏥 Tabela Exclusiva: **`{unidade}`**")
+        if st.button("⬅️ Trocar de Unidade / Portal", use_container_width=False, key="btn_trocar_unidade_header"):
             st.session_state.unidade_selecionada = ""
             st.session_state.pagina_atual = "portal"
             st.rerun()
@@ -567,6 +567,17 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                         st.rerun()
 
     _renderizar_fotos_ultimo_patrimonio(unidade)
+
+    # Ação de navegação persistente: especialmente útil em smartphones,
+    # onde a barra lateral pode estar recolhida. Não contém ações destrutivas.
+    with st.bottom:
+        with st.container(horizontal=True, wrap=True, vertical_alignment="center", gap="small"):
+            st.caption(f"📍 {unidade}")
+            st.space("stretch")
+            if st.button("🏠 Portal", key="btn_portal_bottom", type="secondary"):
+                st.session_state.unidade_selecionada = ""
+                st.session_state.pagina_atual = "portal"
+                st.rerun()
 
     st.divider()
     st.header(f"📊 Tabela de Patrimônios — {unidade}")
