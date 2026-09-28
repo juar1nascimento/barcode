@@ -276,6 +276,41 @@ def obter_dados_exclusao_patrimonio(numero_patrimonio: str, unidade: str) -> Tup
         conn.close()
 
 
+
+def listar_fotos_patrimonios_unidade(unidade_nome: str) -> Tuple[bool, dict, str]:
+    """Retorna as fotos dos patrimônios da unidade, indexadas pelo número."""
+    unidade_nome = str(unidade_nome or "").strip()
+    if not unidade_nome:
+        return False, {}, "Unidade obrigatória."
+    conn = conectar()
+    if conn is None:
+        return False, {}, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT p.numero_patrimonio, pf.storage_bucket, pf.storage_path, pf.ordem
+                     FROM public.patrimonios p
+                     JOIN public.unidades u ON u.id = p.unidade_id
+                     LEFT JOIN public.patrimonio_fotos pf ON pf.patrimonio_id = p.id
+                    WHERE u.nome = %s
+                    ORDER BY p.numero_patrimonio, pf.ordem""",
+                (unidade_nome,),
+            )
+            fotos = {}
+            for numero, bucket, path, ordem in cur.fetchall():
+                if not bucket or not path:
+                    continue
+                fotos.setdefault(str(numero), []).append(
+                    {"bucket": str(bucket), "path": str(path), "ordem": int(ordem)}
+                )
+        return True, fotos, "Fotos consultadas."
+    except Exception as exc:
+        return False, {}, f"Falha ao consultar fotos: {exc}"
+    finally:
+        conn.close()
+
+
+
 def listar_patrimonios_unidade(unidade: str) -> Tuple[bool, list, str]:
     """Lista o estado PostgreSQL de uma unidade sem alterar dados."""
     unidade = str(unidade or "").strip()
