@@ -144,6 +144,51 @@ def garantir_setor(cur, unidade_id: int, setor: str) -> int:
     return existente[0]
 
 
+def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list, str]:
+    """Grava um lote de patrimônios em uma única transação PostgreSQL."""
+    registros = list(registros or [])
+    if not registros:
+        return False, [], "O lote está vazio."
+    if not _conexao_configurada():
+        return True, [None] * len(registros), "PostgreSQL não configurado."
+
+    conn = conectar()
+    if conn is None:
+        return False, [], "Não foi possível conectar ao PostgreSQL."
+
+    ids = []
+    try:
+        with conn.cursor() as cur:
+            for item in registros:
+                codigo = str(item.get("codigo_barras") or "").strip() or None
+                tipo = str(item.get("tipo") or "").strip()
+                setor = re.sub(r"\s+", " ", str(item.get("setor") or "").strip())
+                unidade = str(item.get("unidade") or "").strip()
+                fabricante = str(item.get("fabricante") or "").strip() or None
+                numero = str(item.get("numero_patrimonio") or "").strip() or str(item.get("codigo_barras") or "").strip()
+
+                if not numero or not tipo or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
+                    raise ValueError("Dados insuficientes ou inválidos para o PostgreSQL.")
+
+                unidade_id = garantir_unidade(cur, unidade)
+                setor_id = garantir_setor(cur, unidade_id, setor)
+                cur.execute(
+                    """INSERT INTO patrimonios
+                         (unidade_id, setor_id, tipo, numero_patrimonio,
+                          codigo_barras, fabricante, data_cadastro, atualizado_em)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                       RETURNING id""",
+                    (unidade_id, setor_id, tipo, numero, codigo, fabricante, datetime.now()),
+                )
+                ids.append(cur.fetchone()[0])
+        conn.commit()
+        return True, ids, "Lote gravado no PostgreSQL."
+    except Exception as exc:
+        conn.rollback()
+        return False, [], f"Falha ao gravar o lote no PostgreSQL: {exc}"
+    finally:
+        conn.close()
+
 def salvar_patrimonio(
     codigo_barras: str,
     tipo: str,
