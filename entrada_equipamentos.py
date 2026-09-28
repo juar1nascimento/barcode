@@ -6,8 +6,9 @@ def renderizar_card_entrada(lista_urs, lista_ubs):
         st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de registro e recebimento de equipamentos nas unidades.</p>", unsafe_allow_html=True)
         st.write("")
 
-        urs_entrada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_entrada")
-        ubs_entrada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_entrada")
+        with st.container(horizontal=True, wrap=True, gap="small"):
+            urs_entrada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_entrada")
+            ubs_entrada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_entrada")
 
         if urs_entrada != "Selecione uma URS...":
             st.session_state.saved_setor = urs_entrada
@@ -38,7 +39,9 @@ def renderizar_sistema_entrada():
     st.info(f"📍 Unidade de Destino Selecionada: **{setor_atual}**")
     
     st.subheader("1. Informações do Recebimento")
-    c1, c2 = st.columns(2)
+    with st.container(horizontal=True, wrap=True, gap="medium", vertical_alignment="top"):
+        c1 = st.container(width="stretch")
+        c2 = st.container(width="stretch")
     with c1:
         # Texto atualizado para 'Número de Patrimônio:'
         num_patrimonio = st.text_input(
