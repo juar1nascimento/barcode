@@ -3,25 +3,16 @@ import streamlit as st
 def renderizar_card_entrada(lista_urs, lista_ubs, navegar_entrada=None):
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📥 Entrada de Equipamentos</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de registro e recebimento de equipamentos nas unidades.</p>", unsafe_allow_html=True)
-        st.write("")
-
+        st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de registro e recebimento de equipamentos nas unidades.</p>" if "Entrada" == "Entrada" else "<p style='text-align: center; color: #666;'>Acesse a ferramenta de baixa, transferência e saída de equipamentos.</p>", unsafe_allow_html=True)
         with st.container(horizontal=True, wrap=True, gap="small"):
             urs_entrada = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_entrada")
             ubs_entrada = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_entrada")
-
         if st.button("📂 Abrir Entrada nesta Aba", use_container_width=True, type="primary", key="btn_entrada"):
-            if urs_entrada != "Selecione uma URS...":
-                st.session_state.saved_setor_entrada = urs_entrada
-            elif ubs_entrada != "Selecione uma UBS...":
-                st.session_state.saved_setor_entrada = ubs_entrada
-            else:
-                st.warning("⚠️ Selecione a unidade de destino.")
+            selecionada = urs_entrada if urs_entrada != "Selecione uma URS..." else (ubs_entrada if ubs_entrada != "Selecione uma UBS..." else "")
+            if not selecionada:
+                st.warning("⚠️ Selecione a unidade antes de continuar.")
                 return
-
-        st.write("")
-        
-        if st.button("📂 Abrir Entrada nesta Aba", use_container_width=True, type="primary", key="btn_entrada"):
+            st.session_state["saved_setor_entrada"] = selecionada
             if navegar_entrada is not None:
                 navegar_entrada()
             else:
