@@ -408,7 +408,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
             with col_usb:
                 st.markdown("##### 🔌 Entrada Manual / Scanner USB")
                 with st.form(key="form_bipagem", clear_on_submit=True):
-                    codigo_input = st.text_input("Código Lido / Bipado:", autocomplete="off", placeholder="Aguardando bipagem...")
+                    codigo_input = st.text_input("Código Lido / Bipado:", type="search", autocomplete="off", placeholder="Aguardando bipagem...")
                     if st.form_submit_button("Registrar Manualmente", type="primary", use_container_width=True) and codigo_input.strip():
                         if adicionar_e_salvar(codigo_input.strip(), descricao_final, setor_input, unidade, fabricante_input.strip()):
                             st.session_state.mensagem_sucesso = f"✅ Código `{codigo_input.strip()}` registrado na coluna `{header_patrimonio}` no setor `{setor_input}` ({unidade})."
