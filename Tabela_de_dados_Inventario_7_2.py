@@ -477,7 +477,11 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
             "quantidade": len(novos),
             "origem": "cadastro_lote",
         }
-        return False, ["Patrimônios gravados no PostgreSQL, mas o espelhamento no Google Sheets não foi confirmado."]
+        st.warning(
+            "⚠️ Patrimônios gravados no PostgreSQL, mas o Google Sheets ficou "
+            "pendente de reconciliação. O cadastro principal está confirmado."
+        )
+        return True, ["PostgreSQL confirmado; Google Sheets pendente de reconciliação."]
 
     st.session_state.pop("reconciliacao_pendente_detalhes", None)
     return True, []
