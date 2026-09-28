@@ -538,6 +538,122 @@ def salvar_patrimonio(
         conn.close()
 
 
+def listar_setores_unidade(unidade_nome: str) -> Tuple[bool, list, str]:
+    """Lista setores ativos de uma unidade sem alterar dados."""
+    unidade = str(unidade_nome or "").strip()
+    if not unidade:
+        return False, [], "Unidade não informada."
+    conn = conectar()
+    if conn is None:
+        return False, [], "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT s.nome
+                   FROM public.setores AS s
+                   JOIN public.unidades AS u ON u.id = s.unidade_id
+                   WHERE u.nome = %s AND s.ativo = TRUE
+                   ORDER BY s.nome""",
+                (unidade,),
+            )
+            return True, [str(row[0]) for row in cur.fetchall()], "Setores consultados."
+    except Exception as exc:
+        return False, [], f"Falha ao consultar setores: {exc}"
+    finally:
+        conn.close()
+
+
+def transferir_patrimonio(
+    identificador: str,
+    unidade_origem: str,
+    unidade_destino: str,
+    setor_destino: str,
+    motivo: str = "Transferência para outra Unidade",
+    observacao: str = "",
+    usuario: str = "",
+) -> Tuple[bool, Optional[int], str]:
+    """Atualiza a localização e grava o histórico na mesma transação."""
+    identificador = str(identificador or "").strip()
+    origem = str(unidade_origem or "").strip()
+    destino = str(unidade_destino or "").strip()
+    setor = str(setor_destino or "").strip()
+    usuario = str(usuario or "").strip()
+    if not all((identificador, origem, destino, setor, usuario)):
+        return False, None, "Patrimônio, origem, destino, setor de destino e usuário são obrigatórios."
+    if origem == destino:
+        return False, None, "A unidade de destino deve ser diferente da unidade de origem."
+
+    conn = conectar()
+    if conn is None:
+        return False, None, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT p.id, p.unidade_id, p.setor_id, u.nome, s.nome
+                   FROM public.patrimonios p
+                   JOIN public.unidades u ON u.id = p.unidade_id
+                   JOIN public.setores s ON s.id = p.setor_id
+                   WHERE (p.numero_patrimonio = %s OR p.codigo_barras = %s)
+                     AND u.nome = %s
+                   FOR UPDATE""",
+                (identificador, identificador, origem),
+            )
+            patrimonio = cur.fetchone()
+            if not patrimonio:
+                conn.rollback()
+                return False, None, "Patrimônio não encontrado na unidade de origem."
+            patrimonio_id, unidade_origem_id, setor_origem_id, _, setor_origem_nome = patrimonio
+
+            cur.execute(
+                """SELECT u.id, s.id
+                   FROM public.unidades u
+                   JOIN public.setores s ON s.unidade_id = u.id
+                   WHERE u.nome = %s AND s.nome = %s AND s.ativo = TRUE
+                   FOR SHARE""",
+                (destino, setor),
+            )
+            destino_row = cur.fetchone()
+            if not destino_row:
+                conn.rollback()
+                return False, None, "Setor de destino não encontrado na unidade informada."
+            unidade_destino_id, setor_destino_id = destino_row
+
+            cur.execute(
+                """UPDATE public.patrimonios
+                   SET unidade_id = %s, setor_id = %s, atualizado_em = NOW()
+                   WHERE id = %s
+                   RETURNING id""",
+                (unidade_destino_id, setor_destino_id, patrimonio_id),
+            )
+            if cur.fetchone() is None:
+                conn.rollback()
+                return False, None, "Não foi possível atualizar a localização do patrimônio."
+
+            cur.execute(
+                """INSERT INTO public.movimentacoes_patrimonio
+                   (patrimonio_id, tipo, unidade_origem_id, setor_origem_id,
+                    unidade_destino_id, setor_destino_id, motivo, observacao, usuario)
+                   VALUES (%s, 'TRANSFERENCIA', %s, %s, %s, %s, %s, %s, %s)
+                   RETURNING id""",
+                (
+                    int(patrimonio_id), int(unidade_origem_id), int(setor_origem_id),
+                    int(unidade_destino_id), int(setor_destino_id),
+                    str(motivo or "").strip() or None,
+                    str(observacao or "").strip() or None,
+                    usuario,
+                ),
+            )
+            movimento_id = int(cur.fetchone()[0])
+            conn.commit()
+        return True, movimento_id, f"Patrimônio transferido de {origem} / {setor_origem_nome} para {destino} / {setor}."
+    except Exception as exc:
+        conn.rollback()
+        return False, None, f"Falha na transferência do patrimônio: {exc}"
+    finally:
+        conn.close()
+
+
+
 def registrar_movimentacao_patrimonio(
     identificador: str,
     tipo_movimentacao: str,
