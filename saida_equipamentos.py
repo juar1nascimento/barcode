@@ -1,6 +1,6 @@
 import streamlit as st
 
-from postgresql_persistencia import registrar_movimentacao_patrimonio
+from postgresql_persistencia import listar_setores_unidade, registrar_movimentacao_patrimonio, transferir_patrimonio
 
 def renderizar_card_saida(lista_urs, lista_ubs, navegar_saida=None):
     with st.container(border=True):
@@ -21,7 +21,7 @@ def renderizar_card_saida(lista_urs, lista_ubs, navegar_saida=None):
                 st.rerun()
 
 
-def renderizar_sistema_saida():
+def renderizar_sistema_saida(lista_urs=None, lista_ubs=None):
     st.title("📤 Saída de Equipamentos - GTI-SESA")
     st.markdown("Módulo para controle de movimentação, recolhimento, manutenção ou descarte de equipamentos.")
     st.divider()
@@ -37,8 +37,29 @@ def renderizar_sistema_saida():
         "Outro"
     ])
     
+    unidade_destino = ""
+    setor_destino = ""
     if motivo == "Transferência para outra Unidade":
-        st.text_input("Unidade de Destino:", placeholder="Ex: UBS Feu Rosa")
+        opcoes_destino = [
+            u for u in (list(lista_urs or []) + list(lista_ubs or []))
+            if u and not str(u).startswith("Selecione")
+            and u != setor_atual
+        ]
+        unidade_destino = st.selectbox(
+            "Unidade de Destino:",
+            ["Selecione a unidade..."] + opcoes_destino,
+            key="unidade_destino_saida",
+        )
+        if unidade_destino != "Selecione a unidade...":
+            ok_setores, setores, mensagem_setores = listar_setores_unidade(unidade_destino)
+            if ok_setores:
+                setor_destino = st.selectbox(
+                    "Setor de Destino:",
+                    ["Selecione o setor..."] + setores,
+                    key="setor_destino_saida",
+                )
+            else:
+                st.warning(mensagem_setores)
 
     st.text_area("Observações / Justificativa:", placeholder="Descreva os detalhes da saída...", key="observacoes_saida")
 
@@ -48,14 +69,28 @@ def renderizar_sistema_saida():
     if st.button("🚨 Registrar Saída de Equipamento", type="primary", use_container_width=True):
         if codigo_saida.strip():
             usuario = str(st.session_state.get("usuario_logado", "")).strip().lower()
-            ok, _, mensagem = registrar_movimentacao_patrimonio(
-                codigo_saida.strip(),
-                "SAIDA",
-                setor_atual,
-                motivo=motivo,
-                observacao=st.session_state.get("observacoes_saida", ""),
-                usuario=usuario,
-            )
+            if motivo == "Transferência para outra Unidade":
+                if not unidade_destino or unidade_destino == "Selecione a unidade..." or not setor_destino or setor_destino == "Selecione o setor...":
+                    st.warning("Selecione a unidade e o setor de destino antes de confirmar.")
+                    return
+                ok, _, mensagem = transferir_patrimonio(
+                    codigo_saida.strip(),
+                    setor_atual,
+                    unidade_destino,
+                    setor_destino,
+                    motivo=motivo,
+                    observacao=st.session_state.get("observacoes_saida", ""),
+                    usuario=usuario,
+                )
+            else:
+                ok, _, mensagem = registrar_movimentacao_patrimonio(
+                    codigo_saida.strip(),
+                    "SAIDA",
+                    setor_atual,
+                    motivo=motivo,
+                    observacao=st.session_state.get("observacoes_saida", ""),
+                    usuario=usuario,
+                )
             if ok:
                 st.success(f"Saída do patrimônio `{codigo_saida.strip()}` registrada no PostgreSQL para **{setor_atual}**.")
             else:
