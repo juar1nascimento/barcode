@@ -493,6 +493,63 @@ def auditar_reconciliacao_unidade(unidade: str) -> Tuple[bool, dict, str]:
     return True, resultado, "Auditoria de reconciliação concluída."
 
 
+
+def renderizar_auditoria_reconciliacao() -> None:
+    """Interface administrativa somente leitura para Sheets x PostgreSQL."""
+    st.title("🔎 Reconciliação Google Sheets × PostgreSQL")
+    st.caption(
+        "Auditoria somente leitura. Nenhum botão desta tela grava, atualiza "
+        "ou exclui dados."
+    )
+
+    unidade = st.selectbox(
+        "Unidade para auditar",
+        UNIDADES_PADRAO,
+        key="auditoria_reconciliacao_unidade",
+    )
+
+    if not st.button("🔍 Executar auditoria", type="primary"):
+        return
+
+    ok, resultado, mensagem = auditar_reconciliacao_unidade(unidade)
+    if not ok:
+        st.error(mensagem)
+        return
+
+    st.write(f"**Fonte do Sheets:** {resultado['fonte_sheets']}")
+    col1, col2 = st.columns(2)
+    col1.metric("PostgreSQL", resultado["quantidade_postgresql"])
+    col2.metric("Google Sheets", resultado["quantidade_sheets"])
+
+    if resultado["sincronizado"]:
+        st.success("As chaves Setor + Tipo + Nº de Patrimônio estão sincronizadas.")
+        return
+
+    st.warning("Foram encontradas divergências. Nenhuma correção foi aplicada.")
+
+    if resultado["somente_postgresql"]:
+        st.markdown("**Somente no PostgreSQL**")
+        st.dataframe(
+            pd.DataFrame(
+                resultado["somente_postgresql"],
+                columns=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"],
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    if resultado["somente_sheets"]:
+        st.markdown("**Somente no Google Sheets**")
+        st.dataframe(
+            pd.DataFrame(
+                resultado["somente_sheets"],
+                columns=["Setor", "Tipo de Patrimônio", "Nº de Patrimônio"],
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
     return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante, numero_patrimonio)
 
