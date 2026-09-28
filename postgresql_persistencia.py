@@ -41,7 +41,7 @@ def _config() -> dict:
     }
 
 
-@st.cache_resource(ttl=300, show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def _pool():
     """Cria um pool global para as conexões PostgreSQL."""
     from psycopg_pool import ConnectionPool
@@ -85,7 +85,10 @@ class _PoolConnection:
     def close(self):
         if not self._released:
             self._released = True
-            self._pool.putconn(self._conn)
+            try:
+                self._conn.rollback()
+            finally:
+                self._pool.putconn(self._conn)
 
 
 def conectar() -> Optional[object]:
