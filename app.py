@@ -61,7 +61,7 @@ with st.sidebar:
             st.session_state.pagina_atual = "portal"
             st.rerun()
 
-    if reconciliacao_pendente:
+    if is_admin and reconciliacao_pendente:
         st.warning("⚠️ Há uma persistência no PostgreSQL aguardando confirmação/reconciliação no Google Sheets.")
         if st.button("🔄 Abrir reconciliação pendente"):
             st.session_state.pagina_atual = "auditoria_reconciliacao"
