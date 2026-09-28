@@ -188,7 +188,7 @@ def _pagina_entrada():
     renderizar_sistema_entrada()
 
 def _pagina_saida():
-    renderizar_sistema_saida()
+    renderizar_sistema_saida(lista_urs, lista_ubs)
 
 page_portal = st.Page(
     _pagina_portal,
