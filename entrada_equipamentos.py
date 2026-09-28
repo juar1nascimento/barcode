@@ -32,7 +32,7 @@ def renderizar_sistema_entrada():
     if "numero_patrimonio_val" not in st.session_state:
         st.session_state.numero_patrimonio_val = ""
 
-    setor_atual = st.session_state.get("saved_setor", "Unidade não selecionada")
+    setor_atual = st.session_state.get("saved_setor_entrada", "Unidade não selecionada")
     st.info(f"📍 Unidade de Destino Selecionada: **{setor_atual}**")
     
     st.subheader("1. Informações do Recebimento")
