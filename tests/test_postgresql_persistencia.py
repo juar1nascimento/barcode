@@ -18,6 +18,47 @@ def test_registrar_movimentacao_valida_tipo_sem_conexao(monkeypatch, tipo):
     assert "conectar" in message.lower()
 
 
+def test_buscar_patrimonio_por_codigo_prioriza_numero(monkeypatch):
+    cur = MagicMock()
+    cur.fetchone.side_effect = [
+        (10, "PAT-001", 1, 2),
+    ]
+
+    row = db._buscar_patrimonio_por_codigo(cur, "PAT-001")
+
+    assert row == (10, "PAT-001", 1, 2)
+    assert cur.execute.call_count == 1
+    assert "numero_patrimonio" in cur.execute.call_args.args[0]
+    assert cur.execute.call_args.args[1] == ("PAT-001",)
+
+
+def test_buscar_patrimonio_por_codigo_faz_fallback_para_barcode(monkeypatch):
+    cur = MagicMock()
+    cur.fetchone.side_effect = [
+        None,
+        (11, "PAT-002", 1, 3),
+    ]
+
+    row = db._buscar_patrimonio_por_codigo(cur, "BAR-002")
+
+    assert row == (11, "PAT-002", 1, 3)
+    assert cur.execute.call_count == 2
+    assert "numero_patrimonio" in cur.execute.call_args_list[0].args[0]
+    assert "codigo_barras" in cur.execute.call_args_list[1].args[0]
+
+
+def test_buscar_patrimonio_por_codigo_preserva_prioridade_do_numero_sobre_barcode():
+    cur = MagicMock()
+    cur.fetchone.side_effect = [
+        (20, "CODIGO-COMUM", 1, 2),
+    ]
+
+    row = db._buscar_patrimonio_por_codigo(cur, "CODIGO-COMUM")
+
+    assert row[0] == 20
+    assert cur.execute.call_count == 1
+
+
 def test_registrar_movimentacao_rejeita_tipo_invalido():
     ok, movement_id, message = db.registrar_movimentacao("PAT-001", "INVALIDO", "teste")
     assert ok is False
