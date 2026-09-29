@@ -1,0 +1,1 @@
+alter function public.validar_movimentacao_patrimonio() set search_path = public, pg_catalog;
