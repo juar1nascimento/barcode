@@ -241,6 +241,55 @@ def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
     finally:
         conn.close()
 
+def buscar_patrimonio_detalhado(codigo_patrimonio: str):
+    codigo = str(codigo_patrimonio or "").strip()
+    if not codigo: return None
+    conn = conectar()
+    if conn is None: return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT p.id,p.numero_patrimonio,p.codigo_barras,p.tipo,p.fabricante,
+                                  p.unidade_id,u.nome,p.setor_id,s.nome,s.numero_consultorio,
+                                  s.especialidade,p.data_cadastro,p.atualizado_em
+                             FROM patrimonios p JOIN unidades u ON u.id=p.unidade_id
+                             JOIN setores s ON s.id=p.setor_id
+                            WHERE p.numero_patrimonio=%s OR p.codigo_barras=%s
+                            ORDER BY CASE WHEN p.numero_patrimonio=%s THEN 0 ELSE 1 END
+                            LIMIT 1""",(codigo,codigo,codigo))
+            r=cur.fetchone()
+            if not r: return None
+            return {"id":r[0],"numero_patrimonio":r[1],"codigo_barras":r[2],"tipo":r[3],
+                    "fabricante":r[4],"unidade_id":r[5],"unidade":r[6],"setor_id":r[7],
+                    "setor":r[8],"numero_consultorio":r[9],"especialidade":r[10],
+                    "data_cadastro":r[11],"atualizado_em":r[12]}
+    finally: conn.close()
+
+def listar_historico_movimentacoes(codigo_patrimonio: str, limite: int = 100) -> list[dict]:
+    patrimonio = buscar_patrimonio_detalhado(codigo_patrimonio)
+    if not patrimonio: return []
+    conn = conectar()
+    if conn is None: return []
+    try:
+        limite=max(1,min(int(limite),500))
+        with conn.cursor() as cur:
+            cur.execute("""SELECT m.id,m.tipo,m.motivo,m.observacao,m.usuario,m.criado_em,
+                                  uo.nome,so.nome,so.numero_consultorio,so.especialidade,
+                                  ud.nome,sd.nome,sd.numero_consultorio,sd.especialidade
+                             FROM movimentacoes_patrimonio m
+                             LEFT JOIN unidades uo ON uo.id=m.unidade_origem_id
+                             LEFT JOIN setores so ON so.id=m.setor_origem_id
+                             LEFT JOIN unidades ud ON ud.id=m.unidade_destino_id
+                             LEFT JOIN setores sd ON sd.id=m.setor_destino_id
+                            WHERE m.patrimonio_id=%s ORDER BY m.criado_em DESC,m.id DESC LIMIT %s""",
+                        (patrimonio["id"],limite))
+            return [{"id":r[0],"tipo":r[1],"motivo":r[2],"observacao":r[3],"usuario":r[4],
+                     "data":r[5],
+                     "origem":({"unidade":r[6],"setor":r[7],"numero_consultorio":r[8],"especialidade":r[9]} if r[6] else None),
+                     "destino":({"unidade":r[10],"setor":r[11],"numero_consultorio":r[12],"especialidade":r[13]} if r[10] else None)}
+                    for r in cur.fetchall()]
+    finally: conn.close()
+
+
 def salvar_patrimonio(
     codigo_barras: str,
     tipo: str,
