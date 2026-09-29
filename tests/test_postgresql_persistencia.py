@@ -5,8 +5,8 @@ import postgresql_persistencia as db
 
 
 def test_dividir_setor():
-    assert db._dividir_setor("Sala 12 - Cardiologia") == ("Sala 12", "Cardiologia")
-    assert db._dividir_setor("Recepção") == ("Recepção", "")
+    assert db._dividir_setor("Sala 12 - Cardiologia") == ("Sala 12 - Cardiologia", None, None)
+    assert db._dividir_setor("Recepção") == ("Recepção", None, None)
 
 
 @pytest.mark.parametrize("tipo", ["ENTRADA", "SAIDA", "TRANSFERENCIA"])
@@ -44,3 +44,114 @@ def test_registrar_movimentacao_rejeita_destino_ausente(monkeypatch):
     assert ok is False
     assert movement_id is None
     assert "destino" in message.lower()
+
+
+
+def _conexao_movimentacao(monkeypatch, fetchone_side_effect):
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchone.side_effect = fetchone_side_effect
+    monkeypatch.setattr(db, "conectar", lambda: conn)
+    return conn, cur
+
+
+def test_registrar_movimentacao_entrada_valida(monkeypatch):
+    conn, cur = _conexao_movimentacao(
+        monkeypatch,
+        [
+            (10, "PAT-001", 1, 2),
+            (1,),
+            (100,),
+        ],
+    )
+
+    ok, movement_id, message = db.registrar_movimentacao(
+        "PAT-001", "ENTRADA", "operador", 3, 4, "recebimento", "teste"
+    )
+
+    assert ok is True
+    assert movement_id == 100
+    assert "ENTRADA" in message
+    conn.commit.assert_called_once()
+    conn.rollback.assert_not_called()
+    assert any("movimentacoes_patrimonio" in str(call.args[0]) for call in cur.execute.call_args_list)
+
+
+def test_registrar_movimentacao_saida_valida(monkeypatch):
+    conn, cur = _conexao_movimentacao(
+        monkeypatch,
+        [
+            (10, "PAT-001", 1, 2),
+            (101,),
+        ],
+    )
+
+    ok, movement_id, message = db.registrar_movimentacao(
+        "PAT-001", "SAIDA", "operador", motivo="baixa"
+    )
+
+    assert ok is True
+    assert movement_id == 101
+    assert "SAIDA" in message
+    conn.commit.assert_called_once()
+    assert not any("SET unidade_id" in str(call.args[0]) for call in cur.execute.call_args_list)
+
+
+def test_registrar_movimentacao_transferencia_valida(monkeypatch):
+    conn, cur = _conexao_movimentacao(
+        monkeypatch,
+        [
+            (10, "PAT-001", 1, 2),
+            (1,),
+            (102,),
+        ],
+    )
+
+    ok, movement_id, message = db.registrar_movimentacao(
+        "PAT-001", "TRANSFERENCIA", "operador", 3, 4
+    )
+
+    assert ok is True
+    assert movement_id == 102
+    assert "TRANSFERENCIA" in message
+    conn.commit.assert_called_once()
+    assert any("SET unidade_id" in str(call.args[0]) for call in cur.execute.call_args_list)
+
+
+def test_registrar_movimentacao_rejeita_setor_de_destino_de_outra_unidade(monkeypatch):
+    conn, cur = _conexao_movimentacao(
+        monkeypatch,
+        [
+            (10, "PAT-001", 1, 2),
+            None,
+        ],
+    )
+
+    ok, movement_id, message = db.registrar_movimentacao(
+        "PAT-001", "TRANSFERENCIA", "operador", 3, 99
+    )
+
+    assert ok is False
+    assert movement_id is None
+    assert "não pertence à unidade" in message
+    conn.rollback.assert_called_once()
+    conn.commit.assert_not_called()
+    assert not any("INSERT INTO movimentacoes_patrimonio" in str(call.args[0]) for call in cur.execute.call_args_list)
+
+
+def test_registrar_movimentacao_faz_rollback_se_banco_rejeitar_integridade(monkeypatch):
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchone.side_effect = [(10, "PAT-001", 1, 2), (1,)]
+    cur.execute.side_effect = [None, None, RuntimeError("origem do patrimônio não corresponde")]
+    monkeypatch.setattr(db, "conectar", lambda: conn)
+
+    ok, movement_id, message = db.registrar_movimentacao(
+        "PAT-001", "TRANSFERENCIA", "operador", 3, 4
+    )
+
+    assert ok is False
+    assert movement_id is None
+    assert "falha ao registrar movimentação" in message.lower()
+    conn.rollback.assert_called_once()
+    conn.commit.assert_not_called()
