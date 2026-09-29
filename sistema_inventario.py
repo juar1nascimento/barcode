@@ -11,6 +11,7 @@ from Tabela_de_dados_Inventario_7_2 import (
     carregar_dados_excel, salvar_no_excel, registrar_patrimonio, excluir_setor, excluir_patrimonio
 )
 from fotos_patrimonio import renderizar_fotos_patrimonio
+from historico_movimentacoes import renderizar_historico_movimentacoes
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
@@ -228,6 +229,10 @@ def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs:
                 st.session_state.unidade_selecionada = unidade_escolhida
                 st.session_state.pagina_atual = "inventario"
                 st.rerun()
+
+        if st.button("🧾 Consultar Histórico de Movimentações", use_container_width=True, key="btn_historico_movimentacoes"):
+            st.session_state.pagina_atual = "historico_movimentacoes"
+            st.rerun()
 
 
 def renderizar_portal_principal(lista_urs: Optional[List[str]] = None, lista_ubs: Optional[List[str]] = None, lista_almoxarifado: Optional[List[str]] = None, *args, **kwargs) -> None:
@@ -615,5 +620,7 @@ if __name__ == "__main__":
 
     if st.session_state.pagina_atual in ["inventario", "inventario_unidade"] and st.session_state.unidade_selecionada:
         renderizar_sistema_inventario()
+    elif st.session_state.pagina_atual == "historico_movimentacoes":
+        renderizar_historico_movimentacoes()
     else:
         renderizar_card_inventario()
