@@ -171,6 +171,37 @@ def formatar_localizacao(local: dict) -> str:
     return f"{local['unidade']} — {setor}"
 
 
+def _buscar_patrimonio_por_codigo(cur, codigo: str, for_update: bool = False):
+    """Busca por número primeiro e usa código de barras como fallback.
+
+    A ordem preserva o comportamento anterior (número de patrimônio tem
+    prioridade quando o mesmo texto puder coincidir com dois registros),
+    mas evita OR + ORDER BY CASE e permite que cada igualdade use sua
+    restrição/índice dedicado.
+    """
+    lock = " FOR UPDATE" if for_update else ""
+
+    cur.execute(
+        f"""SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
+              FROM patrimonios p
+             WHERE p.numero_patrimonio=%s
+             LIMIT 1{lock}""",
+        (codigo,),
+    )
+    row = cur.fetchone()
+    if row:
+        return row
+
+    cur.execute(
+        f"""SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
+              FROM patrimonios p
+             WHERE p.codigo_barras=%s
+             LIMIT 1{lock}""",
+        (codigo,),
+    )
+    return cur.fetchone()
+
+
 def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
                            unidade_destino_id=None, setor_destino_id=None,
                            motivo: str = "", observacao: str = ""):
@@ -188,12 +219,7 @@ def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
 
     try:
         with conn.cursor() as cur:
-            cur.execute("""SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
-                             FROM patrimonios p
-                            WHERE p.numero_patrimonio=%s OR p.codigo_barras=%s
-                            ORDER BY CASE WHEN p.numero_patrimonio=%s THEN 0 ELSE 1 END
-                            LIMIT 1 FOR UPDATE""", (codigo,codigo,codigo))
-            row = cur.fetchone()
+            row = _buscar_patrimonio_por_codigo(cur, codigo, for_update=True)
             if not row:
                 conn.rollback()
                 return False, None, "Patrimônio não encontrado."
@@ -243,26 +269,34 @@ def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
 
 def buscar_patrimonio_detalhado(codigo_patrimonio: str):
     codigo = str(codigo_patrimonio or "").strip()
-    if not codigo: return None
+    if not codigo:
+        return None
     conn = conectar()
-    if conn is None: return None
+    if conn is None:
+        return None
     try:
         with conn.cursor() as cur:
+            base = _buscar_patrimonio_por_codigo(cur, codigo)
+            if not base:
+                return None
+
+            patrimonio_id = base[0]
             cur.execute("""SELECT p.id,p.numero_patrimonio,p.codigo_barras,p.tipo,p.fabricante,
                                   p.unidade_id,u.nome,p.setor_id,s.nome,s.numero_consultorio,
                                   s.especialidade,p.data_cadastro,p.atualizado_em
                              FROM patrimonios p JOIN unidades u ON u.id=p.unidade_id
                              JOIN setores s ON s.id=p.setor_id
-                            WHERE p.numero_patrimonio=%s OR p.codigo_barras=%s
-                            ORDER BY CASE WHEN p.numero_patrimonio=%s THEN 0 ELSE 1 END
-                            LIMIT 1""",(codigo,codigo,codigo))
-            r=cur.fetchone()
-            if not r: return None
+                            WHERE p.id=%s
+                            LIMIT 1""", (patrimonio_id,))
+            r = cur.fetchone()
+            if not r:
+                return None
             return {"id":r[0],"numero_patrimonio":r[1],"codigo_barras":r[2],"tipo":r[3],
                     "fabricante":r[4],"unidade_id":r[5],"unidade":r[6],"setor_id":r[7],
                     "setor":r[8],"numero_consultorio":r[9],"especialidade":r[10],
                     "data_cadastro":r[11],"atualizado_em":r[12]}
-    finally: conn.close()
+    finally:
+        conn.close()
 
 def listar_historico_movimentacoes(codigo_patrimonio: str, limite: int = 100) -> list[dict]:
     patrimonio = buscar_patrimonio_detalhado(codigo_patrimonio)
