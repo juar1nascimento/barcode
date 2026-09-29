@@ -1,51 +1,71 @@
 import streamlit as st
+from postgresql_persistencia import listar_unidades_setores, formatar_localizacao, registrar_movimentacao
 
 def renderizar_card_saida(lista_urs, lista_ubs):
     with st.container(border=True):
         st.markdown("<h3 style='text-align: center;'>📤 Saída de Equipamentos</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666;'>Acesse a ferramenta de baixa, transferência e saída de equipamentos.</p>", unsafe_allow_html=True)
-        st.write("")
-
-        urs_saida = st.selectbox("URS - Unidade Regional de Saúde", lista_urs, key="sel_urs_saida")
-        ubs_saida = st.selectbox("UBS - Unidade Básica de Saúde", lista_ubs, key="sel_ubs_saida")
-
-        if urs_saida != "Selecione uma URS...":
-            st.session_state.saved_setor = urs_saida
-        elif ubs_saida != "Selecione uma UBS...":
-            st.session_state.saved_setor = ubs_saida
-
-        st.write("")
-        
+        st.markdown("<p style='text-align: center; color: #666;'>Controle transferências, manutenção, recolhimento e baixas.</p>", unsafe_allow_html=True)
         if st.button("📂 Abrir Saída nesta Aba", use_container_width=True, type="primary", key="btn_saida"):
             st.session_state.pagina_atual = "saida"
             st.rerun()
 
 def renderizar_sistema_saida():
     st.title("📤 Saída de Equipamentos - GTI-SESA")
-    st.markdown("Módulo para controle de movimentação, recolhimento, manutenção ou descarte de equipamentos.")
+    st.markdown("Registre a movimentação do patrimônio a partir da sua localização atual.")
     st.divider()
 
-    setor_atual = st.session_state.get("saved_setor", "Unidade não selecionada")
-    st.info(f"📍 Unidade de Origem Selecionada: **{setor_atual}**")
+    locais = listar_unidades_setores()
+    if not locais:
+        st.error("Nenhuma unidade/setor ativo foi encontrado no PostgreSQL.")
+        return
 
-    st.subheader("1. Motivo da Saída")
-    motivo = st.selectbox("Motivo da movimentação:", [
-        "Transferência para outra Unidade", 
-        "Envio para Manutenção / Conserto", 
-        "Recolhimento / Desfazimento (Baixa)", 
-        "Outro"
-    ])
-    
+    motivo = st.selectbox(
+        "Motivo da saída",
+        [
+            "Transferência para outra Unidade",
+            "Envio para Manutenção / Conserto",
+            "Recolhimento / Desfazimento (Baixa)",
+            "Outro",
+        ],
+        key="saida_motivo",
+    )
+
+    destino = None
     if motivo == "Transferência para outra Unidade":
-        st.text_input("Unidade de Destino:", placeholder="Ex: UBS Feu Rosa")
+        opcoes = [formatar_localizacao(x) for x in locais]
+        destino_label = st.selectbox("📍 Unidade e setor de destino", opcoes, key="saida_destino")
+        destino = locais[opcoes.index(destino_label)]
 
-    st.text_area("Observações / Justificativa:", placeholder="Descreva os detalhes da saída...")
+    codigo = st.text_input(
+        "Código ou Número de Patrimônio",
+        placeholder="Bipe ou digite o patrimônio...",
+        key="saida_codigo",
+    )
+    observacao = st.text_area("Observações / Justificativa", key="saida_observacao")
 
-    st.subheader("2. Identificação do Equipamento")
-    codigo_saida = st.text_input("Bipe ou digite o código de patrimônio para saída:", placeholder="Aguardando bipagem...")
+    usuario = str(st.session_state.get("usuario_logado", "")).strip()
+    if not usuario:
+        st.warning("Usuário autenticado não identificado.")
+        return
 
-    if st.button("🚨 Registrar Saída de Equipamento", type="primary", use_container_width=True):
-        if codigo_saida.strip():
-            st.success(f"Saída do equipamento `{codigo_saida.strip()}` registrada com sucesso para o setor **{setor_atual}**!")
+    tipo = "TRANSFERENCIA" if destino else "SAIDA"
+
+    if st.button("🚨 Registrar Movimentação", type="primary", use_container_width=True, key="confirmar_saida"):
+        if not codigo.strip():
+            st.warning("Informe ou bipe o patrimônio antes de confirmar.")
+            return
+
+        ok, movimento_id, mensagem = registrar_movimentacao(
+            codigo_patrimonio=codigo,
+            tipo=tipo,
+            usuario=usuario,
+            unidade_destino_id=destino["unidade_id"] if destino else None,
+            setor_destino_id=destino["setor_id"] if destino else None,
+            motivo=motivo,
+            observacao=observacao,
+        )
+        if ok:
+            st.success(f"{mensagem} ID da movimentação: {movimento_id}.")
+            st.session_state.saida_codigo = ""
         else:
-            st.warning("Informe ou bipe o código do equipamento antes de confirmar.")
+            st.error(mensagem)
