@@ -20,9 +20,9 @@ jobs:
       - name: Instalar dependências de teste
         run: |
           python -m pip install --upgrade pip
-          pip install pytest psycopg2-binary streamlit pandas pillow python-dotenv
+          pip install pytest 'psycopg[binary]' streamlit pandas pillow python-dotenv
 
       - name: Executar testes
         env:
           PYTHONPATH: .
-        run: pytest -q
+        run: python -m pytest -q
