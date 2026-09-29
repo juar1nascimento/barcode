@@ -144,6 +144,103 @@ def garantir_setor(cur, unidade_id: int, setor: str) -> int:
     return existente[0]
 
 
+
+def listar_unidades_setores() -> list[dict]:
+    conn = conectar()
+    if conn is None:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT u.id,u.nome,s.id,s.nome,s.numero_consultorio,s.especialidade
+                             FROM unidades u JOIN setores s ON s.unidade_id=u.id
+                            WHERE COALESCE(s.ativo,TRUE)
+                            ORDER BY u.nome,s.nome,s.numero_consultorio,s.especialidade""")
+            return [{"unidade_id":r[0],"unidade":r[1],"setor_id":r[2],
+                     "setor":r[3],"numero_consultorio":r[4],"especialidade":r[5]}
+                    for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def formatar_localizacao(local: dict) -> str:
+    setor = local["setor"]
+    if local.get("numero_consultorio") is not None:
+        setor += f" {local['numero_consultorio']}"
+    if local.get("especialidade"):
+        setor += f" - {local['especialidade']}"
+    return f"{local['unidade']} — {setor}"
+
+
+def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
+                           unidade_destino_id=None, setor_destino_id=None,
+                           motivo: str = "", observacao: str = ""):
+    tipo = str(tipo or "").strip().upper()
+    codigo = str(codigo_patrimonio or "").strip()
+    usuario = str(usuario or "").strip()
+    if tipo not in {"ENTRADA", "SAIDA", "TRANSFERENCIA"}:
+        return False, None, "Tipo de movimentação inválido."
+    if not codigo or not usuario:
+        return False, None, "Patrimônio e usuário são obrigatórios."
+
+    conn = conectar()
+    if conn is None:
+        return False, None, "Não foi possível conectar ao PostgreSQL."
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
+                             FROM patrimonios p
+                            WHERE p.numero_patrimonio=%s OR p.codigo_barras=%s
+                            ORDER BY CASE WHEN p.numero_patrimonio=%s THEN 0 ELSE 1 END
+                            LIMIT 1 FOR UPDATE""", (codigo,codigo,codigo))
+            row = cur.fetchone()
+            if not row:
+                conn.rollback()
+                return False, None, "Patrimônio não encontrado."
+
+            patrimonio_id, numero, origem_u, origem_s = row
+            destino_u = destino_s = None
+
+            if tipo != "SAIDA":
+                if not unidade_destino_id or not setor_destino_id:
+                    conn.rollback()
+                    return False, None, "Unidade e setor de destino são obrigatórios."
+                cur.execute("""SELECT 1 FROM setores WHERE id=%s AND unidade_id=%s
+                                 AND COALESCE(ativo,TRUE)""",
+                            (setor_destino_id,unidade_destino_id))
+                if not cur.fetchone():
+                    conn.rollback()
+                    return False, None, "Setor de destino não pertence à unidade."
+                destino_u, destino_s = unidade_destino_id, setor_destino_id
+
+            if tipo == "TRANSFERENCIA" and origem_u == destino_u and origem_s == destino_s:
+                conn.rollback()
+                return False, None, "O patrimônio já está na localização de destino."
+
+            cur.execute("""INSERT INTO movimentacoes_patrimonio
+                           (patrimonio_id,tipo,unidade_origem_id,setor_origem_id,
+                            unidade_destino_id,setor_destino_id,motivo,observacao,usuario)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        (patrimonio_id,tipo,origem_u,origem_s,destino_u,destino_s,
+                         str(motivo or "").strip() or None,
+                         str(observacao or "").strip() or None,usuario))
+            movimento_id = cur.fetchone()[0]
+
+            if tipo != "SAIDA":
+                cur.execute("""UPDATE patrimonios
+                                  SET unidade_id=%s,setor_id=%s,atualizado_em=NOW()
+                                WHERE id=%s""", (destino_u,destino_s,patrimonio_id))
+            else:
+                cur.execute("UPDATE patrimonios SET atualizado_em=NOW() WHERE id=%s",
+                            (patrimonio_id,))
+        conn.commit()
+        return True, movimento_id, f"Movimentação {tipo} registrada com sucesso."
+    except Exception as exc:
+        conn.rollback()
+        return False, None, f"Falha ao registrar movimentação: {exc}"
+    finally:
+        conn.close()
+
 def salvar_patrimonio(
     codigo_barras: str,
     tipo: str,
