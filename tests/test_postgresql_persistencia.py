@@ -196,3 +196,50 @@ def test_registrar_movimentacao_faz_rollback_se_banco_rejeitar_integridade(monke
     assert "falha ao registrar movimentação" in message.lower()
     conn.rollback.assert_called_once()
     conn.commit.assert_not_called()
+
+def test_registrar_movimentacao_rejeita_setor_destino_inativo(monkeypatch):
+    conn, cur = _conexao_movimentacao(
+        monkeypatch,
+        [
+            (10, "PAT-001", 1, 2),
+            None,
+        ],
+    )
+
+    ok, movement_id, message = db.registrar_movimentacao(
+        "PAT-001", "TRANSFERENCIA", "operador", 3, 99
+    )
+
+    assert ok is False
+    assert movement_id is None
+    assert "não pertence à unidade" in message
+    conn.rollback.assert_called_once()
+    conn.commit.assert_not_called()
+    assert not any(
+        "INSERT INTO movimentacoes_patrimonio" in str(call.args[0])
+        for call in cur.execute.call_args_list
+    )
+
+
+def test_registrar_movimentacao_rejeita_transferencia_para_mesma_localizacao(monkeypatch):
+    conn, cur = _conexao_movimentacao(
+        monkeypatch,
+        [
+            (10, "PAT-001", 3, 4),
+            (1,),
+        ],
+    )
+
+    ok, movement_id, message = db.registrar_movimentacao(
+        "PAT-001", "TRANSFERENCIA", "operador", 3, 4
+    )
+
+    assert ok is False
+    assert movement_id is None
+    assert "já está na localização" in message.lower()
+    conn.rollback.assert_called_once()
+    conn.commit.assert_not_called()
+    assert not any(
+        "INSERT INTO movimentacoes_patrimonio" in str(call.args[0])
+        for call in cur.execute.call_args_list
+    )
