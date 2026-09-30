@@ -87,6 +87,36 @@ def _sincronizar_fotos_google(patrimonio_id: int) -> tuple[bool, str]:
         return False, f"Falha ao sincronizar fotos no Google Sheets: {exc}"
 
 
+def registrar_falha_sincronizacao_fotos(patrimonio_id: int, erro: str) -> None:
+    """Registra uma falha sem perder a fotografia já persistida."""
+    conn = conectar()
+    if conn is None:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE public.patrimonio_fotos_sheets_outbox
+                   SET status = 'failed',
+                       tentativas = tentativas + 1,
+                       proxima_tentativa_em = now() +
+                         LEAST(interval '1 hour',
+                               interval '5 minutes' * power(2, tentativas)),
+                       ultimo_erro = %s,
+                       atualizado_em = now()
+                 WHERE patrimonio_id = %s
+                   AND status IN ('pending', 'processing')""",
+                (str(erro)[:2000], patrimonio_id),
+            )
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        _fechar_conexao(conn)
+
+
 def _fechar_conexao(conn: Any) -> None:
     """Fecha uma conexão PostgreSQL sem mascarar o erro original."""
     if conn is not None:
