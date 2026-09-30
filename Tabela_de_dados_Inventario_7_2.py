@@ -226,45 +226,64 @@ def _carregar_dados_postgresql(unidade: str) -> Optional[Tuple[pd.DataFrame, str
 
 
 def conectar_google_sheets():
+    """Abre a planilha configurada e preserva o erro real para diagnóstico."""
     try:
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
             sec = st.secrets["connections"]["gsheets"]
         elif "gcp_service_account" in st.secrets:
             sec = st.secrets["gcp_service_account"]
         else:
+            st.session_state["sheets_sync_ultimo_erro"] = (
+                "Credenciais do Google Sheets não configuradas nos Secrets."
+            )
             return None
-        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        keys = ("type", "project_id", "private_key_id", "private_key", "client_email", "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url")
+
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        keys = (
+            "type", "project_id", "private_key_id", "private_key", "client_email",
+            "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url",
+            "client_x509_cert_url",
+        )
         creds_dict = {k: sec.get(k) for k in keys}
         creds_dict["type"] = creds_dict.get("type") or "service_account"
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
+
         sheet_url = sec.get("spreadsheet") or st.secrets.get("spreadsheet_url")
         sheet_id = sec.get("spreadsheet_id") or st.secrets.get("spreadsheet_id")
-        # Aceita tanto o ID direto quanto uma URL completa do Google Sheets.
         if not sheet_id and sheet_url:
             match = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", str(sheet_url))
             if match:
                 sheet_id = match.group(1)
+
         if sheet_id:
             try:
-                return client.open_by_key(str(sheet_id).strip())
+                planilha = client.open_by_key(str(sheet_id).strip())
+                st.session_state.pop("sheets_sync_ultimo_erro", None)
+                return planilha
             except Exception as erro_id:
                 if not sheet_url:
                     raise erro_id
+
         if sheet_url:
-            return client.open_by_url(str(sheet_url).strip())
-        st.warning(
+            planilha = client.open_by_url(str(sheet_url).strip())
+            st.session_state.pop("sheets_sync_ultimo_erro", None)
+            return planilha
+
+        erro = (
             "Google Sheets não configurado: informe spreadsheet_id ou spreadsheet "
             "em [connections.gsheets]/[gcp_service_account] nos Secrets."
         )
-        return None
-    except Exception as e:
-        texto = str(e)
-        # O Sheets é um espelho de integração. Não exibir falhas de acesso
-        # durante a bipagem; o cadastro confirmado no PostgreSQL não é perdido.
+        st.session_state["sheets_sync_ultimo_erro"] = erro
         return None
 
+    except Exception as e:
+        erro = f"Falha ao conectar ao Google Sheets: {str(e)[:500]}"
+        st.session_state["sheets_sync_ultimo_erro"] = erro
+        return None
 
 def _nome_aba(unidade: str) -> str:
     return _normalizar_unidade_aba(unidade)[:90].strip()
@@ -355,11 +374,17 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
         return False
     planilha = conectar_google_sheets()
     if not planilha:
-        if persistencia_postgresql_configurada():
-            st.session_state["sheets_sync_pendente"] = True
-            carregar_dados_excel.clear()
-            return True
-        st.error("⚠️ Google Sheets indisponível: o cadastro NÃO foi considerado salvo na tabela online.")
+        erro = st.session_state.get(
+            "sheets_sync_ultimo_erro",
+            "Google Sheets indisponível ou não configurado.",
+        )
+        st.session_state["sheets_sync_pendente"] = True
+        st.session_state["sheets_sync_ultimo_erro"] = erro
+        st.error(
+            "⚠️ O código foi lido, mas NÃO foi gravado no Google Sheets. "
+            "Corrija a conexão/permissão da planilha e tente novamente. "
+            f"Detalhe: {erro}"
+        )
         return False
     unidade = _normalizar_unidade_aba(unidade)
     nome_aba = _nome_aba(unidade)
@@ -390,21 +415,55 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
         if not valores:
             carregar_dados_excel.clear()
             return True
-        aba.append_rows(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS")
-        lidos = aba.get_all_values()
-        existentes_pos = [list(map(str, linha[:len(COLUNAS_INVENTARIO)])) for linha in lidos[1:]]
-        if sum(1 for linha in valores if linha in existentes_pos) != len(valores):
-            st.error("⚠️ O Google Sheets não confirmou todas as linhas anexadas.")
+        ultimo_erro = None
+        confirmado = False
+        for tentativa in range(1, 4):
+            try:
+                aba.append_rows(
+                    valores,
+                    value_input_option="RAW",
+                    insert_data_option="INSERT_ROWS",
+                )
+                lidos = aba.get_all_values()
+                existentes_pos = [
+                    list(map(str, linha[:len(COLUNAS_INVENTARIO)]))
+                    for linha in lidos[1:]
+                ]
+                if sum(1 for linha in valores if linha in existentes_pos) == len(valores):
+                    confirmado = True
+                    break
+                ultimo_erro = (
+                    f"tentativa {tentativa}: gravação enviada, mas a confirmação "
+                    "da(s) linha(s) no Sheets não correspondeu aos dados."
+                )
+            except Exception as exc:
+                ultimo_erro = f"tentativa {tentativa}: {exc}"
+                if tentativa < 3:
+                    import time
+                    time.sleep(0.8 * tentativa)
+
+        if not confirmado:
+            erro = str(ultimo_erro or "confirmação desconhecida")
+            st.session_state["sheets_sync_pendente"] = True
+            st.session_state["sheets_sync_ultimo_erro"] = erro[:500]
+            st.error(
+                "⚠️ O código foi lido, mas o Google Sheets não confirmou a gravação. "
+                f"Tente novamente. Detalhe: {erro[:500]}"
+            )
             return False
+
+        st.session_state.pop("sheets_sync_pendente", None)
+        st.session_state.pop("sheets_sync_ultimo_erro", None)
         carregar_dados_excel.clear()
         return True
     except Exception as e:
-        if persistencia_postgresql_configurada():
-            st.session_state["sheets_sync_pendente"] = True
-            st.session_state["sheets_sync_ultimo_erro"] = str(e)[:500]
-            carregar_dados_excel.clear()
-            return True
-        st.error(f"⚠️ Erro ao anexar no Google Sheets: {e}")
+        erro = str(e)
+        st.session_state["sheets_sync_pendente"] = True
+        st.session_state["sheets_sync_ultimo_erro"] = erro[:500]
+        st.error(
+            "⚠️ Erro ao anexar o código no Google Sheets. "
+            f"Detalhe: {erro[:500]}"
+        )
         return False
 
 
