@@ -249,6 +249,12 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     if st.session_state.get("mensagem_sucesso"):
         st.success(st.session_state.mensagem_sucesso)
+        if st.session_state.pop("sheets_sync_pendente", False):
+            st.info(
+                "📌 Cadastro confirmado no PostgreSQL. A integração com o "
+                "Google Sheets está pendente e não bloqueia a bipagem."
+            )
+        st.session_state.pop("sheets_sync_ultimo_erro", None)
         del st.session_state["mensagem_sucesso"]
 
     try:
