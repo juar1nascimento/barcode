@@ -10,6 +10,7 @@ from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso
 from teste_upload_foto import renderizar_teste_upload_foto
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
+from painel_integracao import renderizar_painel_integracao
 
 # ==========================================
 # CONFIGURAÇÕES DA PÁGINA
@@ -69,6 +70,9 @@ with st.sidebar:
             st.rerun()
         if st.button("🧪 Teste upload de foto"):
             st.session_state.pagina_atual = "teste_upload_foto"
+            st.rerun()
+        if st.button("🩺 Saúde da sincronização"):
+            st.session_state.pagina_atual = "saude_integracao"
             st.rerun()
 
     if st.button("🚪 Sair do Sistema"):
@@ -181,6 +185,13 @@ secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
                 "O preflight deverá mostrar **4 itens verdes**. Só então faremos o teste de leitura "
                 "do bucket e, depois, o primeiro upload controlado."
             )
+
+elif st.session_state.pagina_atual == "saude_integracao":
+    if not is_admin:
+        st.error("Acesso não autorizado.")
+        st.session_state.pagina_atual = "portal"
+        st.stop()
+    renderizar_painel_integracao()
 
 elif st.session_state.pagina_atual == "teste_upload_foto":
     if not is_admin:
