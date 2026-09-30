@@ -242,6 +242,10 @@ def main():
     conn = psycopg.connect(env("DATABASE_URL"))
     try:
         reset_stale(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT public.reconcile_patrimonio_fotos_sheets_outbox(%s)", (limit * 5,))
+            reconciled = int(cur.fetchone()[0] or 0)
+        conn.commit()
         sheets = sheets_client()
         spreadsheet = open_spreadsheet(sheets)
         claimed = claim_batch(conn, limit)
@@ -285,7 +289,7 @@ def main():
 
         print(json.dumps({
             "event": "sheets_outbox_batch",
-            "claimed": len(claimed),
+            "reconciled": reconciled,\n            "claimed": len(claimed),
             "patrimonios_processados": len(by_patrimonio),
             "synced": synced,
             "failed": failed,
