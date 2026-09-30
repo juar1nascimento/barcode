@@ -341,6 +341,7 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
     if not planilha:
         if persistencia_postgresql_configurada():
             st.session_state["sheets_sync_pendente"] = True
+            carregar_dados_excel.clear()
             return True
         st.error("⚠️ Google Sheets indisponível: o cadastro NÃO foi considerado salvo na tabela online.")
         return False
@@ -383,6 +384,7 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
         if persistencia_postgresql_configurada():
             st.session_state["sheets_sync_pendente"] = True
             st.session_state["sheets_sync_ultimo_erro"] = str(e)[:500]
+            carregar_dados_excel.clear()
             return True
         st.error(f"⚠️ Erro ao anexar no Google Sheets: {e}")
         return False
