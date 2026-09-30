@@ -44,7 +44,7 @@ def _falhas(limit: int = 20):
         """SELECT id, patrimonio_id, foto_id, status, tentativas,
                   proxima_tentativa_em, ultimo_erro, atualizado_em
              FROM public.patrimonio_fotos_sheets_outbox
-            WHERE status='failed'
+            WHERE status IN ('failed','dead_letter')
             ORDER BY atualizado_em DESC
             LIMIT %s""",
         (limit,),
@@ -65,7 +65,7 @@ def _reprocessar(ids: list[int]) -> int:
                           ultimo_erro=NULL,
                           atualizado_em=now()
                     WHERE id = ANY(%s)
-                      AND status='failed'""",
+                      AND status IN ('failed','dead_letter')""",
                 (ids,),
             )
             total = cur.rowcount
@@ -127,9 +127,9 @@ def renderizar_painel_integracao():
     if not falhas:
         st.success("✅ Nenhuma falha pendente na fila.")
     else:
-        st.warning(f"⚠️ {len(falhas)} evento(s) aguardando reprocessamento.")
+        st.warning(f"⚠️ {len(falhas)} evento(s) com falha ou em dead-letter.")
         opcoes = {
-            f"Evento {row[0]} · Patrimônio {row[1]} · tentativa {row[4]}": int(row[0])
+            f"Evento {row[0]} · Patrimônio {row[1]} · tentativa {row[4]} · {row[3]}": int(row[0])
             for row in falhas
         }
         selecionados = st.multiselect(
@@ -151,7 +151,7 @@ def renderizar_painel_integracao():
                     "Evento": row[0],
                     "Patrimônio": row[1],
                     "Foto": row[2],
-                    "Tentativas": row[4],
+                    "Status": row[3],\n                    "Tentativas": row[4],
                     "Próxima tentativa": row[5],
                     "Último erro": row[6] or "",
                 }
