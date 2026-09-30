@@ -14,6 +14,7 @@ import hashlib
 import io
 import uuid
 from typing import Optional, Tuple
+from urllib.parse import quote
 
 import requests
 from PIL import Image, ImageOps
@@ -23,6 +24,7 @@ BUCKET = "patrimonio-fotos"
 MAX_STORAGE_BYTES = 1_048_576
 TARGET_BYTES = 900_000
 MAX_DIMENSION = 1600
+MAX_INPUT_BYTES = 20 * 1024 * 1024
 JPEG_QUALITY_START = 85
 JPEG_QUALITY_MIN = 55
 
@@ -47,6 +49,10 @@ def _config_supabase() -> dict:
 def _normalizar_jpeg(image_bytes: bytes) -> Tuple[bytes, int, int]:
     if not image_bytes:
         raise ValueError("A imagem recebida está vazia.")
+    if len(image_bytes) > MAX_INPUT_BYTES:
+        raise ValueError(
+            f"A imagem original excede o limite de {MAX_INPUT_BYTES // (1024 * 1024)} MB."
+        )
 
     with Image.open(io.BytesIO(image_bytes)) as original:
         image = ImageOps.exif_transpose(original).convert("RGB")
@@ -96,6 +102,7 @@ def _headers(key: str, content_type: Optional[str] = None) -> dict:
     headers = {
         "Authorization": f"Bearer {key}",
         "apikey": key,
+        "x-upsert": "false",
     }
     if content_type:
         headers["Content-Type"] = content_type
@@ -103,7 +110,7 @@ def _headers(key: str, content_type: Optional[str] = None) -> dict:
 
 
 def _storage_url(base_url: str, path: str) -> str:
-    return f"{base_url}/storage/v1/object/{BUCKET}/{path}"
+    return f"{base_url}/storage/v1/object/{BUCKET}/{quote(path.lstrip("/"), safe="/")}"
 
 
 def _upload_storage(base_url: str, key: str, path: str, data: bytes) -> None:
@@ -182,7 +189,7 @@ def salvar_foto_patrimonio(
         ordem = _proxima_ordem(conn, patrimonio_id)
 
         nome_base = f"foto-{ordem:03d}-{uuid.uuid4().hex}.jpg"
-        storage_path = f"{patrimonio_id}/{nome_base}"
+        storage_path = f"patrimonio/{patrimonio_id}/{nome_base}"
 
         _upload_storage(config["url"], config["key"], storage_path, jpeg)
 
