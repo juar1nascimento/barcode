@@ -95,7 +95,8 @@ def renderizar_painel_integracao():
         ("Processando", health[1]),
         ("Sincronizados", health[2]),
         ("Falhos", health[3]),
-        ("Prontos para retry", health[4]),
+        ("Dead-letter", health[4]),
+        ("Prontos para retry", health[5]),
     ]
     cols = st.columns(len(labels))
     for col, (label, value) in zip(cols, labels):
@@ -103,8 +104,8 @@ def renderizar_painel_integracao():
 
     st.divider()
 
-    ultima = health[6] if len(health) > 6 else None
-    erro = health[7] if len(health) > 7 else None
+    ultima = health[7] if len(health) > 7 else None
+    erro = health[8] if len(health) > 8 else None
     c1, c2 = st.columns(2)
     with c1:
         st.write("**Última sincronização:**", ultima or "Ainda não registrada")
