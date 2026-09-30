@@ -245,16 +245,54 @@ def main():
         sheets = sheets_client()
         spreadsheet = open_spreadsheet(sheets)
         claimed = claim_batch(conn, limit)
+
+        # Vários eventos do mesmo patrimônio são consolidados em uma única
+        # sincronização: sync_one já projeta todas as fotos do patrimônio.
+        by_patrimonio = {}
         for outbox_id, patrimonio_id, _foto_id in claimed:
+            by_patrimonio.setdefault(int(patrimonio_id), []).append(int(outbox_id))
+
+        synced = failed = 0
+        for patrimonio_id, event_ids in by_patrimonio.items():
+            started = time.monotonic()
             try:
-                sync_one(conn, spreadsheet, outbox_id, int(patrimonio_id))
-                mark(conn, int(outbox_id), "synced")
+                sync_one(conn, event_ids[0], patrimonio_id)
+                for outbox_id in event_ids:
+                    mark(conn, outbox_id, "synced")
+                synced += len(event_ids)
+                print(json.dumps({
+                    "event": "sheets_outbox_sync",
+                    "patrimonio_id": patrimonio_id,
+                    "outbox_ids": event_ids,
+                    "result": "synced",
+                    "events_consolidated": len(event_ids),
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                }, ensure_ascii=False))
             except Exception as exc:
-                mark(conn, int(outbox_id), "failed", str(exc), max_attempts=max_attempts)
-        print(json.dumps({"event": "sheets_outbox_batch", "claimed": len(claimed), "max_attempts": max_attempts}, ensure_ascii=False))
+                error = str(exc)
+                for outbox_id in event_ids:
+                    mark(conn, outbox_id, "failed", error, max_attempts=max_attempts)
+                failed += len(event_ids)
+                print(json.dumps({
+                    "event": "sheets_outbox_sync",
+                    "patrimonio_id": patrimonio_id,
+                    "outbox_ids": event_ids,
+                    "result": "failed",
+                    "events_consolidated": len(event_ids),
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "error": error[:500],
+                }, ensure_ascii=False))
+
+        print(json.dumps({
+            "event": "sheets_outbox_batch",
+            "claimed": len(claimed),
+            "patrimonios_processados": len(by_patrimonio),
+            "synced": synced,
+            "failed": failed,
+            "max_attempts": max_attempts,
+        }, ensure_ascii=False))
     finally:
         conn.close()
-
 
 if __name__ == "__main__":
     main()
