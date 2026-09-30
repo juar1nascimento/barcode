@@ -95,7 +95,7 @@ def test_salvar_foto_patrimonio_fluxo_sucesso(monkeypatch):
     conn = _FakeConnection(
         [
             _FakeCursor([(1,)]),
-            _FakeCursor([(1,)]),
+            _FakeCursor([(1,), (1,)]),
             _FakeCursor([(7,)]),
         ]
     )
@@ -136,7 +136,7 @@ def test_salvar_foto_patrimonio_remove_orfao_se_insert_falhar(monkeypatch):
     conn = _FakeConnection(
         [
             _FakeCursor([(1,)]),
-            _FakeCursor([(1,)]),
+            _FakeCursor([(1,), (1,)]),
             _FakeCursor(error_on_insert=True),
         ]
     )
