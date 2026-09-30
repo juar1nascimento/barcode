@@ -77,7 +77,24 @@ CREATE TABLE IF NOT EXISTS patrimonio_fotos (
     largura INTEGER,
     altura INTEGER,
     sha256 CHAR(64) NOT NULL
-        CHECK (sha256 ~ '^[0-9a-fA-F]{64}-- Compatibilidade operacional: a coluna Setor do Google Sheets pode continuar
+        CHECK (sha256 ~ '^[0-9a-fA-F]{64}
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_patrimonio_fotos_dimensoes CHECK (
+        (largura IS NULL AND altura IS NULL)
+        OR
+        (largura > 0 AND altura > 0)
+    ),
+    CONSTRAINT uq_patrimonio_fotos_ordem UNIQUE (patrimonio_id, ordem),
+    CONSTRAINT uq_patrimonio_fotos_storage_path UNIQUE (storage_bucket, storage_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_patrimonio
+    ON patrimonio_fotos(patrimonio_id);
+
+CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_sha256
+    ON patrimonio_fotos(sha256);
+
+-- Compatibilidade operacional: a coluna Setor do Google Sheets pode continuar
 -- exibindo "Consultório 5 - Odontologia", enquanto o PostgreSQL mantém os
 -- componentes estruturados em nome/numero_consultorio/especialidade.
 ),
