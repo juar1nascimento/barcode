@@ -44,6 +44,9 @@ def _sincronizar_fotos_google(patrimonio_id: int) -> tuple[bool, str]:
         patrimonio = buscar_patrimonio_por_id(patrimonio_id)
         if not patrimonio:
             return False, "Patrimônio não encontrado para sincronização no Sheets."
+        # O sincronismo pertence ao módulo de fotos. Evitamos autoimportar
+        # o módulo principal do Streamlit durante o callback de upload.
+        # Isso impede instâncias duplicadas e mantém o estado da sessão estável.
         from Tabela_de_dados_Inventario_7_2 import conectar_google_sheets, _nome_aba, _normalizar_unidade_aba
         planilha = conectar_google_sheets()
         if planilha is None:
