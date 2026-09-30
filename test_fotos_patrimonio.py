@@ -22,3 +22,13 @@ def test_url_publica_foto_codifica_caminho_sem_expor_credencial():
         "patrimonio-fotos/patrimonio/123/foto%20001.jpg"
     )
     assert "secret_key" not in url
+
+
+def test_worker_sheet_url_preserva_caminho_e_codifica_espacos(monkeypatch):
+    import sheets_outbox_worker as worker
+
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    assert worker.sheet_url("patrimonio/1/foto 001.jpg") == (
+        "https://example.supabase.co/storage/v1/object/public/"
+        "patrimonio-fotos/patrimonio/1/foto%20001.jpg"
+    )
