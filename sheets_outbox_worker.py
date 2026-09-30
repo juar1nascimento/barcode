@@ -260,7 +260,7 @@ def main():
         for patrimonio_id, event_ids in by_patrimonio.items():
             started = time.monotonic()
             try:
-                sync_one(conn, event_ids[0], patrimonio_id)
+                sync_one(conn, sheets, event_ids[0], patrimonio_id)
                 for outbox_id in event_ids:
                     mark(conn, outbox_id, "synced")
                 synced += len(event_ids)
