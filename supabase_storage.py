@@ -216,6 +216,21 @@ def salvar_foto_patrimonio(
                     ),
                 )
                 foto_id = int(cur.fetchone()[0])
+                # Outbox: a sincronização com o Sheets fica desacoplada da
+                # transação da foto e pode ser repetida de forma idempotente.
+                cur.execute(
+                    """INSERT INTO public.patrimonio_fotos_sheets_outbox
+                         (patrimonio_id, foto_id, evento)
+                       VALUES (%s, %s, 'upsert')
+                       ON CONFLICT (foto_id, evento)
+                       WHERE foto_id IS NOT NULL
+                       DO UPDATE SET
+                         status = 'pending',
+                         proxima_tentativa_em = now(),
+                         atualizado_em = now(),
+                         ultimo_erro = NULL""",
+                    (patrimonio_id, foto_id),
+                )
             conn.commit()
             return True, foto_id, f"Foto {ordem} gravada com sucesso."
         except Exception:
