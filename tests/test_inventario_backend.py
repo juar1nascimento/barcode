@@ -267,6 +267,32 @@ def test_google_com_leitura_de_confirmacao_diferente_eh_falha(monkeypatch, tmp_p
     assert erros
 
 
+def test_falha_google_com_postgresql_ok_nao_vira_falso_sucesso(monkeypatch):
+    estado = _estado_vazio()
+    monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "PostgreSQL"))
+    monkeypatch.setattr(
+        backend,
+        "salvar_patrimonio",
+        lambda **kwargs: (True, 123, "Cadastro confirmado no PostgreSQL."),
+    )
+    monkeypatch.setattr(backend, "_anexar_no_google", lambda df, unidade: False)
+    monkeypatch.setattr(backend, "persistencia_postgresql_configurada", lambda: True)
+    avisos = []
+    monkeypatch.setattr(backend.st, "warning", lambda mensagem: avisos.append(mensagem))
+    backend.st.session_state.clear()
+
+    assert backend.registrar_patrimonio(
+        "PAT-SHEETS-PENDENTE",
+        "CPU",
+        "Farmacia",
+        "UBS Teste",
+        "Dell",
+    ) is False
+    assert backend.st.session_state["sheets_sync_pendente"] is True
+    assert avisos
+    assert backend.st.session_state["ultimo_patrimonio_id"] == 123
+
+
 def test_falha_google_nao_vira_falso_sucesso_por_backup_local(monkeypatch, tmp_path):
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: None)
     monkeypatch.chdir(tmp_path)
