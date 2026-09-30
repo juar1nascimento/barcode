@@ -111,7 +111,7 @@ def test_salvar_foto_patrimonio_fluxo_sucesso(monkeypatch):
     assert conn.rollback_count == 0
     supabase_storage._upload_storage.assert_called_once()
     upload_args = supabase_storage._upload_storage.call_args.args
-    assert upload_args[2].startswith("patrimonio/1/foto-001-")
+    assert upload_args[2].startswith("1/foto-001-")
     assert upload_args[2].endswith(".jpg")
     assert upload_args[3] == b"jpeg-data"
     supabase_storage._delete_storage.assert_not_called()
@@ -153,5 +153,5 @@ def test_salvar_foto_patrimonio_remove_orfao_se_insert_falhar(monkeypatch):
     supabase_storage._upload_storage.assert_called_once()
     supabase_storage._delete_storage.assert_called_once()
     delete_args = supabase_storage._delete_storage.call_args.args
-    assert delete_args[2].startswith("patrimonio/1/foto-001-")
+    assert delete_args[2].startswith("1/foto-001-")
     assert delete_args[2].endswith(".jpg")
