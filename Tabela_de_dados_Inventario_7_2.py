@@ -383,18 +383,39 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.error(pg_mensagem)
         return False
 
-    nova = {"Setor": setor_limpo, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante_limpo, "Data Cadastro": _data_hora_cadastro()}
+    # O PostgreSQL é a persistência principal. O ID deve ficar disponível
+    # imediatamente após o commit, mesmo que o espelhamento secundário no
+    # Google Sheets falhe. O fluxo de fotos depende exclusivamente deste ID.
+    if pg_id is not None:
+        st.session_state["ultimo_patrimonio_id"] = int(pg_id)
+        st.session_state["ultimo_patrimonio_numero"] = numero
+        st.session_state["ultimo_patrimonio_unidade"] = unidade_limpa
+
+    nova = {
+        "Setor": setor_limpo,
+        "Tipo de Patrimônio": tipo,
+        "Nº de Patrimônio": numero,
+        "Fabricante": fabricante_limpo,
+        "Data Cadastro": _data_hora_cadastro(),
+    }
     sucesso_sheets = _anexar_no_google(
         pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
         unidade_limpa,
     )
 
-    if sucesso_sheets and pg_id is not None:
-        st.session_state["ultimo_patrimonio_id"] = int(pg_id)
-        st.session_state["ultimo_patrimonio_numero"] = numero
-        st.session_state["ultimo_patrimonio_unidade"] = unidade_limpa
+    # Falha no Sheets não pode apagar/invalidar o cadastro já confirmado no
+    # PostgreSQL nem impedir o armazenamento da fotografia do patrimônio.
+    if not sucesso_sheets:
+        if pg_id is not None:
+            st.warning(
+                "⚠️ Patrimônio gravado no PostgreSQL. O Google Sheets está "
+                "indisponível no momento; o espelhamento ficará pendente. "
+                "A fotografia continua habilitada."
+            )
+            return True
+        return False
 
-    return sucesso_sheets
+    return True
 
 
 @_serializar_persistencia
