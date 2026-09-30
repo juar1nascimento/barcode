@@ -1,8 +1,9 @@
 """Persistência isolada de fotos de patrimônio no Supabase Storage.
 
 Este módulo não altera a interface do sistema. Ele prepara o fluxo:
-bytes da imagem -> normalização/compressão -> Storage privado ->
-metadados em public.patrimonio_fotos.
+bytes da imagem -> normalização/compressão -> Storage público ->
+metadados em public.patrimonio_fotos. O objeto é público somente para leitura;
+a gravação usa a chave de backend armazenada nos Secrets.
 
 A chave Supabase é lida exclusivamente de Streamlit Secrets e nunca é
 retornada, exibida ou registrada em log.
