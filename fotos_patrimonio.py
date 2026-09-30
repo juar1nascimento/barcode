@@ -12,6 +12,78 @@ EXTENSOES_IMAGEM = ["jpg", "jpeg", "png", "webp"]
 MAX_UPLOAD_MB = 20
 
 
+GOOGLE_FOTO_COLUNAS = [f"Foto {indice}" for indice in range(1, 11)]
+
+
+def _coluna_letra(numero: int) -> str:
+    letra = ""
+    while numero:
+        numero, resto = divmod(numero - 1, 26)
+        letra = chr(65 + resto) + letra
+    return letra
+
+
+def _url_publica_foto(storage_path: str) -> str:
+    sec = st.secrets.get("supabase") or {}
+    base_url = str(sec.get("url") or "").strip().rstrip("/")
+    if not base_url:
+        raise RuntimeError("Secret [supabase].url não configurada.")
+    from urllib.parse import quote
+    caminho = quote(str(storage_path or "").lstrip("/"), safe="/")
+    return f"{base_url}/storage/v1/object/public/patrimonio-fotos/{caminho}"
+
+
+def _sincronizar_fotos_google(patrimonio_id: int) -> tuple[bool, str]:
+    """Coloca as fotografias também dentro da linha do patrimônio no Sheets.
+
+    As células Foto 1..Foto 10 usam IMAGE(URL), mantendo a imagem visível na
+    própria tabela. O arquivo físico continua no Storage; a planilha recebe
+    a referência visual, não um binário/base64.
+    """
+    try:
+        patrimonio = buscar_patrimonio_por_id(patrimonio_id)
+        if not patrimonio:
+            return False, "Patrimônio não encontrado para sincronização no Sheets."
+        from Tabela_de_dados_Inventario_7_2 import conectar_google_sheets, _nome_aba, _normalizar_unidade_aba
+        planilha = conectar_google_sheets()
+        if planilha is None:
+            return False, "Google Sheets indisponível para sincronizar as fotos."
+        aba = planilha.worksheet(_nome_aba(_normalizar_unidade_aba(patrimonio["unidade"])))
+        valores = aba.get_all_values()
+        if not valores:
+            return False, "A aba do patrimônio está sem cabeçalho."
+        cabecalho = list(valores[0])
+        while len(cabecalho) < 5:
+            cabecalho.append("")
+        for nome in GOOGLE_FOTO_COLUNAS:
+            if nome not in cabecalho:
+                cabecalho.append(nome)
+        ultima_coluna = _coluna_letra(len(cabecalho))
+        if cabecalho != list(valores[0]):
+            aba.update(values=[cabecalho], range_name=f"A1:{ultima_coluna}1")
+        indice_numero = 2
+        linha_planilha = None
+        chave = str(patrimonio["numero"]).strip().casefold()
+        for indice, linha in enumerate(valores[1:], start=2):
+            if len(linha) > indice_numero and str(linha[indice_numero]).strip().casefold() == chave:
+                linha_planilha = indice
+                break
+        if linha_planilha is None:
+            return False, f"Patrimônio {patrimonio['numero']} não encontrado na aba do Sheets."
+        fotos = buscar_fotos_patrimonio(patrimonio_id)
+        formulas = []
+        for foto in fotos[: len(GOOGLE_FOTO_COLUNAS)]:
+            url = _url_publica_foto(foto["storage_path"]).replace('"', '""')
+            formulas.append(f'=IMAGE("{url}")')
+        formulas.extend([""] * (len(GOOGLE_FOTO_COLUNAS) - len(formulas)))
+        primeira_coluna = _coluna_letra(6)
+        ultima_coluna = _coluna_letra(5 + len(GOOGLE_FOTO_COLUNAS))
+        aba.update(values=[formulas], range_name=f"{primeira_coluna}{linha_planilha}:{ultima_coluna}{linha_planilha}", value_input_option="USER_ENTERED")
+        return True, f"{len(fotos)} foto(s) sincronizada(s) no Google Sheets."
+    except Exception as exc:
+        return False, f"Falha ao sincronizar fotos no Google Sheets: {exc}"
+
+
 def _fechar_conexao(conn: Any) -> None:
     """Fecha uma conexão PostgreSQL sem mascarar o erro original."""
     if conn is not None:
@@ -19,6 +91,44 @@ def _fechar_conexao(conn: Any) -> None:
             conn.close()
         except Exception:
             pass
+
+
+def buscar_patrimonio_por_id(patrimonio_id: int) -> dict[str, Any] | None:
+    """Localiza patrimônio pelo ID PostgreSQL para sincronização da foto."""
+    try:
+        patrimonio_id = int(patrimonio_id)
+    except (TypeError, ValueError):
+        return None
+    if patrimonio_id <= 0:
+        return None
+    conn = conectar()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.id, p.numero_patrimonio, p.tipo, p.fabricante,
+                       u.nome AS unidade, COALESCE(s.nome, '') AS setor
+                FROM public.patrimonios p
+                JOIN public.unidades u ON u.id = p.unidade_id
+                LEFT JOIN public.setores s ON s.id = p.setor_id
+                WHERE p.id = %s
+                LIMIT 1
+                """,
+                (patrimonio_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return {
+                "id": int(row[0]), "numero": row[1], "tipo": row[2],
+                "fabricante": row[3] or "", "unidade": row[4], "setor": row[5] or "",
+            }
+    except Exception:
+        return None
+    finally:
+        _fechar_conexao(conn)
 
 
 def buscar_patrimonio_por_numero(
@@ -280,10 +390,18 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
                 )
 
             if ok:
+                sincronizada, mensagem_sheets = _sincronizar_fotos_google(patrimonio_id)
                 st.success(
                     f"✅ {mensagem} "
                     f"Foto ID: {foto_id}."
                 )
+                if sincronizada:
+                    st.success(f"📊 {mensagem_sheets}")
+                else:
+                    st.warning(
+                        "⚠️ A foto foi salva no Supabase/PostgreSQL, mas não foi "
+                        f"refletida na tabela do Google Sheets: {mensagem_sheets}"
+                    )
                 st.rerun()
             else:
                 st.error(mensagem)
