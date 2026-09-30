@@ -7,7 +7,11 @@ from auditoria_integridade_google import normalizar_data_hora
 from zoneinfo import ZoneInfo
 from typing import Optional, Tuple
 
-from postgresql_persistencia import salvar_patrimonio
+from postgresql_persistencia import (
+    salvar_patrimonio,
+    conectar as conectar_postgresql,
+    persistencia_postgresql_configurada,
+)
 
 import gspread
 import pandas as pd
@@ -175,6 +179,45 @@ def _normalizar_legacy_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(registros, columns=COLUNAS_INVENTARIO).fillna("").astype(str)
 
 
+def _carregar_dados_postgresql(unidade: str) -> Optional[Tuple[pd.DataFrame, str]]:
+    """Lê o inventário do PostgreSQL quando ele está configurado.
+
+    O PostgreSQL é a fonte operacional principal do cadastro. Uma falha do
+    Google Sheets, inclusive HTTP 404 por permissão da conta de serviço, não
+    pode impedir a abertura do inventário nem a bipagem.
+    """
+    if not persistencia_postgresql_configurada():
+        return None
+    conn = conectar_postgresql()
+    if conn is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT COALESCE(s.nome, ''),
+                          p.tipo,
+                          p.numero_patrimonio,
+                          COALESCE(p.fabricante, ''),
+                          COALESCE(to_char(p.data_cadastro, 'YYYY-MM-DD HH24:MI:SS'), '')
+                     FROM public.patrimonios p
+                     JOIN public.unidades u ON u.id = p.unidade_id
+                     LEFT JOIN public.setores s ON s.id = p.setor_id
+                    WHERE u.nome = %s
+                    ORDER BY p.id""",
+                (unidade,),
+            )
+            rows = cur.fetchall()
+        df = pd.DataFrame(rows, columns=COLUNAS_INVENTARIO)
+        return _normalizar_legacy_dataframe(df), "PostgreSQL"
+    except Exception:
+        return None
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def conectar_google_sheets():
     try:
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
@@ -211,18 +254,8 @@ def conectar_google_sheets():
         return None
     except Exception as e:
         texto = str(e)
-        if "404" in texto or "NOT_FOUND" in texto:
-            email = str(sec.get("client_email") or "").strip() if "sec" in locals() else ""
-            detalhe = (
-                f" Conta de serviço: {email}." if email else ""
-            )
-            st.warning(
-                "Google Sheets retornou 404." + detalhe +
-                " Compartilhe a planilha com essa conta como Editor e confirme que "
-                "spreadsheet_id/spreadsheet aponta para a planilha correta."
-            )
-        else:
-            st.warning(f"Não foi possível conectar ao Google Sheets: {e}")
+        # O Sheets é um espelho de integração. Não exibir falhas de acesso
+        # durante a bipagem; o cadastro confirmado no PostgreSQL não é perdido.
         return None
 
 
@@ -233,6 +266,13 @@ def _nome_aba(unidade: str) -> str:
 @st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     unidade = _normalizar_unidade_aba(unidade)
+
+    # Fonte operacional principal: PostgreSQL. O Google Sheets permanece como
+    # espelho e não pode impedir a abertura da tela de inventário.
+    dados_postgresql = _carregar_dados_postgresql(unidade)
+    if dados_postgresql is not None:
+        return dados_postgresql
+
     planilha = conectar_google_sheets()
     nome_aba = _nome_aba(unidade)
     nome_arquivo_local = f"Inventario_{re.sub(r'[^a-zA-Z0-9_]', '_', unidade)}.xlsx"
@@ -299,6 +339,9 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
         return False
     planilha = conectar_google_sheets()
     if not planilha:
+        if persistencia_postgresql_configurada():
+            st.session_state["sheets_sync_pendente"] = True
+            return True
         st.error("⚠️ Google Sheets indisponível: o cadastro NÃO foi considerado salvo na tabela online.")
         return False
     unidade = _normalizar_unidade_aba(unidade)
@@ -337,6 +380,10 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
         carregar_dados_excel.clear()
         return True
     except Exception as e:
+        if persistencia_postgresql_configurada():
+            st.session_state["sheets_sync_pendente"] = True
+            st.session_state["sheets_sync_ultimo_erro"] = str(e)[:500]
+            return True
         st.error(f"⚠️ Erro ao anexar no Google Sheets: {e}")
         return False
 
@@ -397,10 +444,14 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     if (df["Nº de Patrimônio"].map(_chave_texto) == chave_numero).any():
         st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado.")
         return False
-    planilha_validacao = conectar_google_sheets()
-    if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
-        st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
-        return False
+    # Com PostgreSQL configurado, a unicidade é garantida pelo banco.
+    # Não consultar o Sheets durante a bipagem, pois um 404 de permissão não
+    # pode interromper o registro.
+    if not persistencia_postgresql_configurada():
+        planilha_validacao = conectar_google_sheets()
+        if planilha_validacao is not None and _numero_patrimonio_existe_na_planilha(planilha_validacao, numero):
+            st.warning(f"O número de patrimônio/código de barras `{numero}` já está cadastrado em outra unidade.")
+            return False
     pg_ok, pg_id, pg_mensagem = salvar_patrimonio(
         codigo_barras=codigo,
         tipo=tipo,
@@ -437,10 +488,9 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
     # PostgreSQL nem impedir o armazenamento da fotografia do patrimônio.
     if not sucesso_sheets:
         if pg_id is not None:
-            st.warning(
-                "⚠️ Patrimônio gravado no PostgreSQL. O Google Sheets está "
-                "indisponível no momento; o espelhamento ficará pendente. "
-                "A fotografia continua habilitada."
+            st.session_state["sheets_sync_pendente"] = True
+            st.session_state["sheets_sync_ultimo_erro"] = (
+                "Google Sheets indisponível; registro mantido no PostgreSQL."
             )
             return True
         return False
