@@ -2,6 +2,10 @@ name: Sincronizacao de fotos com Google Sheets
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "sheets_outbox_worker.py"
+      - ".github/workflows/sheets-outbox.yml"
   schedule:
     - cron: "*/5 * * * *"
 
