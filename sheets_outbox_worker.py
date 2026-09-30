@@ -97,7 +97,7 @@ def claim_batch(conn, limit: int):
     return rows
 
 
-def mark(conn, outbox_id: int, status: str, error: str | None = None):
+def mark(conn, outbox_id: int, status: str, error: str | None = None, max_attempts: int = 8):
     with conn.cursor() as cur:
         if status == "synced":
             cur.execute(
