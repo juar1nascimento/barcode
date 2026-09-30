@@ -26,6 +26,19 @@ def _health():
     return rows[0] if rows else None
 
 
+def _reconciliacao(limit: int = 50):
+    return _consultar(
+        """SELECT patrimonio_id, numero_patrimonio, fotos_postgres,
+                  eventos_pendentes, eventos_falhos
+             FROM public.patrimonio_fotos_sheets_reconciliation
+            WHERE fotos_postgres > 0
+              AND eventos_pendentes > 0
+            ORDER BY patrimonio_id
+            LIMIT %s""",
+        (limit,),
+    ) or []
+
+
 def _falhas(limit: int = 20):
     return _consultar(
         """SELECT id, patrimonio_id, foto_id, status, tentativas,
@@ -97,6 +110,17 @@ def renderizar_painel_integracao():
         st.write("**Última sincronização:**", ultima or "Ainda não registrada")
     with c2:
         st.write("**Último erro:**", erro or "Nenhum erro registrado")
+
+    reconciliacao = _reconciliacao()
+    if reconciliacao:
+        st.info(f"🔄 {len(reconciliacao)} patrimônio(s) com eventos aguardando processamento.")
+        st.dataframe(
+            [
+                {"Patrimônio": r[0], "Nº": r[1], "Fotos no PostgreSQL": r[2],
+                 "Eventos pendentes": r[3], "Eventos falhos": r[4]}
+                for r in reconciliacao
+            ], use_container_width=True, hide_index=True,
+        )
 
     falhas = _falhas()
     if not falhas:
