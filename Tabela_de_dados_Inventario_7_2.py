@@ -564,17 +564,24 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         unidade_limpa,
     )
 
-    # Falha no Sheets não pode apagar/invalidar o cadastro já confirmado no
-    # PostgreSQL nem impedir o armazenamento da fotografia do patrimônio.
+    # O cadastro só é considerado concluído quando o Google Sheets confirma
+    # a linha. O PostgreSQL permanece preservado para permitir recuperação.
     if not sucesso_sheets:
+        st.session_state["sheets_sync_pendente"] = True
+        st.session_state["sheets_sync_ultimo_erro"] = st.session_state.get(
+            "sheets_sync_ultimo_erro",
+            "Google Sheets não confirmou a gravação do código.",
+        )
         if pg_id is not None:
-            st.session_state["sheets_sync_pendente"] = True
-            st.session_state["sheets_sync_ultimo_erro"] = (
-                "Google Sheets indisponível; registro mantido no PostgreSQL."
+            st.warning(
+                "O patrimônio foi gravado no banco, porém o código ainda NÃO "
+                "foi confirmado no Google Sheets. O registro não será marcado "
+                "como concluído até a sincronização ser confirmada."
             )
-            return True
         return False
 
+    st.session_state.pop("sheets_sync_pendente", None)
+    st.session_state.pop("sheets_sync_ultimo_erro", None)
     return True
 
 
