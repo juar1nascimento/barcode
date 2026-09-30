@@ -35,3 +35,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
           OUTBOX_BATCH_SIZE: "20"
         run: python sheets_outbox_worker.py
+
+      - name: Relatar resultado
+        if: always()
+        run: echo "Worker finalizado. Consulte os logs desta execução para quantidade processada e falhas."
