@@ -22,6 +22,15 @@ def _coluna_letra(numero: int) -> str:
         letra = chr(65 + resto) + letra
     return letra
 
+def _intervalo_colunas_foto(cabecalho: list[str]) -> tuple[int, int]:
+    """Retorna as colunas A1 inicial/final das fotos pelo nome do cabeçalho."""
+    try:
+        primeiro = cabecalho.index(GOOGLE_FOTO_COLUNAS[0]) + 1
+        ultimo = cabecalho.index(GOOGLE_FOTO_COLUNAS[-1]) + 1
+    except ValueError as exc:
+        raise RuntimeError("Cabeçalho sem as colunas Foto 1..Foto 10.") from exc
+    return primeiro, ultimo
+
 
 def _url_publica_foto(storage_path: str) -> str:
     sec = st.secrets.get("supabase") or {}
@@ -84,8 +93,9 @@ def _sincronizar_fotos_google(patrimonio_id: int) -> tuple[bool, str]:
             formulas.append(f'=IMAGE("{url}")')
         formulas.extend([""] * (len(GOOGLE_FOTO_COLUNAS) - len(formulas)))
 
-        primeira_coluna = _coluna_letra(cabecalho.index(GOOGLE_FOTO_COLUNAS[0]) + 1)
-        ultima_coluna = _coluna_letra(cabecalho.index(GOOGLE_FOTO_COLUNAS[-1]) + 1)
+        primeira, ultima = _intervalo_colunas_foto(cabecalho)
+        primeira_coluna = _coluna_letra(primeira)
+        ultima_coluna = _coluna_letra(ultima)
         alvo = f"{primeira_coluna}{linha_planilha}:{ultima_coluna}{linha_planilha}"
         aba.update(values=[formulas], range_name=alvo, value_input_option="USER_ENTERED")
 
