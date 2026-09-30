@@ -70,6 +70,13 @@ def _valor_texto(v) -> str:
     return s
 
 
+def normalizar_codigo_patrimonio(valor) -> str:
+    """Remove apenas ruído de scanner e preserva o código original."""
+    if valor is None:
+        return ""
+    return str(valor).replace("\r", "").replace("\n", "").replace("\t", "").strip()
+
+
 def _chave_texto(v) -> str:
     return re.sub(r"\s+", " ", _valor_texto(v)).casefold()
 
@@ -307,6 +314,15 @@ def _obter_aba_gravacao(planilha, nome_aba: str, linhas_necessarias: int):
         return planilha.add_worksheet(title=nome_aba, rows=max(100, linhas_necessarias + 10), cols=len(COLUNAS_INVENTARIO))
 
 
+def _garantir_coluna_patrimonio_texto(aba) -> bool:
+    """Força a coluna C do Google Sheets a armazenar patrimônio como texto."""
+    try:
+        aba.format("C:C", {"numberFormat": {"type": "TEXT"}})
+        return True
+    except Exception:
+        return False
+
+
 def _verificar_gravacao_google(aba, valores_esperados) -> bool:
     try:
         lidos = aba.get_all_values()
@@ -349,6 +365,7 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
     nome_aba = _nome_aba(unidade)
     try:
         aba = _obter_aba_gravacao(planilha, nome_aba, len(df_novos) + 1)
+        _garantir_coluna_patrimonio_texto(aba)
         if not _garantir_cabecalho_moderno(aba):
             existente, _ = carregar_dados_excel(unidade)
             combinado = pd.concat([existente, df_novos], ignore_index=True)
@@ -363,6 +380,7 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
         }
         valores = []
         for linha in df_novos[COLUNAS_INVENTARIO].values.tolist():
+            linha[2] = normalizar_codigo_patrimonio(linha[2])
             chave = _chave_texto(linha[2])
             if chave and chave in existentes:
                 continue
@@ -412,6 +430,7 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     if planilha:
         try:
             aba = _obter_aba_gravacao(planilha, nome_aba, len(df_salvar) + 1)
+            _garantir_coluna_patrimonio_texto(aba)
             linhas_limpeza = max(aba.row_count, len(valores), 100)
             aba.batch_clear([f"A1:E{linhas_limpeza}"])
             aba.update(values=valores, range_name="A1")
@@ -430,12 +449,12 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
 
 @_serializar_persistencia
 def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
-    codigo = _valor_texto(codigo_barras)
+    codigo = normalizar_codigo_patrimonio(codigo_barras)
     setor_limpo = _valor_texto(setor)
     unidade_limpa = _normalizar_unidade_aba(unidade)
     tipo = _normalizar_tipo(tipo_patrimonio)
     fabricante_limpo = _valor_texto(fabricante)
-    numero = _valor_texto(numero_patrimonio) or codigo
+    numero = normalizar_codigo_patrimonio(numero_patrimonio) or codigo
     valido, mensagem = validar_cadastro_patrimonio(tipo, setor_limpo, unidade_limpa, numero)
     if not valido:
         if mensagem: st.warning(mensagem)
@@ -512,7 +531,7 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
     vistos, novos, erros = set(), [], []
     for posicao, item in enumerate(registros, start=1):
         item = item or {}
-        numero = _valor_texto(item.get("numero_patrimonio", "")) or _valor_texto(item.get("codigo_barras", ""))
+        numero = normalizar_codigo_patrimonio(item.get("numero_patrimonio", "")) or normalizar_codigo_patrimonio(item.get("codigo_barras", ""))
         tipo = _normalizar_tipo(item.get("tipo_patrimonio", ""))
         setor = _valor_texto(item.get("setor", ""))
         fabricante = _valor_texto(item.get("fabricante", ""))
