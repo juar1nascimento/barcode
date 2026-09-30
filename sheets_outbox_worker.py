@@ -237,7 +237,8 @@ def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
 
 
 def main():
-    limit = int(os.getenv("OUTBOX_BATCH_SIZE", "20"))
+    limit = max(1, int(os.getenv("OUTBOX_BATCH_SIZE", "20")))
+    max_attempts = max(1, int(os.getenv("OUTBOX_MAX_ATTEMPTS", "8")))
     conn = psycopg.connect(env("DATABASE_URL"))
     try:
         reset_stale(conn)
@@ -249,8 +250,8 @@ def main():
                 sync_one(conn, spreadsheet, outbox_id, int(patrimonio_id))
                 mark(conn, int(outbox_id), "synced")
             except Exception as exc:
-                mark(conn, int(outbox_id), "failed", str(exc))
-        print(f"outbox processada: {len(claimed)} evento(s)")
+                mark(conn, int(outbox_id), "failed", str(exc), max_attempts=max_attempts)
+        print(json.dumps({"event": "sheets_outbox_batch", "claimed": len(claimed), "max_attempts": max_attempts}, ensure_ascii=False))
     finally:
         conn.close()
 
