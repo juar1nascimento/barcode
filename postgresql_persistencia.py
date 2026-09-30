@@ -372,6 +372,22 @@ def salvar_patrimonio(
                 (unidade_id, setor_id, tipo, numero, codigo, fabricante, datetime.now()),
             )
             patrimonio_id = cur.fetchone()[0]
+
+            # A fila é opcional para manter compatibilidade durante a
+            # implantação da migration. Quando presente, o evento entra na
+            # mesma transação do patrimônio e não pode ser perdido entre
+            # PostgreSQL e o worker do Google Sheets.
+            cur.execute(
+                "SELECT to_regclass('public.patrimonios_sheets_outbox')"
+            )
+            if cur.fetchone()[0]:
+                cur.execute(
+                    """INSERT INTO public.patrimonios_sheets_outbox
+                         (patrimonio_id, evento, status, proxima_tentativa_em)
+                       VALUES (%s, 'upsert', 'pending', now())
+                       ON CONFLICT (patrimonio_id, evento) DO NOTHING""",
+                    (patrimonio_id,),
+                )
         conn.commit()
         return True, patrimonio_id, "Patrimônio gravado no PostgreSQL."
     except Exception as exc:
