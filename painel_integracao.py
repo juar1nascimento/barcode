@@ -117,10 +117,17 @@ def renderizar_painel_integracao():
         st.info(f"🔄 {len(reconciliacao)} patrimônio(s) com eventos aguardando processamento.")
         st.dataframe(
             [
-                {"Patrimônio": r[0], "Nº": r[1], "Fotos no PostgreSQL": r[2],
-                 "Eventos pendentes": r[3], "Eventos falhos": r[4]}
+                {
+                    "Patrimônio": r[0],
+                    "Nº": r[1],
+                    "Fotos no PostgreSQL": r[2],
+                    "Eventos pendentes": r[3],
+                    "Eventos falhos": r[4],
+                }
                 for r in reconciliacao
-            ], use_container_width=True, hide_index=True,
+            ],
+            use_container_width=True,
+            hide_index=True,
         )
 
     falhas = _falhas()
@@ -151,7 +158,8 @@ def renderizar_painel_integracao():
                     "Evento": row[0],
                     "Patrimônio": row[1],
                     "Foto": row[2],
-                    "Status": row[3],\n                    "Tentativas": row[4],
+                    "Status": row[3],
+                    "Tentativas": row[4],
                     "Próxima tentativa": row[5],
                     "Último erro": row[6] or "",
                 }
