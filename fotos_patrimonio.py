@@ -87,6 +87,34 @@ def _sincronizar_fotos_google(patrimonio_id: int) -> tuple[bool, str]:
         return False, f"Falha ao sincronizar fotos no Google Sheets: {exc}"
 
 
+def marcar_sincronizacao_fotos_ok(patrimonio_id: int) -> None:
+    """Marca os eventos pendentes do patrimônio como sincronizados."""
+    conn = conectar()
+    if conn is None:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE public.patrimonio_fotos_sheets_outbox
+                      SET status='synced',
+                          sincronizado_em=now(),
+                          processando_em=NULL,
+                          ultimo_erro=NULL,
+                          atualizado_em=now()
+                    WHERE patrimonio_id=%s
+                      AND status IN ('pending','processing')""",
+                (patrimonio_id,),
+            )
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        _fechar_conexao(conn)
+
+
 def registrar_falha_sincronizacao_fotos(patrimonio_id: int, erro: str) -> None:
     """Registra uma falha sem perder a fotografia já persistida."""
     conn = conectar()
@@ -434,6 +462,8 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
 
             if ok:
                 sincronizada, mensagem_sheets = _sincronizar_fotos_google(patrimonio_id)
+                if sincronizada:
+                    marcar_sincronizacao_fotos_ok(patrimonio_id)
                 st.success(
                     f"✅ {mensagem} "
                     f"Foto ID: {foto_id}."
