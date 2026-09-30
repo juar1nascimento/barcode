@@ -216,11 +216,24 @@ def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
     formulas += [""] * (10 - len(formulas))
     first = header.index(PHOTO_COLUMNS[0]) + 1
     last = first + 9
+    target_range = f"{col_letter(first)}{row_number}:{col_letter(last)}{row_number}"
     aba.update(
         values=[formulas],
-        range_name=f"{col_letter(first)}{row_number}:{col_letter(last)}{row_number}",
+        range_name=target_range,
         value_input_option="USER_ENTERED",
     )
+
+    # Confirmação pós-escrita: só concluímos o evento quando o destino
+    # devolve as mesmas fórmulas esperadas. Isso torna o processamento
+    # idempotente e evita marcar como synced uma escrita não confirmada.
+    confirmed = aba.get(target_range, value_render_option="FORMULA")
+    actual = confirmed[0] if confirmed else []
+    actual = list(actual) + [""] * (10 - len(actual))
+    expected = list(formulas)
+    if actual[:10] != expected[:10]:
+        raise RuntimeError(
+            f"Google Sheets não confirmou as fórmulas do patrimônio {patrimonio_id}."
+        )
 
 
 def main():
