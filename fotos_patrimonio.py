@@ -64,24 +64,39 @@ def _sincronizar_fotos_google(patrimonio_id: int) -> tuple[bool, str]:
         ultima_coluna = _coluna_letra(len(cabecalho))
         if cabecalho != list(valores[0]):
             aba.update(values=[cabecalho], range_name=f"A1:{ultima_coluna}1")
-        indice_numero = 2
+        indice_numero = cabecalho.index("Nº de Patrimônio") if "Nº de Patrimônio" in cabecalho else 2
+        indice_id = cabecalho.index("ID Patrimônio") if "ID Patrimônio" in cabecalho else None
         linha_planilha = None
         chave = str(patrimonio["numero"]).strip().casefold()
         for indice, linha in enumerate(valores[1:], start=2):
-            if len(linha) > indice_numero and str(linha[indice_numero]).strip().casefold() == chave:
+            numero = str(linha[indice_numero]).strip().casefold() if len(linha) > indice_numero else ""
+            stable_id = str(linha[indice_id]).strip() if indice_id is not None and len(linha) > indice_id else ""
+            if stable_id == str(patrimonio_id) or (not stable_id and numero == chave):
                 linha_planilha = indice
                 break
         if linha_planilha is None:
             return False, f"Patrimônio {patrimonio['numero']} não encontrado na aba do Sheets."
+
         fotos = buscar_fotos_patrimonio(patrimonio_id)
         formulas = []
         for foto in fotos[: len(GOOGLE_FOTO_COLUNAS)]:
             url = _url_publica_foto(foto["storage_path"]).replace('"', '""')
             formulas.append(f'=IMAGE("{url}")')
         formulas.extend([""] * (len(GOOGLE_FOTO_COLUNAS) - len(formulas)))
-        primeira_coluna = _coluna_letra(6)
-        ultima_coluna = _coluna_letra(5 + len(GOOGLE_FOTO_COLUNAS))
-        aba.update(values=[formulas], range_name=f"{primeira_coluna}{linha_planilha}:{ultima_coluna}{linha_planilha}", value_input_option="USER_ENTERED")
+
+        primeira_coluna = _coluna_letra(cabecalho.index(GOOGLE_FOTO_COLUNAS[0]) + 1)
+        ultima_coluna = _coluna_letra(cabecalho.index(GOOGLE_FOTO_COLUNAS[-1]) + 1)
+        alvo = f"{primeira_coluna}{linha_planilha}:{ultima_coluna}{linha_planilha}"
+        aba.update(values=[formulas], range_name=alvo, value_input_option="USER_ENTERED")
+
+        # Confirmação pós-escrita: só declaramos sucesso quando o Sheets
+        # devolve exatamente as fórmulas gravadas.
+        confirmado = aba.get(alvo, value_render_option="FORMULA")
+        atual = confirmado[0] if confirmado else []
+        atual = list(atual) + [""] * (len(GOOGLE_FOTO_COLUNAS) - len(atual))
+        if atual[:len(formulas)] != formulas:
+            return False, "O Google Sheets não confirmou as fórmulas das fotografias."
+
         return True, f"{len(fotos)} foto(s) sincronizada(s) no Google Sheets."
     except Exception as exc:
         return False, f"Falha ao sincronizar fotos no Google Sheets: {exc}"
@@ -132,7 +147,7 @@ def registrar_falha_sincronizacao_fotos(patrimonio_id: int, erro: str) -> None:
                        ultimo_erro = %s,
                        atualizado_em = now()
                  WHERE patrimonio_id = %s
-                   AND status IN ('pending', 'processing')""",
+                   AND status = 'pending'""",
                 (str(erro)[:2000], patrimonio_id),
             )
         conn.commit()
