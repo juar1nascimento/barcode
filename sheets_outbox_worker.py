@@ -111,15 +111,17 @@ def mark(conn, outbox_id: int, status: str, error: str | None = None, max_attemp
         else:
             cur.execute(
                 """UPDATE public.patrimonio_fotos_sheets_outbox
-                      SET status='failed',
+                      SET status=CASE WHEN tentativas >= %s THEN 'dead_letter' ELSE 'failed' END,
                           processando_em=NULL,
-                          proxima_tentativa_em=now() +
-                            LEAST(interval '1 hour',
-                                  interval '5 minutes' * power(2, tentativas - 1)),
+                          proxima_tentativa_em=CASE
+                            WHEN tentativas >= %s THEN now()
+                            ELSE now() + LEAST(interval '1 hour',
+                                  interval '5 minutes' * power(2, tentativas - 1))
+                          END,
                           ultimo_erro=%s,
                           atualizado_em=now()
                     WHERE id=%s""",
-                (str(error or "erro")[:2000], outbox_id),
+                (max_attempts, max_attempts, str(error or "erro")[:2000], outbox_id),
             )
     conn.commit()
 
