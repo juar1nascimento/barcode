@@ -190,9 +190,26 @@ def conectar_google_sheets():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
         sheet_url = sec.get("spreadsheet") or st.secrets.get("spreadsheet_url")
-        return client.open_by_url(sheet_url) if sheet_url else None
+        sheet_id = sec.get("spreadsheet_id") or st.secrets.get("spreadsheet_id")
+        if sheet_id:
+            try:
+                return client.open_by_key(str(sheet_id).strip())
+            except Exception as erro_id:
+                if not sheet_url:
+                    raise erro_id
+        if sheet_url:
+            return client.open_by_url(str(sheet_url).strip())
+        return None
     except Exception as e:
-        st.warning(f"Não foi possível conectar ao Google Sheets: {e}")
+        texto = str(e)
+        if "404" in texto or "NOT_FOUND" in texto:
+            st.warning(
+                "Google Sheets retornou 404. Verifique se a planilha existe e se "
+                "o e-mail da conta de serviço do GTI-SESA tem acesso de Editor à planilha. "
+                "Também é possível configurar spreadsheet_id nos Secrets."
+            )
+        else:
+            st.warning(f"Não foi possível conectar ao Google Sheets: {e}")
         return None
 
 
