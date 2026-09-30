@@ -190,7 +190,7 @@ def salvar_foto_patrimonio(
         ordem = _proxima_ordem(conn, patrimonio_id)
 
         nome_base = f"foto-{ordem:03d}-{uuid.uuid4().hex}.jpg"
-        storage_path = f"patrimonio/{patrimonio_id}/{nome_base}"
+        storage_path = f"{patrimonio_id}/{nome_base}"
 
         _upload_storage(config["url"], config["key"], storage_path, jpeg)
 
