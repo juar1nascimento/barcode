@@ -1,0 +1,37 @@
+name: Sincronizacao de fotos com Google Sheets
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+concurrency:
+  group: gti-sheets-photo-outbox
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install psycopg[binary]==3.2.10 gspread==5.12.4 google-auth==2.57.0
+
+      - name: Processar outbox
+        env:
+          DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+          SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
+          OUTBOX_BATCH_SIZE: "20"
+        run: python sheets_outbox_worker.py
