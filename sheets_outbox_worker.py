@@ -289,7 +289,8 @@ def main():
 
         print(json.dumps({
             "event": "sheets_outbox_batch",
-            "reconciled": reconciled,\n            "claimed": len(claimed),
+            "reconciled": reconciled,
+            "claimed": len(claimed),
             "patrimonios_processados": len(by_patrimonio),
             "synced": synced,
             "failed": failed,
