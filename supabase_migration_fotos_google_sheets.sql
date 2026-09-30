@@ -52,3 +52,8 @@ REVOKE ALL ON FUNCTION public.reconcile_patrimonio_fotos_sheets_outbox(integer) 
 
 CREATE INDEX IF NOT EXISTS ix_fotos_sheets_outbox_patrimonio_id
 ON public.patrimonio_fotos_sheets_outbox (patrimonio_id);
+
+
+-- Integridade: uma ordem de foto só pode existir uma vez por patrimônio.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_patrimonio_fotos_patrimonio_ordem
+ON public.patrimonio_fotos (patrimonio_id, ordem);
