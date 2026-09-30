@@ -28,6 +28,10 @@ def _conexao_configurada() -> bool:
     except Exception:
         return False
 
+def persistencia_postgresql_configurada() -> bool:
+    """Indica se o PostgreSQL está configurado sem abrir uma conexão."""
+    return _conexao_configurada()
+
 
 def _config() -> dict:
     sec = st.secrets["postgresql"]
