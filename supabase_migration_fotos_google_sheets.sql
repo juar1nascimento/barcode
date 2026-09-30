@@ -48,4 +48,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.reconcile_patrimonio_fotos_sheets_outbox(integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.reconcile_patrimonio_fotos_sheets_outbox(integer) FROM PUBLIC, anon, authenticated;
+
+CREATE INDEX IF NOT EXISTS ix_fotos_sheets_outbox_patrimonio_id
+ON public.patrimonio_fotos_sheets_outbox (patrimonio_id);
