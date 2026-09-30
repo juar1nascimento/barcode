@@ -61,6 +61,59 @@ CREATE INDEX IF NOT EXISTS idx_patrimonios_unidade ON patrimonios(unidade_id);
 CREATE INDEX IF NOT EXISTS idx_patrimonios_setor ON patrimonios(setor_id);
 CREATE INDEX IF NOT EXISTS idx_patrimonios_tipo ON patrimonios(tipo);
 
+-- Fotos do patrimônio:
+-- o arquivo físico fica no bucket privado do Supabase Storage e esta tabela
+-- mantém o vínculo, a ordem e os metadados necessários para consulta/auditoria.
+CREATE TABLE IF NOT EXISTS patrimonio_fotos (
+    id BIGSERIAL PRIMARY KEY,
+    patrimonio_id BIGINT NOT NULL
+        REFERENCES patrimonios(id) ON DELETE CASCADE,
+    ordem INTEGER NOT NULL CHECK (ordem > 0),
+    storage_bucket VARCHAR(100) NOT NULL DEFAULT 'patrimonio-fotos',
+    storage_path VARCHAR(500) NOT NULL,
+    arquivo_nome VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    tamanho_bytes INTEGER NOT NULL CHECK (tamanho_bytes > 0),
+    largura INTEGER,
+    altura INTEGER,
+    sha256 CHAR(64) NOT NULL
+        CHECK (sha256 ~ '^[0-9a-fA-F]{64}
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_patrimonio_fotos_dimensoes CHECK (
+        (largura IS NULL AND altura IS NULL)
+        OR
+        (largura > 0 AND altura > 0)
+    ),
+    CONSTRAINT uq_patrimonio_fotos_ordem UNIQUE (patrimonio_id, ordem),
+    CONSTRAINT uq_patrimonio_fotos_storage_path UNIQUE (storage_bucket, storage_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_patrimonio
+    ON patrimonio_fotos(patrimonio_id);
+
+CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_sha256
+    ON patrimonio_fotos(sha256);
+
+-- Compatibilidade operacional: a coluna Setor do Google Sheets pode continuar
+-- exibindo "Consultório 5 - Odontologia", enquanto o PostgreSQL mantém os
+-- componentes estruturados em nome/numero_consultorio/especialidade.
+),
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_patrimonio_fotos_dimensoes CHECK (
+        (largura IS NULL AND altura IS NULL)
+        OR
+        (largura > 0 AND altura > 0)
+    ),
+    CONSTRAINT uq_patrimonio_fotos_ordem UNIQUE (patrimonio_id, ordem),
+    CONSTRAINT uq_patrimonio_fotos_storage_path UNIQUE (storage_bucket, storage_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_patrimonio
+    ON patrimonio_fotos(patrimonio_id);
+
+CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_sha256
+    ON patrimonio_fotos(sha256);
+
 -- Compatibilidade operacional: a coluna Setor do Google Sheets pode continuar
 -- exibindo "Consultório 5 - Odontologia", enquanto o PostgreSQL mantém os
 -- componentes estruturados em nome/numero_consultorio/especialidade.

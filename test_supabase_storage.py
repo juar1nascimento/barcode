@@ -111,7 +111,7 @@ def test_salvar_foto_patrimonio_fluxo_sucesso(monkeypatch):
     assert conn.rollback_count == 0
     supabase_storage._upload_storage.assert_called_once()
     upload_args = supabase_storage._upload_storage.call_args.args
-    assert upload_args[2].startswith("1/foto-001-")
+    assert upload_args[2].startswith("patrimonio/1/foto-001-")
     assert upload_args[2].endswith(".jpg")
     assert upload_args[3] == b"jpeg-data"
     supabase_storage._delete_storage.assert_not_called()
@@ -153,5 +153,16 @@ def test_salvar_foto_patrimonio_remove_orfao_se_insert_falhar(monkeypatch):
     supabase_storage._upload_storage.assert_called_once()
     supabase_storage._delete_storage.assert_called_once()
     delete_args = supabase_storage._delete_storage.call_args.args
-    assert delete_args[2].startswith("1/foto-001-")
+    assert delete_args[2].startswith("patrimonio/1/foto-001-")
     assert delete_args[2].endswith(".jpg")
+
+
+def test_normalizar_jpeg_rejeita_entrada_maior_que_limite():
+    from supabase_storage import MAX_INPUT_BYTES, _normalizar_jpeg
+
+    try:
+        _normalizar_jpeg(b"x" * (MAX_INPUT_BYTES + 1))
+    except ValueError as exc:
+        assert "excede o limite" in str(exc)
+    else:
+        raise AssertionError("A entrada acima do limite deveria ser rejeitada.")

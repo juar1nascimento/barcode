@@ -228,17 +228,30 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
             "Nenhuma fotografia cadastrada para este patrimônio."
         )
 
-    arquivo = st.file_uploader(
-        "Adicionar fotografia do equipamento",
-        type=EXTENSOES_IMAGEM,
-        accept_multiple_files=False,
-        key=f"foto_patrimonio_{patrimonio_id}",
-        help=(
-            f"Formatos aceitos: JPG, JPEG, PNG e WEBP. "
-            f"Limite de entrada: {MAX_UPLOAD_MB} MB. "
-            "A rotina do Storage realiza o tratamento final da imagem."
-        ),
+    origem = st.radio(
+        "Origem da fotografia",
+        ["📷 Tirar foto", "📁 Selecionar arquivo"],
+        horizontal=True,
+        key=f"origem_foto_patrimonio_{patrimonio_id}",
     )
+
+    if origem == "📷 Tirar foto":
+        arquivo = st.camera_input(
+            "Capture a fotografia do patrimônio",
+            key=f"camera_patrimonio_{patrimonio_id}",
+        )
+    else:
+        arquivo = st.file_uploader(
+            "Adicionar fotografia do equipamento",
+            type=EXTENSOES_IMAGEM,
+            accept_multiple_files=False,
+            key=f"foto_patrimonio_{patrimonio_id}",
+            help=(
+                f"Formatos aceitos: JPG, JPEG, PNG e WEBP. "
+                f"Limite de entrada: {MAX_UPLOAD_MB} MB. "
+                "A rotina do Storage realiza o tratamento final da imagem."
+            ),
+        )
 
     if arquivo is not None:
         st.image(
