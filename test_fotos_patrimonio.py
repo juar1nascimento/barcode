@@ -32,3 +32,17 @@ def test_worker_sheet_url_preserva_caminho_e_codifica_espacos(monkeypatch):
         "https://example.supabase.co/storage/v1/object/public/"
         "patrimonio-fotos/patrimonio/1/foto%20001.jpg"
     )
+
+
+def test_intervalo_colunas_foto_nao_sobrescreve_id_patrimonio():
+    from fotos_patrimonio import _intervalo_colunas_foto
+
+    cabecalho = [
+        "Setor", "Tipo de Patrimônio", "Nº de Patrimônio",
+        "Fabricante", "Data Cadastro", "ID Patrimônio",
+        *[f"Foto {i}" for i in range(1, 11)],
+    ]
+    primeira, ultima = _intervalo_colunas_foto(cabecalho)
+
+    assert _coluna_letra(primeira) == "G"
+    assert _coluna_letra(ultima) == "P"
