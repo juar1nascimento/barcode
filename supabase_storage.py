@@ -110,7 +110,8 @@ def _headers(key: str, content_type: Optional[str] = None) -> dict:
 
 
 def _storage_url(base_url: str, path: str) -> str:
-    return f"{base_url}/storage/v1/object/{BUCKET}/{quote(path.lstrip("/"), safe="/")}"
+    encoded_path = quote(path.lstrip("/"), safe="/")
+    return f"{base_url}/storage/v1/object/{BUCKET}/{encoded_path}"
 
 
 def _upload_storage(base_url: str, key: str, path: str, data: bytes) -> None:
