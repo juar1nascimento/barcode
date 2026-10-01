@@ -531,7 +531,7 @@ def test_tabela_site_mostra_sem_foto_quando_nao_ha_registros(monkeypatch):
 
     html = []
     monkeypatch.setattr(ui, "conectar_postgresql", lambda: Conn())
-    monkeypatch.setattr(ui.st, "secrets", {"supabase": {"url": "https://vgabxdprocwmpmhoxrgt.supabase.co"}})
+    monkeypatch.setattr(ui, "criar_url_assinada_storage", lambda bucket, path, expires_in: f"https://vgabxdprocwmpmhoxrgt.supabase.co/storage/v1/object/sign/{bucket}/{path}?token=test")
     monkeypatch.setattr(ui.st.components.v1, "html", lambda markup, **kwargs: html.append(markup))
 
     df = pd.DataFrame([{
@@ -573,7 +573,7 @@ def test_tabela_site_nao_quebra_quando_postgresql_indisponivel(monkeypatch):
 def test_tabela_site_nao_quebra_sem_url_publica_do_supabase(monkeypatch):
     import sistema_inventario as ui
 
-    monkeypatch.setattr(ui.st, "secrets", {})
+    monkeypatch.setattr(ui, "criar_url_assinada_storage", lambda bucket, path, expires_in: "")
     assert ui._url_publica_foto_site("patrimonio-fotos", "1/foto.jpg") == ""
 
     html = []
