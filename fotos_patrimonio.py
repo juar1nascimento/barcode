@@ -5,7 +5,7 @@ from typing import Any
 import streamlit as st
 
 from postgresql_persistencia import conectar
-from supabase_storage import salvar_foto_patrimonio
+from supabase_storage import criar_url_assinada_storage, salvar_foto_patrimonio
 
 
 EXTENSOES_IMAGEM = ["jpg", "jpeg", "png", "webp"]
@@ -33,13 +33,11 @@ def _intervalo_colunas_foto(cabecalho: list[str]) -> tuple[int, int]:
 
 
 def _url_publica_foto(storage_path: str) -> str:
-    sec = st.secrets.get("supabase") or {}
-    base_url = str(sec.get("url") or "").strip().rstrip("/")
-    if not base_url:
-        raise RuntimeError("Secret [supabase].url não configurada.")
-    from urllib.parse import quote
-    caminho = quote(str(storage_path or "").lstrip("/"), safe="/")
-    return f"{base_url}/storage/v1/object/public/patrimonio-fotos/{caminho}"
+    """Mantém compatibilidade do fluxo Sheets usando URL temporária privada."""
+    try:
+        return criar_url_assinada_storage("patrimonio-fotos", storage_path, expires_in=31536000)
+    except Exception as exc:
+        raise RuntimeError("Não foi possível gerar a URL temporária da fotografia.") from exc
 
 
 def _sincronizar_fotos_google(patrimonio_id: int) -> tuple[bool, str]:
