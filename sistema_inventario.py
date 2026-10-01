@@ -151,10 +151,11 @@ def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
             for i, url in enumerate(fotos[:10], start=1):
                 safe_url = escape(url, quote=True)
                 miniaturas.append(
-                    f'<a href="#" class="foto-link" title="Ampliar foto {i}" '
-                    f'onclick="abrirFoto({json.dumps(url)}); return false;">'
+                    f'<button type="button" class="foto-link" title="Ampliar foto {i}" '
+                    f'aria-label="Ampliar foto {i} do patrimônio {escape(numero)}" '
+                    f'data-foto-url="{safe_url}">'
                     f'<img src="{safe_url}" alt="Foto {i} - {escape(numero)}" loading="lazy" '
-                    f'width="72" height="72" class="foto-miniatura"></a>'
+                    f'width="72" height="72" class="foto-miniatura"></button>'
                 )
             fotos_html = '<div class="photos">' + "".join(miniaturas) + "</div>"
         else:
@@ -222,26 +223,56 @@ def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
     </div>
 
     <script>
-      function abrirFoto(url) {{
+      (function () {{
         var modal = document.getElementById('foto-modal');
         var imagem = document.getElementById('foto-modal-imagem');
         var legenda = document.getElementById('foto-modal-legenda');
-        imagem.src = url;
-        legenda.textContent = 'Clique fora da imagem ou no × para fechar';
-        modal.classList.add('aberta');
-      }}
-      function fecharFoto(event) {{
-        if (event) {{
-          event.stopPropagation();
-          if (event.target && event.target.id === 'foto-modal-imagem') return;
+
+        function abrirFoto(url) {{
+          if (!url || !modal || !imagem) return;
+          imagem.src = url;
+          legenda.textContent = 'Clique fora da imagem ou no × para fechar';
+          modal.classList.add('aberta');
         }}
-        var modal = document.getElementById('foto-modal');
-        var imagem = document.getElementById('foto-modal-imagem');
-        imagem.src = '';
-        modal.classList.remove('aberta');
-      }}
-      document.addEventListener('keydown', function(event) {{
-        if (event.key === 'Escape') fecharFoto(event);
+
+        function fecharFoto(event) {{
+          if (event) {{
+            event.stopPropagation();
+            if (event.target && event.target.id === 'foto-modal-imagem') return;
+          }}
+          if (imagem) imagem.removeAttribute('src');
+          if (modal) modal.classList.remove('aberta');
+        }}
+
+        // Usa botões sem href para impedir qualquer navegação para a URL
+        // temporária do Supabase. A foto abre exclusivamente no modal local.
+        document.querySelectorAll('.foto-link').forEach(function (botao) {{
+          botao.addEventListener('click', function (event) {{
+            event.preventDefault();
+            event.stopPropagation();
+            abrirFoto(botao.getAttribute('data-foto-url'));
+          }});
+        }});
+
+        if (modal) {{
+          modal.addEventListener('click', function (event) {{
+            if (event.target === modal) fecharFoto(event);
+          }});
+        }}
+
+        var botaoFechar = modal ? modal.querySelector('.fechar') : null;
+        if (botaoFechar) {{
+          botaoFechar.addEventListener('click', function (event) {{
+            event.preventDefault();
+            fecharFoto(event);
+          }});
+        }}
+
+        document.addEventListener('keydown', function (event) {{
+          if (event.key === 'Escape' && modal && modal.classList.contains('aberta')) {{
+            fecharFoto(event);
+          }}
+        }});
       }});
     </script>
 
