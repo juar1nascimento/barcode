@@ -207,6 +207,19 @@ def _buscar_patrimonio_por_codigo(cur, codigo: str, for_update: bool = False):
     return cur.fetchone()
 
 
+def _usuario_pode_movimentar(tipo: str, usuario: str) -> bool:
+    """Autoriza movimentações destrutivas somente para o administrador."""
+    tipo = str(tipo or "").strip().upper()
+    usuario = str(usuario or "").strip().casefold()
+    if tipo not in {"SAIDA", "TRANSFERENCIA"}:
+        return True
+    try:
+        admin_email = str(st.secrets.get("email", {}).get("admin_email", "")).strip().casefold()
+    except Exception:
+        return False
+    return bool(admin_email and usuario and usuario == admin_email)
+
+
 def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
                            unidade_destino_id=None, setor_destino_id=None,
                            motivo: str = "", observacao: str = ""):
@@ -221,10 +234,8 @@ def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
     # Defesa em profundidade: operações que retiram ou transferem patrimônio
     # exigem privilégio administrativo. A entrada permanece disponível ao
     # operador autenticado, pois não remove patrimônio de uma localização.
-    if tipo in {"SAIDA", "TRANSFERENCIA"}:
-        admin_email = str(st.secrets.get("email", {}).get("admin_email", "")).strip().casefold()
-        if not admin_email or usuario.casefold() != admin_email:
-            return False, None, "Operação não autorizada: saída e transferência exigem administrador."
+    if not _usuario_pode_movimentar(tipo, usuario):
+        return False, None, "Operação não autorizada: saída e transferência exigem administrador."
 
     conn = conectar()
     if conn is None:
