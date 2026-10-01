@@ -346,10 +346,22 @@ def listar_historico_movimentacoes(codigo_patrimonio: str, limite: int = 100) ->
 
 
 
+def _usuario_atual_e_admin() -> bool:
+    """Aplica defesa em profundidade para operações destrutivas no backend."""
+    try:
+        usuario = str(st.session_state.get("usuario_logado", "")).strip().casefold()
+        admin = str(st.secrets.get("email", {}).get("admin_email", "")).strip().casefold()
+        return bool(usuario and admin and usuario == admin)
+    except Exception:
+        return False
+
+
 def excluir_patrimonio_por_numero(numero_patrimonio: str, unidade: str) -> tuple[bool, str]:
     """Desativa logicamente um patrimônio, preservando fotos e histórico."""
     numero = str(numero_patrimonio or "").strip()
     nome_unidade = str(unidade or "").strip()
+    if not _usuario_atual_e_admin():
+        return False, "Operação não autorizada: somente o administrador pode excluir patrimônios."
     if not numero or not nome_unidade:
         return False, "Patrimônio e unidade são obrigatórios."
     conn = conectar()
@@ -383,6 +395,8 @@ def excluir_patrimonios_setor(setor: str, unidade: str) -> tuple[bool, int, str]
     """Desativa logicamente todos os patrimônios de um setor."""
     nome_setor = str(setor or "").strip()
     nome_unidade = str(unidade or "").strip()
+    if not _usuario_atual_e_admin():
+        return False, 0, "Operação não autorizada: somente o administrador pode excluir setores."
     if not nome_setor or not nome_unidade:
         return False, 0, "Setor e unidade são obrigatórios."
     conn = conectar()
