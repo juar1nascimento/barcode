@@ -98,6 +98,7 @@ def _conexao_movimentacao(monkeypatch, fetchone_side_effect):
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
     cur.fetchone.side_effect = fetchone_side_effect
+    cur.rowcount = 1
     monkeypatch.setattr(db, "conectar", lambda: conn)
     return conn, cur
 
