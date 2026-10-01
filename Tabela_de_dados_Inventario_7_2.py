@@ -290,7 +290,6 @@ def _nome_aba(unidade: str) -> str:
     return _normalizar_unidade_aba(unidade)[:90].strip()
 
 
-@st.cache_data(ttl=2)
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     unidade = _normalizar_unidade_aba(unidade)
 
