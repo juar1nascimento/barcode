@@ -218,6 +218,14 @@ def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
     if not codigo or not usuario:
         return False, None, "Patrimônio e usuário são obrigatórios."
 
+    # Defesa em profundidade: operações que retiram ou transferem patrimônio
+    # exigem privilégio administrativo. A entrada permanece disponível ao
+    # operador autenticado, pois não remove patrimônio de uma localização.
+    if tipo in {"SAIDA", "TRANSFERENCIA"}:
+        admin_email = str(st.secrets.get("email", {}).get("admin_email", "")).strip().casefold()
+        if not admin_email or usuario.casefold() != admin_email:
+            return False, None, "Operação não autorizada: saída e transferência exigem administrador."
+
     conn = conectar()
     if conn is None:
         return False, None, "Não foi possível conectar ao PostgreSQL."
