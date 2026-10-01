@@ -467,7 +467,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     try:
         df_inicial, _ = carregar_dados_excel(unidade)
     except Exception:
-        carregar_dados_excel.clear()
         df_inicial, _ = carregar_dados_excel(unidade)
 
     st.session_state.df_historico = df_inicial
@@ -565,7 +564,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     observacao=observacao_mov,
                 )
                 if ok:
-                    carregar_dados_excel.clear()
                     st.success(mensagem)
                     st.rerun()
                 else:
@@ -747,7 +745,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     try:
         df_atual, _ = carregar_dados_excel(unidade)
     except Exception:
-        carregar_dados_excel.clear()
         df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
@@ -756,7 +753,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             if st.button("🔄 Recarregar Dados da Unidade", use_container_width=True):
-                carregar_dados_excel.clear()
                 st.rerun()
         with col_btn2:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=f"Tabela_{unidade.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
@@ -827,7 +823,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     key="btn_excluir_setor",
                 ):
                     sucesso = excluir_setor(setor_para_excluir, unidade)
-                    carregar_dados_excel.clear()
                     if sucesso:
                         st.session_state.mensagem_sucesso = f"🗑️ Setor '{setor_para_excluir}' excluído com sucesso."
                         st.session_state.gerenciador_exclusao_aberto = True
@@ -883,7 +878,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     key="btn_excluir_patrimonio",
                 ):
                     sucesso = excluir_patrimonio(setor_patrimonio_del, coluna_patrimonio_del, unidade)
-                    carregar_dados_excel.clear()
                     if sucesso:
                         st.session_state.mensagem_sucesso = f"❌ Patrimônio '{coluna_patrimonio_del}' e seu fabricante foram excluídos do setor '{setor_patrimonio_del}'."
                         st.session_state.gerenciador_exclusao_aberto = True
