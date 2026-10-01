@@ -399,7 +399,7 @@ def renderizar_card_inventario(lista_urs: Optional[List[str]] = None, lista_ubs:
             opcoes_unidade,
             index=None,
             placeholder=placeholder,
-            key="sel_unidade_card_inventario",
+            key=f"sel_unidade_card_inventario_{categoria_unidade}",
         )
 
         if st.button("📂 Abrir Inventário da Unidade", use_container_width=True, type="primary", key="btn_abrir_inv"):
