@@ -17,5 +17,5 @@ def test_entrada_nao_exige_admin():
     assert backend._usuario_pode_movimentar("ENTRADA", "operador@serra.local") is True
 
 
-def test_tipo_desconhecido_nao_elevado_a_operacao_destrutiva():
-    assert backend._usuario_pode_movimentar("OUTRO", "operador@serra.local") is True
+def test_tipo_desconhecido_e_rejeitado():
+    assert backend._usuario_pode_movimentar("OUTRO", "operador@serra.local") is False
