@@ -11,6 +11,8 @@ import json
 import os
 import re
 import time
+from urllib.parse import quote, urljoin
+import requests
 from datetime import datetime, timezone
 
 import gspread
@@ -41,9 +43,24 @@ def col_letter(n: int) -> str:
 
 def sheet_url(storage_path: str) -> str:
     base = env("SUPABASE_URL").rstrip("/")
-    from urllib.parse import quote
-    path = quote(str(storage_path).lstrip("/"), safe="/")
-    return f"{base}/storage/v1/object/public/{BUCKET}/{path}"
+    key = env("SUPABASE_SERVICE_ROLE_KEY")
+    path = str(storage_path or "").lstrip("/")
+    if not path:
+        raise RuntimeError("Caminho da foto vazio.")
+    endpoint = f"{base}/storage/v1/object/sign/{quote(BUCKET)}/{quote(path, safe='/')}"
+    response = requests.post(
+        endpoint,
+        headers={"Authorization": f"Bearer {key}", "apikey": key, "Content-Type": "application/json"},
+        json={"expiresIn": 31536000},
+        timeout=15,
+    )
+    if not response.ok:
+        raise RuntimeError(f"Falha ao gerar URL temporária da foto (HTTP {response.status_code}).")
+    payload = response.json()
+    signed = payload.get("signedURL") or payload.get("signedUrl")
+    if not signed:
+        raise RuntimeError("Supabase não retornou URL temporária da foto.")
+    return urljoin(f"{base}/", str(signed).lstrip("/"))
 
 
 def normalize_unit(value: str) -> str:
