@@ -450,13 +450,16 @@ def test_identificador_nao_pode_repetir_em_outra_unidade(monkeypatch):
     assert not backend._numero_patrimonio_existe_na_planilha(planilha,'GLOBAL-002')
 
 
-def test_url_publica_foto_site_codifica_bucket_e_caminho(monkeypatch):
+def test_url_publica_foto_site_usa_url_assinada(monkeypatch):
     import sistema_inventario as ui
-    monkeypatch.setattr(ui.st, "secrets", {"supabase": {"url": "https://vgabxdprocwmpmhoxrgt.supabase.co/"}})
-    assert ui._url_publica_foto_site("patrimonio-fotos", "2/foto 001/arquivo#teste.jpg") == (
-        "https://vgabxdprocwmpmhoxrgt.supabase.co/storage/v1/object/public/"
-        "patrimonio-fotos/2/foto%20001/arquivo%23teste.jpg"
+    monkeypatch.setattr(
+        ui,
+        "criar_url_assinada_storage",
+        lambda bucket, path, expires_in: "https://vgabxdprocwmpmhoxrgt.supabase.co/storage/v1/object/sign/patrimonio-fotos/foto?token=test",
     )
+    url = ui._url_publica_foto_site("patrimonio-fotos", "2/foto 001/arquivo#teste.jpg")
+    assert "/storage/v1/object/sign/" in url
+    assert "token=test" in url
 
 
 def test_tabela_site_renderiza_miniaturas_e_link_original(monkeypatch):
