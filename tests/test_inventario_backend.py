@@ -428,7 +428,14 @@ def test_cadastro_normal_anexa_sem_limpar_aba(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)
-    assert backend.registrar_patrimonio("NOVO-001", "Monitores", "Consultório", "UBS Teste", "HP") is True
+    novos = pd.DataFrame([{
+        "Setor": "Consultório",
+        "Tipo de Patrimônio": "Monitores",
+        "Nº de Patrimônio": "NOVO-001",
+        "Fabricante": "HP",
+        "Data Cadastro": "2026-10-01 10:00:00",
+    }], columns=COLUNAS)
+    assert backend._anexar_no_google(novos, "UBS Teste") is True
     rows = planilha.sheets["UBS Teste"].rows
     assert len(rows) == 3
     assert rows[1][2] == "EXISTENTE"
@@ -443,12 +450,11 @@ def test_carga_em_lote_anexa_apenas_novas_linhas(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)
-    registros = [
-        {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": "LOTE-001", "fabricante": "Dell"},
-        {"tipo_patrimonio": "Mouse", "setor": "Farmacia", "numero_patrimonio": "LOTE-002", "fabricante": "HP"},
-    ]
-    ok, erros = backend.registrar_patrimonios_em_lote(registros, "UBS Teste")
-    assert ok and erros == []
+    registros = pd.DataFrame([
+        {"Setor": "Farmacia", "Tipo de Patrimônio": "CPU", "Nº de Patrimônio": "LOTE-001", "Fabricante": "Dell", "Data Cadastro": "2026-10-01 10:00:00"},
+        {"Setor": "Farmacia", "Tipo de Patrimônio": "Mouse", "Nº de Patrimônio": "LOTE-002", "Fabricante": "HP", "Data Cadastro": "2026-10-01 10:00:00"},
+    ], columns=COLUNAS)
+    assert backend._anexar_no_google(registros, "UBS Teste") is True
     rows = planilha.sheets["UBS Teste"].rows
     assert [r[2] for r in rows[1:]] == ["BASE-001", "LOTE-001", "LOTE-002"]
 
