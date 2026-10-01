@@ -57,3 +57,5 @@ Chaves `service_role` nunca podem ser usadas no navegador ou gravadas no reposit
 
 ### Inicialização do administrador
 A conta administrativa inicial não possui senha padrão no código. Quando necessário, o proprietário deve fornecer `[email].admin_email` e um `[email].admin_password_hash` em Secrets, usando um hash PBKDF2 gerado pelo sistema. Nunca registrar senha em texto puro.
+
+Para o worker de sincronização de fotos, o GitHub Actions deve receber a chave exclusivamente por `GTI_SUPABASE_SERVICE_ROLE_KEY`; ela nunca deve ser escrita em YAML, código ou logs.
