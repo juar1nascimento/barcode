@@ -23,13 +23,18 @@ def test_url_publica_foto_usa_url_assinada_sem_expor_credencial(monkeypatch):
     assert "secret_key" not in url
 
 
-def test_worker_sheet_url_preserva_caminho_e_codifica_espacos(monkeypatch):
+def test_worker_sheet_url_usa_url_assinada(monkeypatch):
     import sheets_outbox_worker as worker
 
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
-    assert worker.sheet_url("patrimonio/1/foto 001.jpg") == (
-        "https://example.supabase.co/storage/v1/object/public/"
-        "patrimonio-fotos/patrimonio/1/foto%20001.jpg"
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    class Response:
+        ok = True
+        def json(self):
+            return {"signedURL": "/storage/v1/object/sign/patrimonio-fotos/abc?token=test"}
+    monkeypatch.setattr(worker.requests, "post", lambda *args, **kwargs: Response())
+    assert worker.sheet_url("patrimonio/1/foto 001.jpg").startswith(
+        "https://example.supabase.co/storage/v1/object/sign/"
     )
 
 
