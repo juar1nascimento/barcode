@@ -7,7 +7,7 @@ _ORIGINAL_ATTR = "_gti_consultorio_original_selectbox"
 
 
 def _normalizar(valor):
-    return re.sub(r"\s+"," ",str(valor or "").strip())
+    return re.sub(r"\s+", " ", str(valor or "").strip())
 
 
 def _formatar(numero, especialidade):
@@ -19,12 +19,15 @@ def _formatar(numero, especialidade):
 
 
 def _obter_selectbox_original():
-    """Recupera o selectbox real mesmo após hot-reload/rerun do Streamlit."""
+    """Recupera o selectbox real mesmo após rerun/hot-reload do Streamlit."""
     atual = st.selectbox
-    if getattr(atual, _WRAPPER_ATTR, False):
+    vistos = set()
+    while getattr(atual, _WRAPPER_ATTR, False) and id(atual) not in vistos:
+        vistos.add(id(atual))
         original = getattr(atual, _ORIGINAL_ATTR, None)
-        if original is not None:
-            return original
+        if original is None or original is atual:
+            break
+        atual = original
     return atual
 
 
@@ -36,11 +39,14 @@ def ativar():
         return
 
     _original_selectbox = _obter_selectbox_original()
-
     original = _original_selectbox
 
-    def wrapper(label, options, *args, **kwargs):
-        valor = original(label, options, *args, **kwargs)
+    def wrapper(*args, **kwargs):
+        # Mantém integralmente a assinatura flexível da API do Streamlit,
+        # evitando TypeError quando label/options chegam por posição ou keyword.
+        valor = original(*args, **kwargs)
+
+        label = args[0] if args else kwargs.get("label")
         if label != "Setor:" or valor != "Consultório":
             return valor
 
