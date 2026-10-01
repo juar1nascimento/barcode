@@ -267,7 +267,7 @@ def test_google_com_leitura_de_confirmacao_diferente_eh_falha(monkeypatch, tmp_p
     assert erros
 
 
-def test_falha_google_com_postgresql_ok_nao_vira_falso_sucesso(monkeypatch):
+def test_falha_google_com_postgresql_ok_mantem_cadastro_e_pendente(monkeypatch):
     estado = _estado_vazio()
     monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "PostgreSQL"))
     monkeypatch.setattr(
@@ -287,7 +287,7 @@ def test_falha_google_com_postgresql_ok_nao_vira_falso_sucesso(monkeypatch):
         "Farmacia",
         "UBS Teste",
         "Dell",
-    ) is False
+    ) is True
     assert backend.st.session_state["sheets_sync_pendente"] is True
     assert avisos
     assert backend.st.session_state["ultimo_patrimonio_id"] == 123
