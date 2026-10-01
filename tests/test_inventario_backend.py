@@ -612,13 +612,13 @@ def test_contexto_consultorio_nao_monkeypatch_selectbox(monkeypatch):
     fake = FakeStreamlit()
 
     def selectbox(label, options, *args, **kwargs):
-        return "Consultório"
+        return "Almoxarifado"
 
     fake.selectbox = selectbox
     monkeypatch.setattr(contexto, "st", fake)
 
     original = fake.selectbox
-    resultado = contexto.selecionar_setor(["Consultório"])
-    assert resultado == "Consultório"
+    resultado = contexto.selecionar_setor(["Consultório", "Almoxarifado"])
+    assert resultado == "Almoxarifado"
     assert fake.selectbox is original
 
