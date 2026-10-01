@@ -26,6 +26,7 @@ from Tabela_de_dados_Inventario_7_2 import (
 MAX_TENTATIVAS = 5
 STALE_MINUTES = 15
 FOTO_PREFIXO_COLUNA = "Foto "
+FOTO_THUMBNAIL_SIZE = 96
 
 
 def _public_photo_url(bucket: str, path: str) -> str:
@@ -264,7 +265,11 @@ def _espelhar_foto(item: dict) -> None:
         raise RuntimeError(f"Linha do patrimônio {patrimonio['numero']} não encontrada no Sheets.")
 
     url = _public_photo_url(foto["bucket"], foto["path"])
-    formula = f'=IMAGE("{url.replace(chr(34), chr(34) + chr(34))}")'
+    url_planilha = url.replace(chr(34), chr(34) + chr(34))
+    formula = (
+        f'=HYPERLINK("{url_planilha}",'
+        f'IMAGE("{url_planilha}",4,{FOTO_THUMBNAIL_SIZE},{FOTO_THUMBNAIL_SIZE}))'
+    )
     aba.update_cell(linha_planilha, coluna, formula, value_input_option="USER_ENTERED")
 
 
