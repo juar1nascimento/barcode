@@ -1,14 +1,7 @@
-name: Sincronizacao de patrimonios com Google Sheets
+name: Google Sheets (pausado temporariamente)
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "inventario_sheets_outbox_worker.py"
-      - "supabase/migrations/*patrimonios_google_sheets_outbox.sql"
-      - ".github/workflows/inventario-sheets-outbox.yml"
-  schedule:
-    - cron: "*/5 * * * *"
 
 concurrency:
   group: gti-sheets-inventory-outbox
