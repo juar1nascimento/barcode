@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 from typing import Optional, Tuple, List, Dict, Any
+from html import escape
+from urllib.parse import quote
 
 from Tabela_de_dados_Inventario_7_2 import (
     ARQUIVO_EXCEL, COLUNA_CHAVE, COLUNAS_OBSOLETAS, COLUNAS_PADRAO, SETORES_PADRAO,
@@ -12,6 +14,7 @@ from Tabela_de_dados_Inventario_7_2 import (
 )
 from fotos_patrimonio import renderizar_fotos_patrimonio
 from historico_movimentacoes import renderizar_historico_movimentacoes
+from postgresql_persistencia import conectar as conectar_postgresql
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
@@ -73,6 +76,130 @@ def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
 
     st.divider()
     renderizar_fotos_patrimonio(int(patrimonio_id))
+
+
+
+def _url_publica_foto_site(bucket: str, path: str) -> str:
+    """Monta a URL pública de uma fotografia no Supabase Storage."""
+    sec = st.secrets.get("supabase") or {}
+    base = str(sec.get("url") or "").strip().rstrip("/")
+    if not base or not str(bucket or "").strip() or not str(path or "").strip():
+        return ""
+    return (
+        f"{base}/storage/v1/object/public/"
+        f"{quote(str(bucket).strip('/'))}/"
+        f"{quote(str(path).lstrip('/'), safe='/')}"
+    )
+
+
+def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
+    """Renderiza a tabela operacional com miniaturas das fotos do patrimônio.
+
+    O PostgreSQL é consultado uma única vez para toda a tabela. Falhas no
+    carregamento das fotos não impedem a visualização dos dados patrimoniais.
+    """
+    if df_atual is None or df_atual.empty:
+        return
+
+    df = df_atual.copy()
+    numeros = [
+        str(v).strip() for v in df.get("Nº de Patrimônio", pd.Series(dtype=str)).tolist()
+        if str(v).strip() and str(v).strip().lower() not in {"nan", "none", "null", "<na>"}
+    ]
+    fotos_por_numero: Dict[str, List[str]] = {}
+    erro_fotos = ""
+
+    if numeros:
+        conn = None
+        try:
+            conn = conectar_postgresql()
+            if conn is None:
+                raise RuntimeError("PostgreSQL indisponível.")
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT p.numero_patrimonio, f.storage_bucket, f.storage_path
+                    FROM public.patrimonios p
+                    LEFT JOIN public.patrimonio_fotos f
+                      ON f.patrimonio_id = p.id
+                    WHERE p.numero_patrimonio = ANY(%s)
+                    ORDER BY p.id, f.ordem, f.id
+                    """,
+                    (numeros,),
+                )
+                for numero, bucket, path in cur.fetchall():
+                    chave = str(numero or "").strip()
+                    if bucket and path:
+                        url = _url_publica_foto_site(str(bucket), str(path))
+                        if url:
+                            fotos_por_numero.setdefault(chave, []).append(url)
+        except Exception as exc:
+            erro_fotos = str(exc).strip()[:240] or "Não foi possível carregar as fotos."
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    colunas = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro", "Fotos"]
+    linhas_html = []
+    for _, row in df.iterrows():
+        numero = str(row.get("Nº de Patrimônio", "") or "").strip()
+        fotos = fotos_por_numero.get(numero, [])
+        if fotos:
+            fotos_html = " ".join(
+                f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer" '
+                f'title="Foto {i}"><img src="{escape(url, quote=True)}" alt="Foto {i}" '
+                f'loading="lazy" width="72" height="72" '
+                f'style="object-fit:cover;border-radius:8px;border:1px solid #CBD5E1;"></a>'
+                for i, url in enumerate(fotos[:10], start=1)
+            )
+        else:
+            fotos_html = '<span style="color:#64748B;">Sem foto</span>'
+        celulas = [
+            row.get("Setor", ""),
+            row.get("Tipo de Patrimônio", ""),
+            numero,
+            row.get("Fabricante", ""),
+            row.get("Data Cadastro", ""),
+            fotos_html,
+        ]
+        linhas_html.append(
+            "<tr>" + "".join(
+                f'<td>{valor if i == 5 else escape(str(valor or ""))}</td>'
+                for i, valor in enumerate(celulas)
+            ) + "</tr>"
+        )
+
+    aviso = (
+        '<div style="margin:8px 0;padding:10px;border-radius:8px;background:#FFF7ED;'
+        'color:#9A3412;border:1px solid #FED7AA;">⚠️ As fotos não puderam ser carregadas agora. '
+        'Os dados do patrimônio continuam disponíveis.</div>'
+        if erro_fotos else ""
+    )
+    html = f"""
+    <style>
+      body {{ margin:0; font-family:Inter,'Segoe UI',Arial,sans-serif; color:#1E293B; }}
+      .table-wrap {{ width:100%; overflow-x:auto; }}
+      table {{ width:100%; border-collapse:collapse; min-width:920px; }}
+      th {{ background:#0F172A; color:#F8FAFC; padding:12px; font-size:12px;
+            text-transform:uppercase; letter-spacing:.04em; text-align:center; }}
+      td {{ padding:10px 12px; border-bottom:1px solid #E2E8F0; vertical-align:middle; }}
+      tr:nth-child(even) {{ background:#F8FAFC; }}
+      tr:hover {{ background:#EFF6FF; }}
+      .photos {{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }}
+    </style>
+    {aviso}
+    <div class="table-wrap"><table>
+      <thead><tr>{''.join(f'<th>{escape(col)}</th>' for col in colunas)}</tr></thead>
+      <tbody>{''.join(linhas_html)}</tbody>
+    </table></div>
+    <div style="margin-top:8px;color:#64748B;font-size:12px;">
+      Miniaturas armazenadas no Supabase Storage. Clique em uma foto para abrir o arquivo original.
+    </div>
+    """
+    st.components.v1.html(html, height=min(760, 190 + len(linhas_html) * 105), scrolling=True)
 
 
 # ==============================================================================
@@ -464,31 +591,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
-        df_styled = df_atual.style.set_properties(**{
-            'font-family': "'Inter', 'Segoe UI', -apple-system, sans-serif",
-            'font-size': '13px',
-            'border-bottom': '1px solid #E2E8F0',
-            'padding': '11px 15px',
-            'color': '#1E293B'
-        }).set_table_styles([
-            {'selector': 'thead th', 'props': [
-                ('background', 'linear-gradient(135deg, #0F172A 0%, #1E293B 60%, #334155 100%)'),
-                ('color', '#F8FAFC'),
-                ('font-weight', '700'),
-                ('font-size', '12px'),
-                ('text-transform', 'uppercase'),
-                ('letter-spacing', '0.06em'),
-                ('padding', '14px 16px'),
-                ('border-bottom', '2px solid #3B82F6'),
-                ('text-align', 'center'),
-                ('box-shadow', '0 2px 4px rgba(0,0,0,0.1)')
-            ]},
-            {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#F8FAFC')]},
-            {'selector': 'tbody tr:hover', 'props': [('background-color', '#EFF6FF'), ('transition', 'background-color 0.2s ease-in-out')]},
-            {'selector': 'td:first-child', 'props': [('font-weight', '700'), ('background-color', '#F1F5F9'), ('color', '#0F172A'), ('border-right', '2px solid #CBD5E1')]}
-        ])
-
-        st.dataframe(df_styled, use_container_width=True)
+        _renderizar_tabela_site(df_atual)
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
