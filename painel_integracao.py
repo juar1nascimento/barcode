@@ -111,8 +111,8 @@ def renderizar_painel_integracao():
         with st.spinner("Processando eventos pendentes..."):
             resultado = processar_fila_google_sheets(limit=25)
         st.success(
-            f"Processamento concluído: {resultado[\"sucesso\"]} sucesso(s), "
-            f"{resultado[\"falhas\"]} falha(s), {resultado[\"processados\"]} evento(s) analisado(s)."
+            f"Processamento concluído: {resultado['sucesso']} sucesso(s), "
+            f"{resultado['falhas']} falha(s), {resultado['processados']} evento(s) analisado(s)."
         )
         st.rerun()
 
