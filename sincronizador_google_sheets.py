@@ -81,11 +81,11 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                       FROM {tabela}
                      WHERE (
                          status='pending'
-                         AND proxima_tentativa_em <= %s
+                         AND proxima_tentativa_em <= now()
                          AND tentativas < %s
                      ) OR (
                          status='processing'
-                         AND processando_em < now() - interval '%s minutes'
+                         AND processando_em < now() - make_interval(mins => %s)
                      )
                      ORDER BY id
                      FOR UPDATE SKIP LOCKED
@@ -106,7 +106,7 @@ def _claim(tabela: str, limit: int) -> list[dict]:
             ).format(tabela=sql.Identifier(tabela))
             cur.execute(
                 consulta,
-                (datetime.now(timezone.utc), MAX_TENTATIVAS, STALE_MINUTES, max(1, min(limit, 100))),
+                (MAX_TENTATIVAS, STALE_MINUTES, max(1, min(limit, 100))),
             )
             rows = cur.fetchall()
         conn.commit()
