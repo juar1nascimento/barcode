@@ -259,11 +259,18 @@ def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
 
             if tipo != "SAIDA":
                 cur.execute("""UPDATE patrimonios
-                                  SET unidade_id=%s,setor_id=%s,atualizado_em=NOW()
-                                WHERE id=%s""", (destino_u,destino_s,patrimonio_id))
+                                  SET unidade_id=%s,setor_id=%s,ativo=TRUE,atualizado_em=NOW()
+                                WHERE id=%s AND COALESCE(ativo,TRUE)""",
+                            (destino_u,destino_s,patrimonio_id))
             else:
-                cur.execute("UPDATE patrimonios SET atualizado_em=NOW() WHERE id=%s",
+                # SAÍDA encerra a presença operacional do patrimônio, mas não
+                # remove o registro: fotos e histórico permanecem preservados.
+                cur.execute("""UPDATE patrimonios
+                                  SET ativo=FALSE,atualizado_em=NOW()
+                                WHERE id=%s AND COALESCE(ativo,TRUE)""",
                             (patrimonio_id,))
+            if cur.rowcount != 1:
+                raise RuntimeError("O patrimônio não pôde ser atualizado após registrar a movimentação.")
         conn.commit()
         return True, movimento_id, f"Movimentação {tipo} registrada com sucesso."
     except Exception as exc:
@@ -272,7 +279,7 @@ def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
     finally:
         conn.close()
 
-def buscar_patrimonio_detalhado(codigo_patrimonio: str):
+def buscar_patrimonio_detalhado(codigo_patrimonio: str, incluir_inativos: bool = False):
     codigo = str(codigo_patrimonio or "").strip()
     if not codigo:
         return None
@@ -281,7 +288,15 @@ def buscar_patrimonio_detalhado(codigo_patrimonio: str):
         return None
     try:
         with conn.cursor() as cur:
-            base = _buscar_patrimonio_por_codigo(cur, codigo)
+            if incluir_inativos:
+                cur.execute("""SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
+                                 FROM patrimonios p
+                                WHERE (p.numero_patrimonio=%s OR p.codigo_barras=%s)
+                                ORDER BY CASE WHEN p.numero_patrimonio=%s THEN 0 ELSE 1 END,p.id
+                                LIMIT 1""", (codigo,codigo,codigo))
+                base = cur.fetchone()
+            else:
+                base = _buscar_patrimonio_por_codigo(cur, codigo)
             if not base:
                 return None
 
@@ -292,8 +307,8 @@ def buscar_patrimonio_detalhado(codigo_patrimonio: str):
                              FROM patrimonios p JOIN unidades u ON u.id=p.unidade_id
                              JOIN setores s ON s.id=p.setor_id
                             WHERE p.id=%s
-                              AND COALESCE(p.ativo, TRUE)
-                            LIMIT 1""", (patrimonio_id,))
+                              AND (%s OR COALESCE(p.ativo, TRUE))
+                            LIMIT 1""", (patrimonio_id, incluir_inativos))
             r = cur.fetchone()
             if not r:
                 return None
@@ -305,7 +320,7 @@ def buscar_patrimonio_detalhado(codigo_patrimonio: str):
         conn.close()
 
 def listar_historico_movimentacoes(codigo_patrimonio: str, limite: int = 100) -> list[dict]:
-    patrimonio = buscar_patrimonio_detalhado(codigo_patrimonio)
+    patrimonio = buscar_patrimonio_detalhado(codigo_patrimonio, incluir_inativos=True)
     if not patrimonio: return []
     conn = conectar()
     if conn is None: return []
