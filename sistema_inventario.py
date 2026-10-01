@@ -642,6 +642,16 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         with col_btn2:
             st.download_button(f"⬇️ Baixar Tabela ({unidade})", data=df_atual.to_csv(index=False).encode("utf-8"), file_name=f"Tabela_{unidade.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
 
+        # Exclusões são operações destrutivas e ficam restritas ao administrador.
+        # O cadastro e a consulta continuam disponíveis aos usuários autenticados.
+        admin_email = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
+        usuario_atual = str(st.session_state.get("usuario_logado", "")).strip().lower()
+        is_admin = bool(usuario_atual and admin_email and usuario_atual == admin_email)
+
+        if not is_admin:
+            st.info("🔐 O gerenciador de exclusão é restrito ao administrador.")
+            return
+
         # O gerenciador permanece aberto durante toda a sessão da página.
         # O st.expander não expõe evento de abertura/fechamento; manter o estado
         # verdadeiro evita que qualquer rerun causado por selectbox/botão feche
