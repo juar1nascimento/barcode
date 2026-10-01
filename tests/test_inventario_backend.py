@@ -448,3 +448,94 @@ def test_identificador_nao_pode_repetir_em_outra_unidade(monkeypatch):
     planilha=Planilha()
     assert backend._numero_patrimonio_existe_na_planilha(planilha,' global-001 ')
     assert not backend._numero_patrimonio_existe_na_planilha(planilha,'GLOBAL-002')
+
+
+def test_url_publica_foto_site_codifica_bucket_e_caminho(monkeypatch):
+    import sistema_inventario as ui
+    monkeypatch.setattr(ui.st, "secrets", {"supabase": {"url": "https://vgabxdprocwmpmhoxrgt.supabase.co/"}})
+    assert ui._url_publica_foto_site("patrimonio-fotos", "2/foto 001/arquivo#teste.jpg") == (
+        "https://vgabxdprocwmpmhoxrgt.supabase.co/storage/v1/object/public/"
+        "patrimonio-fotos/2/foto%20001/arquivo%23teste.jpg"
+    )
+
+
+def test_tabela_site_renderiza_miniaturas_e_link_original(monkeypatch):
+    import sistema_inventario as ui
+
+    class Cursor:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def execute(self, query, params):
+            self.query, self.params = query, params
+        def fetchall(self):
+            return [
+                (2, "PAT-002", "patrimonio-fotos", "2/foto-001.jpg"),
+                (2, "PAT-002", "patrimonio-fotos", "2/foto-002.jpg"),
+            ]
+
+    class Conn:
+        def cursor(self):
+            return Cursor()
+        def close(self):
+            pass
+
+    html = []
+    monkeypatch.setattr(ui, "conectar_postgresql", lambda: Conn())
+    monkeypatch.setattr(ui.st, "secrets", {"supabase": {"url": "https://vgabxdprocwmpmhoxrgt.supabase.co"}})
+    monkeypatch.setattr(ui.st.components.v1, "html", lambda markup, **kwargs: html.append(markup))
+
+    df = pd.DataFrame([{
+        "Setor": "Farmacia",
+        "Tipo de Patrimônio": "Monitores",
+        "Nº de Patrimônio": "PAT-002",
+        "Fabricante": "Dell",
+        "Data Cadastro": "2026-10-01 10:00:00",
+    }], columns=COLUNAS)
+
+    ui._renderizar_tabela_site(df)
+
+    assert len(html) == 1
+    assert "PAT-002" in html[0]
+    assert "Foto 1" in html[0] and "Foto 2" in html[0]
+    assert 'target="_blank"' in html[0]
+    assert "storage/v1/object/public/patrimonio-fotos/2/foto-001.jpg" in html[0]
+
+
+def test_tabela_site_mostra_sem_foto_quando_nao_ha_registros(monkeypatch):
+    import sistema_inventario as ui
+
+    class Cursor:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def execute(self, query, params):
+            pass
+        def fetchall(self):
+            return [(99, "PAT-SEM-FOTO", None, None)]
+
+    class Conn:
+        def cursor(self):
+            return Cursor()
+        def close(self):
+            pass
+
+    html = []
+    monkeypatch.setattr(ui, "conectar_postgresql", lambda: Conn())
+    monkeypatch.setattr(ui.st, "secrets", {"supabase": {"url": "https://vgabxdprocwmpmhoxrgt.supabase.co"}})
+    monkeypatch.setattr(ui.st.components.v1, "html", lambda markup, **kwargs: html.append(markup))
+
+    df = pd.DataFrame([{
+        "Setor": "Recepção",
+        "Tipo de Patrimônio": "CPU",
+        "Nº de Patrimônio": "PAT-SEM-FOTO",
+        "Fabricante": "Dell",
+        "Data Cadastro": "2026-10-01 10:00:00",
+    }], columns=COLUNAS)
+
+    ui._renderizar_tabela_site(df)
+
+    assert len(html) == 1
+    assert "Sem foto" in html[0]
