@@ -11,6 +11,7 @@ from datetime import timedelta
 from urllib.parse import quote
 
 import streamlit as st
+from psycopg import sql
 
 from postgresql_persistencia import conectar
 from supabase_storage import criar_url_assinada_storage
@@ -58,10 +59,11 @@ def _marcar_evento(conn, tabela: str, event_id: int, *, status: str, erro: str |
         colunas.append("proxima_tentativa_em=now() + make_interval(secs => LEAST(3600, 30 * (2 ^ GREATEST(0, tentativas))))")
     params.append(event_id)
     with conn.cursor() as cur:
-        cur.execute(
-            f"UPDATE public.{tabela} SET {', '.join(colunas)} WHERE id=%s",
-            params,
+        consulta = sql.SQL("UPDATE public.{tabela} SET {colunas} WHERE id=%s").format(
+            tabela=sql.Identifier(tabela),
+            colunas=sql.SQL(", ").join(sql.SQL(coluna) for coluna in colunas),
         )
+        cur.execute(consulta, params)
 
 
 def _claim(tabela: str, limit: int) -> list[dict]:
@@ -72,14 +74,14 @@ def _claim(tabela: str, limit: int) -> list[dict]:
         raise RuntimeError("PostgreSQL indisponível.")
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                f"""
+            consulta = sql.SQL(
+                """
                 WITH candidatos AS (
                     SELECT id
-                      FROM public.{tabela}
+                      FROM {tabela}
                      WHERE (
                          status='pending'
-                         AND proxima_tentativa_em <= now()
+                         AND proxima_tentativa_em <= %s
                          AND tentativas < %s
                      ) OR (
                          status='processing'
@@ -89,7 +91,7 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                      FOR UPDATE SKIP LOCKED
                      LIMIT %s
                 )
-                UPDATE public.{tabela} o
+                UPDATE {tabela} o
                    SET status='processing',
                        processando_em=now(),
                        tentativas=CASE
@@ -100,8 +102,11 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                   FROM candidatos c
                  WHERE o.id=c.id
              RETURNING o.id, o.patrimonio_id, o.foto_id, o.tentativas
-                """,
-                (MAX_TENTATIVAS, STALE_MINUTES, max(1, min(limit, 100))),
+                """
+            ).format(tabela=sql.Identifier(tabela))
+            cur.execute(
+                consulta,
+                (datetime.now(timezone.utc), MAX_TENTATIVAS, STALE_MINUTES, max(1, min(limit, 100))),
             )
             rows = cur.fetchall()
         conn.commit()
