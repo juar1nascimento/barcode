@@ -12,17 +12,26 @@ def test_col_letter():
 
 def test_sheet_url_canonical_path(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co/")
-    assert worker.sheet_url("2/foto-001-a b.jpg") == (
-        "https://example.supabase.co/storage/v1/object/public/"
-        "patrimonio-fotos/2/foto-001-a%20b.jpg"
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    class Response:
+        ok = True
+        def json(self):
+            return {"signedURL": "/storage/v1/object/sign/patrimonio-fotos/abc?token=test"}
+    monkeypatch.setattr(worker.requests, "post", lambda *args, **kwargs: Response())
+    assert worker.sheet_url("2/foto-001-a b.jpg").startswith(
+        "https://example.supabase.co/storage/v1/object/sign/"
     )
 
 
 def test_sheet_url_removes_leading_slash(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
-    assert worker.sheet_url("/2/foto-002.jpg").endswith(
-        "/storage/v1/object/public/patrimonio-fotos/2/foto-002.jpg"
-    )
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    class Response:
+        ok = True
+        def json(self):
+            return {"signedURL": "/storage/v1/object/sign/patrimonio-fotos/abc?token=test"}
+    monkeypatch.setattr(worker.requests, "post", lambda *args, **kwargs: Response())
+    assert worker.sheet_url("/2/foto-002.jpg").endswith("?token=test")
 
 
 def test_required_env_rejects_missing(monkeypatch):
