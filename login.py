@@ -17,7 +17,6 @@ import streamlit as st
 ADMIN_EMAIL_DEFAULT = ""
 DB_FILE = "db_usuarios.json"
 LOGO_FILE = Path(__file__).resolve().parent / "assets" / "logo_serra_login.jpg"
-DEFAULT_ADMIN_HASH = "3166b70d4b201c3754a99631ace5a8cfa1b240a676b7a4ed0b3fc5ee0a7ae976"
 PBKDF2_ITERATIONS = 310_000
 APPROVAL_TOKEN_TTL_SECONDS = 15 * 60
 
@@ -55,7 +54,12 @@ def verificar_senha(senha: str, armazenada: str) -> tuple[bool, bool]:
 def carregar_usuarios() -> dict:
     if not os.path.exists(DB_FILE):
         admin = st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT).strip().lower()
-        db = {admin: {"senha": DEFAULT_ADMIN_HASH, "aprovado": True}} if admin else {}
+        admin_hash = str(st.secrets.get("email", {}).get("admin_password_hash", "")).strip()
+        db = (
+            {admin: {"senha": admin_hash, "aprovado": True}}
+            if admin and admin_hash
+            else {}
+        )
         salvar_usuarios(db)
         return db
     try:
