@@ -21,6 +21,7 @@ from google.oauth2.service_account import Credentials
 PHOTO_COLUMNS = [f"Foto {i}" for i in range(1, 11)]
 ID_COLUMN = "ID Patrimônio"
 BUCKET = "patrimonio-fotos"
+PHOTO_THUMBNAIL_SIZE = 96
 
 
 def env(name: str) -> str:
@@ -210,7 +211,11 @@ def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
     )
 
     formulas = [
-        f'=IMAGE("{sheet_url(path).replace(chr(34), chr(34) * 2)}")'
+        (
+            f'=HYPERLINK("{sheet_url(path).replace(chr(34), chr(34) * 2)}",'
+            f'IMAGE("{sheet_url(path).replace(chr(34), chr(34) * 2)}",4,'
+            f'{PHOTO_THUMBNAIL_SIZE},{PHOTO_THUMBNAIL_SIZE}))'
+        )
         for _, path in fotos[:10]
     ]
     formulas += [""] * (10 - len(formulas))
