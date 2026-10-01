@@ -21,6 +21,7 @@ def _mock_persistencia(monkeypatch, estado):
     monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
     monkeypatch.setattr(backend, "_anexar_no_google", lambda df, unidade: estado.__setitem__("df", pd.concat([estado["df"], df], ignore_index=True)) or True)
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: None)
+    monkeypatch.setattr(backend, "persistencia_postgresql_configurada", lambda: False)
 
 
 def test_schema_e_tipo_patrimonio():
@@ -400,7 +401,6 @@ def test_cadastro_normal_anexa_sem_limpar_aba(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)
-    backend.carregar_dados_excel.clear()
     assert backend.registrar_patrimonio("NOVO-001", "Monitores", "Consultório", "UBS Teste", "HP") is True
     rows = planilha.sheets["UBS Teste"].rows
     assert len(rows) == 3
@@ -416,7 +416,6 @@ def test_carga_em_lote_anexa_apenas_novas_linhas(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)
-    backend.carregar_dados_excel.clear()
     registros = [
         {"tipo_patrimonio": "CPU", "setor": "Farmacia", "numero_patrimonio": "LOTE-001", "fabricante": "Dell"},
         {"tipo_patrimonio": "Mouse", "setor": "Farmacia", "numero_patrimonio": "LOTE-002", "fabricante": "HP"},
@@ -435,7 +434,6 @@ def test_cadastro_repetido_apos_append_e_idempotente(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)
-    backend.carregar_dados_excel.clear()
     assert backend.registrar_patrimonio("REPETIDO-001", "CPU", "Farmacia", "UBS Teste", "Dell") is False
     rows = planilha.sheets["UBS Teste"].rows
     assert [r[2] for r in rows[1:]] == ["REPETIDO-001"]
@@ -503,7 +501,8 @@ def test_tabela_site_renderiza_miniaturas_e_link_original(monkeypatch):
     assert "PAT-002" in html[0]
     assert "alt=\"Foto 1 - PAT-002\"" in html[0]
     assert "alt=\"Foto 2 - PAT-002\"" in html[0]
-    assert 'onclick="abrirFoto(' in html[0]
+    assert 'data-foto-url="' in html[0]
+    assert "addEventListener('click'" in html[0]
     assert 'id="foto-modal"' in html[0]
     assert "max-width:96vw" in html[0]
     assert "mesma linha do patrimônio bipado" in html[0]
