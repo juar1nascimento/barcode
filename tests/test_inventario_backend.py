@@ -539,3 +539,60 @@ def test_tabela_site_mostra_sem_foto_quando_nao_ha_registros(monkeypatch):
 
     assert len(html) == 1
     assert "Sem foto" in html[0]
+
+
+def test_tabela_site_nao_quebra_quando_postgresql_indisponivel(monkeypatch):
+    import sistema_inventario as ui
+
+    html = []
+    monkeypatch.setattr(ui, "conectar_postgresql", lambda: None)
+    monkeypatch.setattr(ui.st.components.v1, "html", lambda markup, **kwargs: html.append(markup))
+
+    df = pd.DataFrame([{
+        "Setor": "Farmacia",
+        "Tipo de Patrimônio": "CPU",
+        "Nº de Patrimônio": "PAT-DB-OFF",
+        "Fabricante": "Dell",
+        "Data Cadastro": "2026-10-01 10:00:00",
+    }], columns=COLUNAS)
+
+    ui._renderizar_tabela_site(df)
+
+    assert len(html) == 1
+    assert "PAT-DB-OFF" in html[0]
+    assert "As fotos não puderam ser carregadas agora" in html[0]
+
+
+def test_tabela_site_nao_quebra_sem_url_publica_do_supabase(monkeypatch):
+    import sistema_inventario as ui
+
+    monkeypatch.setattr(ui.st, "secrets", {})
+    assert ui._url_publica_foto_site("patrimonio-fotos", "1/foto.jpg") == ""
+
+    html = []
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def execute(self, query, params): pass
+        def fetchall(self):
+            return [(1, "PAT-SEM-URL", "patrimonio-fotos", "1/foto.jpg")]
+    class Conn:
+        def cursor(self): return Cursor()
+        def close(self): pass
+
+    monkeypatch.setattr(ui, "conectar_postgresql", lambda: Conn())
+    monkeypatch.setattr(ui.st.components.v1, "html", lambda markup, **kwargs: html.append(markup))
+
+    df = pd.DataFrame([{
+        "Setor": "Recepção",
+        "Tipo de Patrimônio": "Monitores",
+        "Nº de Patrimônio": "PAT-SEM-URL",
+        "Fabricante": "HP",
+        "Data Cadastro": "2026-10-01 10:00:00",
+    }], columns=COLUNAS)
+
+    ui._renderizar_tabela_site(df)
+
+    assert len(html) == 1
+    assert "PAT-SEM-URL" in html[0]
+    assert "Sem foto" in html[0]
