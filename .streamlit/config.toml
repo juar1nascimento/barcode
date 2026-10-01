@@ -1,0 +1,10 @@
+[client]
+showErrorDetails = "none"
+
+[server]
+enableCORS = true
+enableXsrfProtection = true
+maxUploadSize = 20
+
+[runner]
+fastReruns = true
