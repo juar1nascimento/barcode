@@ -1,8 +1,7 @@
 """Persistência PostgreSQL do GTI-SESA.
 
-A integração é opcional: sem a Secret [postgresql], o sistema continua
-operando com Google Sheets. Quando configurada, o cadastro é gravado no
-PostgreSQL e, separadamente, no Google Sheets.
+O PostgreSQL/Supabase é a fonte operacional do inventário.
+O Google Sheets permanece fora do fluxo durante a fase atual.
 """
 
 import re
@@ -409,8 +408,7 @@ def salvar_patrimonio(
     """Grava um patrimônio no PostgreSQL e retorna (sucesso, id, mensagem).
 
     A transação é atômica. Duplicidades são tratadas pelo banco e não geram
-    segunda linha. Esta função não grava no Google Sheets; o chamador faz o
-    espelhamento separadamente para manter as duas persistências independentes.
+    segunda linha. Nenhuma etapa de Google Sheets participa desta operação.
     """
     if not _conexao_configurada():
         return True, None, "PostgreSQL não configurado; persistência principal ainda não ativada."
