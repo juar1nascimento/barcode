@@ -34,7 +34,7 @@ def test_buscar_patrimonio_por_codigo_prioriza_numero(monkeypatch):
 
     assert row == (10, "PAT-001", 1, 2)
     assert cur.execute.call_count == 1
-    assert "numero_patrimonio" in cur.execute.call_args.args[0]
+    assert "numero_patrimonio" in str(cur.execute.call_args.args[0])
     assert cur.execute.call_args.args[1] == ("PAT-001",)
 
 
@@ -49,8 +49,8 @@ def test_buscar_patrimonio_por_codigo_faz_fallback_para_barcode(monkeypatch):
 
     assert row == (11, "PAT-002", 1, 3)
     assert cur.execute.call_count == 2
-    assert "numero_patrimonio" in cur.execute.call_args_list[0].args[0]
-    assert "codigo_barras" in cur.execute.call_args_list[1].args[0]
+    assert "numero_patrimonio" in str(cur.execute.call_args_list[0].args[0])
+    assert "codigo_barras" in str(cur.execute.call_args_list[1].args[0])
 
 
 def test_buscar_patrimonio_por_codigo_preserva_prioridade_do_numero_sobre_barcode():
