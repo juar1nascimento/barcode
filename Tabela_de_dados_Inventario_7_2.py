@@ -587,9 +587,24 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         if chave in vistos: erros.append(f"Registro {posicao}: o patrimônio `{numero}` está duplicado no próprio lote."); continue
         vistos.add(chave)
         novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro()})
-    if erros: return False, erros
-    sucesso = _anexar_no_google(pd.DataFrame(novos, columns=COLUNAS_INVENTARIO), unidade_limpa)
-    return sucesso, [] if sucesso else ["Falha ao confirmar a gravação do lote no Google Sheets."]
+    if erros:
+        return False, erros
+    resultados = []
+    for item in novos:
+        ok, _, mensagem = salvar_patrimonio(
+            codigo_barras=item["Nº de Patrimônio"],
+            tipo=item["Tipo de Patrimônio"],
+            setor=item["Setor"],
+            unidade=unidade_limpa,
+            fabricante=item["Fabricante"],
+            numero_patrimonio=item["Nº de Patrimônio"],
+        )
+        if not ok:
+            resultados.append(mensagem)
+    carregar_dados_excel.clear()
+    if resultados:
+        return False, resultados
+    return True, []
 
 
 def adicionar_e_salvar_sem_sobrescrever(codigo: str, patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
