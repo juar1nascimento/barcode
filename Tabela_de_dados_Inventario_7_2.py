@@ -9,6 +9,7 @@ from typing import Optional, Tuple
 
 from postgresql_persistencia import (
     salvar_patrimonio,
+    salvar_patrimonios_em_lote,
     conectar as conectar_postgresql,
     persistencia_postgresql_configurada,
 )
@@ -588,21 +589,20 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         novos.append({"Setor": setor, "Tipo de Patrimônio": tipo, "Nº de Patrimônio": numero, "Fabricante": fabricante, "Data Cadastro": _data_hora_cadastro()})
     if erros:
         return False, erros
-    resultados = []
-    for item in novos:
-        ok, _, mensagem = salvar_patrimonio(
-            codigo_barras=item["Nº de Patrimônio"],
-            tipo=item["Tipo de Patrimônio"],
-            setor=item["Setor"],
-            unidade=unidade_limpa,
-            fabricante=item["Fabricante"],
-            numero_patrimonio=item["Nº de Patrimônio"],
-        )
-        if not ok:
-            resultados.append(mensagem)
+    ok, _, mensagem = salvar_patrimonios_em_lote([
+        {
+            "codigo_barras": item["Nº de Patrimônio"],
+            "tipo": item["Tipo de Patrimônio"],
+            "setor": item["Setor"],
+            "unidade": unidade_limpa,
+            "fabricante": item["Fabricante"],
+            "numero_patrimonio": item["Nº de Patrimônio"],
+        }
+        for item in novos
+    ])
     carregar_dados_excel.clear()
-    if resultados:
-        return False, resultados
+    if not ok:
+        return False, [mensagem]
     return True, []
 
 
