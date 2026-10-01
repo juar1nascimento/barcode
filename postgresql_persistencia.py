@@ -211,7 +211,9 @@ def _usuario_pode_movimentar(tipo: str, usuario: str) -> bool:
     """Autoriza movimentações destrutivas somente para o administrador."""
     tipo = str(tipo or "").strip().upper()
     usuario = str(usuario or "").strip().casefold()
-    if tipo not in {"SAIDA", "TRANSFERENCIA"}:
+    if tipo not in {"ENTRADA", "SAIDA", "TRANSFERENCIA"}:
+        return False
+    if tipo == "ENTRADA":
         return True
     try:
         admin_email = str(st.secrets.get("email", {}).get("admin_email", "")).strip().casefold()
