@@ -193,7 +193,8 @@ def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
       tr:nth-child(even) {{ background:#F8FAFC; }}
       tr:hover {{ background:#EFF6FF; }}
       .photos {{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; max-width:430px; }}
-      .foto-link {{ display:inline-flex; cursor:zoom-in; border-radius:8px; }}
+      .foto-link {{ display:inline-flex; padding:0; margin:0; border:0; background:transparent;
+                    cursor:zoom-in; border-radius:8px; }}
       .foto-miniatura {{ display:block; object-fit:cover; border-radius:8px;
                          border:1px solid #CBD5E1; transition:transform .15s, box-shadow .15s; }}
       .foto-link:hover .foto-miniatura {{ transform:scale(1.06); box-shadow:0 4px 14px rgba(15,23,42,.22); }}
@@ -215,9 +216,8 @@ def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
       <tbody>{''.join(linhas_html)}</tbody>
     </table></div>
 
-    <div id="foto-modal" role="dialog" aria-modal="true" aria-label="Foto ampliada"
-         onclick="fecharFoto(event)">
-      <button type="button" class="fechar" aria-label="Fechar" onclick="fecharFoto(event)">×</button>
+    <div id="foto-modal" role="dialog" aria-modal="true" aria-label="Foto ampliada">
+      <button type="button" class="fechar" aria-label="Fechar">×</button>
       <img id="foto-modal-imagem" src="" alt="Foto ampliada">
       <div id="foto-modal-legenda" class="legenda"></div>
     </div>
