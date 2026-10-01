@@ -3,7 +3,6 @@ import streamlit as st
 # Importações dos módulos independentes
 from login import renderizar_login
 from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
-from persistencia_dupla import ativar as ativar_persistencia_dupla, desativar as desativar_persistencia_dupla
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
 from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso_storage
 from teste_upload_foto import renderizar_teste_upload_foto
@@ -117,11 +116,7 @@ if st.session_state.pagina_atual == "portal":
         renderizar_card_saida(lista_urs, lista_ubs)
 
 elif st.session_state.pagina_atual == "inventario":
-    ativar_persistencia_dupla()
-    try:
-        renderizar_sistema_inventario()
-    finally:
-        desativar_persistencia_dupla()
+    renderizar_sistema_inventario()
 
 elif st.session_state.pagina_atual == "auditoria_pre_migracao":
     if not is_admin:
