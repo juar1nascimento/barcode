@@ -16,6 +16,7 @@ from Tabela_de_dados_Inventario_7_2 import (
 from fotos_patrimonio import renderizar_fotos_patrimonio
 from historico_movimentacoes import renderizar_historico_movimentacoes
 from postgresql_persistencia import conectar as conectar_postgresql
+from supabase_storage import criar_url_assinada_storage
 from consultorio_contexto import selecionar_setor
 
 # ==============================================================================
@@ -82,16 +83,11 @@ def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
 
 
 def _url_publica_foto_site(bucket: str, path: str) -> str:
-    """Monta a URL pública de uma fotografia no Supabase Storage."""
-    sec = st.secrets.get("supabase") or {}
-    base = str(sec.get("url") or "").strip().rstrip("/")
-    if not base or not str(bucket or "").strip() or not str(path or "").strip():
+    """Gera URL temporária para foto privada exibida na tabela do site."""
+    try:
+        return criar_url_assinada_storage(bucket, path, expires_in=3600)
+    except Exception:
         return ""
-    return (
-        f"{base}/storage/v1/object/public/"
-        f"{quote(str(bucket).strip('/'))}/"
-        f"{quote(str(path).lstrip('/'), safe='/')}"
-    )
 
 
 def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
