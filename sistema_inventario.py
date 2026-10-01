@@ -16,6 +16,7 @@ from Tabela_de_dados_Inventario_7_2 import (
 from fotos_patrimonio import renderizar_fotos_patrimonio
 from historico_movimentacoes import renderizar_historico_movimentacoes
 from postgresql_persistencia import conectar as conectar_postgresql
+from consultorio_contexto import selecionar_setor
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
@@ -482,14 +483,10 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     col_desc1, col_desc2, col_desc3, col_desc4 = st.columns([1, 1, 1, 1])
     with col_desc1:
-        setor_selecionado = st.selectbox("Setor:", opcoes_setor, index=None, placeholder="Selecione um setor...")
-        setor_input = ""
-        if setor_selecionado == "Consultório":
-            setor_input = "Consultório"
-        elif setor_selecionado == "Outro Setor":
+        setor_selecionado = selecionar_setor(opcoes_setor)
+        setor_input = setor_selecionado
+        if setor_selecionado == "Outro Setor":
             setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...")
-        elif setor_selecionado:
-            setor_input = setor_selecionado
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
