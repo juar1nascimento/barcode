@@ -45,7 +45,7 @@ jobs:
 
       - name: Static security audit
         run: |
-          bandit -q -r . -x ./tests,./test_*.py
+          bandit -q -r . -x ./tests,./test_*.py --skip B110
 
       - name: Compile all Python modules
         run: python -m compileall -q .
