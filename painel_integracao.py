@@ -42,7 +42,7 @@ def _reconciliacao(limit: int = 50):
 
 def _falhas(limit: int = 20):
     return _consultar(
-        """SELECT id, patrimonio_id, foto_id, status, tentativas,
+        """SELECT id, patrimonio_id, status, tentativas,
                   proxima_tentativa_em, ultimo_erro, atualizado_em
              FROM public.patrimonio_fotos_sheets_outbox
             WHERE status IN ('failed','dead_letter')
@@ -171,11 +171,10 @@ def renderizar_painel_integracao():
                 {
                     "Evento": row[0],
                     "Patrimônio": row[1],
-                    "Foto": row[2],
-                    "Status": row[3],
-                    "Tentativas": row[4],
-                    "Próxima tentativa": row[5],
-                    "Último erro": row[6] or "",
+                    "Status": row[2],
+                    "Tentativas": row[3],
+                    "Próxima tentativa": row[4],
+                    "Último erro": row[5] or "",
                 }
                 for row in falhas
             ],
