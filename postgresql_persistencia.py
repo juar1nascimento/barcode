@@ -420,50 +420,72 @@ def salvar_patrimonio(
     fabricante: str = "",
     numero_patrimonio: str = "",
 ) -> Tuple[bool, Optional[int], str]:
-    """Grava um patrimônio no PostgreSQL e retorna (sucesso, id, mensagem).
+    """Grava um patrimônio no PostgreSQL em uma única transação."""
+    resultados = salvar_patrimonios_em_lote([{
+        "codigo_barras": codigo_barras,
+        "tipo": tipo,
+        "setor": setor,
+        "unidade": unidade,
+        "fabricante": fabricante,
+        "numero_patrimonio": numero_patrimonio,
+    }])
+    if not resultados[0]:
+        return False, None, resultados[2]
+    return True, resultados[1][0], "Patrimônio gravado no PostgreSQL."
 
-    A transação é atômica. Duplicidades são tratadas pelo banco e não geram
-    segunda linha. Nenhuma etapa de Google Sheets participa desta operação.
-    """
-    if not _conexao_configurada():
-        return True, None, "PostgreSQL não configurado; persistência principal ainda não ativada."
 
-    numero = str(numero_patrimonio or "").strip() or str(codigo_barras or "").strip()
-    codigo = str(codigo_barras or "").strip() or None
-    tipo = str(tipo or "").strip()
-    setor = re.sub(r"\s+", " ", str(setor or "").strip())
-    unidade = str(unidade or "").strip()
-    fabricante = str(fabricante or "").strip() or None
+def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
+    """Grava todo o lote em uma única transação; falha implica rollback total."""
+    itens = list(registros or [])
+    if not itens:
+        return False, [], "O lote está vazio."
+    if len(itens) > 1000:
+        return False, [], "O lote excede o limite de 1000 patrimônios por operação."
 
-    if not numero or not tipo or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
-        return False, None, "Dados insuficientes ou inválidos para o PostgreSQL."
+    preparados = []
+    vistos = set()
+    for posicao, item in enumerate(itens, start=1):
+        item = item or {}
+        numero = str(item.get("numero_patrimonio") or item.get("codigo_barras") or "").strip()
+        codigo = str(item.get("codigo_barras") or "").strip() or None
+        tipo = str(item.get("tipo") or "").strip()
+        setor = re.sub(r"\\s+", " ", str(item.get("setor") or "").strip())
+        unidade = str(item.get("unidade") or "").strip()
+        fabricante = str(item.get("fabricante") or "").strip() or None
+        if not numero or not tipo or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
+            return False, [], f"Registro {posicao}: dados insuficientes ou inválidos."
+        chave = numero.casefold()
+        if chave in vistos:
+            return False, [], f"Registro {posicao}: patrimônio `{numero}` duplicado no lote."
+        vistos.add(chave)
+        preparados.append((numero, codigo, tipo, setor, unidade, fabricante))
 
     conn = conectar()
     if conn is None:
-        return False, None, "Não foi possível conectar ao PostgreSQL."
+        return False, [], "Não foi possível conectar ao PostgreSQL."
 
+    ids = []
     try:
         with conn.cursor() as cur:
-            unidade_id = garantir_unidade(cur, unidade)
-            setor_id = garantir_setor(cur, unidade_id, setor)
-            cur.execute(
-                """INSERT INTO patrimonios
-                     (unidade_id, setor_id, tipo, numero_patrimonio,
-                      codigo_barras, fabricante, data_cadastro, atualizado_em)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-                   RETURNING id""",
-                (unidade_id, setor_id, tipo, numero, codigo, fabricante, datetime.now()),
-            )
-            patrimonio_id = cur.fetchone()[0]
-
-            # Google Sheets desativado: nenhum evento de espelhamento é criado.
+            for numero, codigo, tipo, setor, unidade, fabricante in preparados:
+                unidade_id = garantir_unidade(cur, unidade)
+                setor_id = garantir_setor(cur, unidade_id, setor)
+                cur.execute(
+                    """INSERT INTO public.patrimonios
+                         (unidade_id, setor_id, tipo, numero_patrimonio,
+                          codigo_barras, fabricante, data_cadastro, atualizado_em)
+                       VALUES (%s,%s,%s,%s,%s,%s,NOW(),NOW())
+                       RETURNING id""",
+                    (unidade_id, setor_id, tipo, numero, codigo, fabricante),
+                )
+                ids.append(cur.fetchone()[0])
         conn.commit()
-        return True, patrimonio_id, "Patrimônio gravado no PostgreSQL."
+        return True, ids, "Lote gravado integralmente no PostgreSQL."
     except Exception as exc:
         conn.rollback()
         texto = str(exc)
         if "duplicate key" in texto.lower() or "unique" in texto.lower():
-            return False, None, f"O patrimônio `{numero}` já existe no PostgreSQL."
-        return False, None, f"Falha ao gravar no PostgreSQL: {texto}"
+            return False, [], f"Lote cancelado: patrimônio duplicado no PostgreSQL ({texto})."
+        return False, [], f"Lote cancelado e revertido: {texto}"
     finally:
         conn.close()
