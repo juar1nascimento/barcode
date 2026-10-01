@@ -412,16 +412,6 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
 
     fotos = buscar_fotos_patrimonio(patrimonio_id)
 
-    # Backfill automático: fotos já existentes no PostgreSQL/Supabase também
-    # passam a aparecer na linha correspondente do Google Sheets na próxima
-    # abertura do patrimônio, sem exigir novo upload.
-    if fotos and not st.session_state.get(f"fotos_sheets_sync_{patrimonio_id}"):
-        sincronizada, mensagem_sheets = _sincronizar_fotos_google(patrimonio_id)
-        if sincronizada:
-            st.session_state[f"fotos_sheets_sync_{patrimonio_id}"] = True
-        else:
-            st.caption(f"⚠️ Google Sheets: {mensagem_sheets}")
-
     if fotos:
         st.caption(
             f"{len(fotos)} fotografia(s) cadastrada(s). "
@@ -484,20 +474,11 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
                 )
 
             if ok:
-                sincronizada, mensagem_sheets = _sincronizar_fotos_google(patrimonio_id)
-                if sincronizada:
-                    marcar_sincronizacao_fotos_ok(patrimonio_id)
                 st.success(
                     f"✅ {mensagem} "
-                    f"Foto ID: {foto_id}."
+                    f"Foto ID: {foto_id}. A fotografia foi persistida no Supabase Storage "
+                    "e vinculada ao patrimônio no PostgreSQL."
                 )
-                if sincronizada:
-                    st.success(f"📊 {mensagem_sheets}")
-                else:
-                    st.warning(
-                        "⚠️ A foto foi salva no Supabase/PostgreSQL, mas não foi "
-                        f"refletida na tabela do Google Sheets: {mensagem_sheets}"
-                    )
                 st.rerun()
             else:
                 st.error(mensagem)
