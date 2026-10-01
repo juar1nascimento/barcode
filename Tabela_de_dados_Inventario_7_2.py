@@ -416,7 +416,6 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
             if chave:
                 existentes.add(chave)
         if not valores:
-            carregar_dados_excel.clear()
             return True
         ultimo_erro = None
         confirmado = False
@@ -457,7 +456,6 @@ def _anexar_no_google(df_novos: pd.DataFrame, unidade: str) -> bool:
 
         st.session_state.pop("sheets_sync_pendente", None)
         st.session_state.pop("sheets_sync_ultimo_erro", None)
-        carregar_dados_excel.clear()
         return True
     except Exception as e:
         erro = str(e)
@@ -505,7 +503,6 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
         st.error("⚠️ Google Sheets indisponível: o cadastro NÃO foi considerado salvo na tabela online.")
     try: df_salvar.to_excel(nome_arquivo_local, index=False)
     except Exception as e: st.error(f"Erro no backup local: {e}")
-    carregar_dados_excel.clear()
     return sucesso_sheets
 
 
@@ -556,7 +553,6 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.session_state["ultimo_patrimonio_unidade"] = unidade_limpa
 
     # Google Sheets permanece fora do fluxo operacional durante esta fase.
-    carregar_dados_excel.clear()
     st.session_state.pop("sheets_sync_pendente", None)
     st.session_state.pop("sheets_sync_ultimo_erro", None)
     return True
@@ -600,7 +596,6 @@ def registrar_patrimonios_em_lote(registros, unidade: str):
         }
         for item in novos
     ])
-    carregar_dados_excel.clear()
     if not ok:
         return False, [mensagem]
     return True, []
@@ -652,7 +647,6 @@ def excluir_setor(setor: str, unidade: str) -> bool:
         return False
     from postgresql_persistencia import excluir_patrimonios_setor
     sucesso, quantidade, mensagem = excluir_patrimonios_setor(setor, unidade)
-    carregar_dados_excel.clear()
     if not sucesso:
         st.warning(mensagem)
     return sucesso
@@ -677,7 +671,6 @@ def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
         return False
     from postgresql_persistencia import excluir_patrimonio_por_numero
     sucesso, mensagem = excluir_patrimonio_por_numero(str(candidatos.iloc[0]), unidade)
-    carregar_dados_excel.clear()
     if not sucesso:
         st.warning(mensagem)
     return sucesso
