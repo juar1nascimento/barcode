@@ -97,15 +97,15 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                        atualizado_em=now()
                   FROM candidatos c
                  WHERE o.id=c.id
-             RETURNING o.id, o.patrimonio_id, o.foto_id, o.tentativas
+             RETURNING o.id, o.patrimonio_id, o.tentativas
                 """,
                 (MAX_TENTATIVAS, STALE_MINUTES, max(1, min(limit, 100))),
             )
             rows = cur.fetchall()
         conn.commit()
         return [
-            {"id": int(r[0]), "patrimonio_id": int(r[1]), "foto_id": int(r[2]) if r[2] is not None else None,
-             "tentativas": int(r[3])}
+            {"id": int(r[0]), "patrimonio_id": int(r[1]), "foto_id": None,
+             "tentativas": int(r[2])}
             for r in rows
         ]
     except Exception:
@@ -268,11 +268,31 @@ def _espelhar_foto(item: dict) -> None:
     aba.update_cell(linha_planilha, coluna, formula, value_input_option="USER_ENTERED")
 
 
+def _espelhar_fotos_do_patrimonio(patrimonio_id: int) -> None:
+    conn = conectar()
+    if conn is None:
+        raise RuntimeError("PostgreSQL indisponível.")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id FROM public.patrimonio_fotos
+                   WHERE patrimonio_id=%s ORDER BY ordem, id""",
+                (patrimonio_id,),
+            )
+            fotos = [int(row[0]) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+    for foto_id in fotos:
+        _espelhar_foto({"foto_id": foto_id, "patrimonio_id": patrimonio_id})
+
+
 def _processar_evento(tabela: str, item: dict) -> None:
     if tabela == "patrimonios_sheets_outbox":
         _espelhar_patrimonio(item)
     else:
-        _espelhar_foto(item)
+        # A fila de fotos é agregada por patrimônio.
+        _espelhar_fotos_do_patrimonio(item["patrimonio_id"])
 
 
 def processar_fila_google_sheets(limit: int = 25) -> dict:
