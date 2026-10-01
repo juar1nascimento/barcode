@@ -10,17 +10,16 @@ def test_coluna_letra_converte_indices_para_a1():
     assert _coluna_letra(36) == "AJ"
 
 
-def test_url_publica_foto_codifica_caminho_sem_expor_credencial():
-    with patch(
-        "fotos_patrimonio.st.secrets",
-        {"supabase": {"url": "https://example.supabase.co", "secret_key": "nao-deve-aparecer"}},
-    ):
-        url = _url_publica_foto("patrimonio/123/foto 001.jpg")
+def test_url_publica_foto_usa_url_assinada_sem_expor_credencial(monkeypatch):
+    from fotos_patrimonio import criar_url_assinada_storage
 
-    assert url == (
-        "https://example.supabase.co/storage/v1/object/public/"
-        "patrimonio-fotos/patrimonio/123/foto%20001.jpg"
+    monkeypatch.setattr(
+        "fotos_patrimonio.criar_url_assinada_storage",
+        lambda bucket, path, expires_in: "https://example.supabase.co/storage/v1/object/sign/patrimonio-fotos/abc?token=temporario",
     )
+    url = _url_publica_foto("patrimonio/123/foto 001.jpg")
+
+    assert url.startswith("https://example.supabase.co/storage/v1/object/sign/")
     assert "secret_key" not in url
 
 
