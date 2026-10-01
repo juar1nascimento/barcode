@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional, Tuple
 
 import streamlit as st
+from psycopg import sql
 
 TIPOS_PATRIMONIO = (
     "CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos"
@@ -182,28 +183,29 @@ def _buscar_patrimonio_por_codigo(cur, codigo: str, for_update: bool = False):
     mas evita OR + ORDER BY CASE e permite que cada igualdade use sua
     restrição/índice dedicado.
     """
-    lock = " FOR UPDATE" if for_update else ""
-
-    cur.execute(
-        f"""SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
+    sufixo_lock = sql.SQL(" FOR UPDATE") if for_update else sql.SQL("")
+    consulta_numero = sql.SQL(
+        """SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
               FROM patrimonios p
              WHERE p.numero_patrimonio=%s
                AND COALESCE(p.ativo, TRUE)
-             LIMIT 1{lock}""",
-        (codigo,),
-    )
+             LIMIT 1"""
+    ) + sufixo_lock
+
+    cur.execute(consulta_numero, (codigo,))
     row = cur.fetchone()
     if row:
         return row
 
-    cur.execute(
-        f"""SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
+    consulta_barras = sql.SQL(
+        """SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
               FROM patrimonios p
              WHERE p.codigo_barras=%s
                AND COALESCE(p.ativo, TRUE)
-             LIMIT 1{lock}""",
-        (codigo,),
-    )
+             LIMIT 1"""
+    ) + sufixo_lock
+
+    cur.execute(consulta_barras, (codigo,))
     return cur.fetchone()
 
 
