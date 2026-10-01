@@ -425,11 +425,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     if st.session_state.get("mensagem_sucesso"):
         st.success(st.session_state.mensagem_sucesso)
-        if st.session_state.pop("sheets_sync_pendente", False):
-            st.info(
-                "📌 Cadastro confirmado no PostgreSQL. A integração com o "
-                "Google Sheets está pendente e não bloqueia a bipagem."
-            )
+        st.session_state.pop("sheets_sync_pendente", None)
         st.session_state.pop("sheets_sync_ultimo_erro", None)
         del st.session_state["mensagem_sucesso"]
 
@@ -723,36 +719,32 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                     placeholder="Selecione um setor...",
                 )
 
-                colunas_com_dados, valores_map = [], {}
+                patrimonio_opcoes = {}
                 if setor_patrimonio_del:
-                    linha_setor_df = df_atual[
+                    linhas_setor = df_atual[
                         df_atual[COLUNA_CHAVE].astype(str).str.strip().str.casefold()
                         == str(setor_patrimonio_del).strip().casefold()
                     ]
-                    if not linha_setor_df.empty:
-                        for col in df_atual.columns:
-                            if col == COLUNA_CHAVE or col in COLUNAS_OBSOLETAS or str(col).startswith("Fabricante "):
-                                continue
-                            val = str(linha_setor_df.iloc[0][col]).strip()
-                            if val and val.lower() not in {"nan", "none", "null", "<na>"}:
-                                colunas_com_dados.append(col)
-                                valores_map[col] = val
+                    for _, registro in linhas_setor.iterrows():
+                        numero = str(registro.get("Nº de Patrimônio", "")).strip()
+                        tipo = str(registro.get("Tipo de Patrimônio", "")).strip()
+                        if numero and numero.lower() not in {"nan", "none", "null", "<na>"}:
+                            patrimonio_opcoes[numero] = f"{tipo} — Código: {numero}"
 
-                colunas_com_dados = sorted(colunas_com_dados, key=str.casefold)
                 coluna_patrimonio_del = st.selectbox(
                     "Selecione o Patrimônio:",
-                    options=colunas_com_dados,
+                    options=list(patrimonio_opcoes.keys()),
                     index=None,
                     key="del_coluna_patrimonio",
                     placeholder="Selecione o patrimônio...",
-                    format_func=lambda c: f"{c} (Código: {valores_map.get(c, '')})",
-                ) if colunas_com_dados else None
+                    format_func=lambda numero: patrimonio_opcoes.get(numero, numero),
+                ) if patrimonio_opcoes else None
 
-                if setor_patrimonio_del and not colunas_com_dados:
-                    st.info("ℹ️ O setor selecionado não possui patrimônio preenchido para exclusão.")
+                if setor_patrimonio_del and not patrimonio_opcoes:
+                    st.info("ℹ️ O setor selecionado não possui patrimônio ativo para exclusão.")
                 elif coluna_patrimonio_del:
                     st.warning(
-                        f"⚠️ Será removido o patrimônio **{coluna_patrimonio_del}** do setor **{setor_patrimonio_del}** e, quando existir, o fabricante correspondente."
+                        f"⚠️ O patrimônio **{coluna_patrimonio_del}** será removido da tabela ativa do setor **{setor_patrimonio_del}**. Fotos e histórico serão preservados no Supabase."
                     )
 
                 if coluna_patrimonio_del and setor_patrimonio_del and st.button(
