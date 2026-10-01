@@ -54,3 +54,6 @@ O ambiente de produção deve usar HTTPS e acesso privado/restrito quando o proj
 As tabelas operacionais e filas de integração devem permanecer inacessíveis aos papéis `anon` e `authenticated` quando o sistema utiliza conexão PostgreSQL privada.
 Buckets que contenham fotografias patrimoniais devem ser privados. O acesso visual deve ocorrer por URL assinada e temporária.
 Chaves `service_role` nunca podem ser usadas no navegador ou gravadas no repositório.
+
+### Inicialização do administrador
+A conta administrativa inicial não possui senha padrão no código. Quando necessário, o proprietário deve fornecer `[email].admin_email` e um `[email].admin_password_hash` em Secrets, usando um hash PBKDF2 gerado pelo sistema. Nunca registrar senha em texto puro.
