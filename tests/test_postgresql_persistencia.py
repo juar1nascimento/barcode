@@ -6,7 +6,7 @@ import postgresql_persistencia as db
 
 @pytest.fixture(autouse=True)
 def _admin_de_teste(monkeypatch):
-    monkeypatch.setattr(db.st, "secrets", {"email": {"admin_email": "operador"}})
+    monkeypatch.setattr(db, "_usuario_pode_movimentar", lambda tipo, usuario: True)
 
 
 
