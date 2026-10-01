@@ -293,11 +293,13 @@ def _nome_aba(unidade: str) -> str:
 def carregar_dados_excel(unidade: str) -> Tuple[pd.DataFrame, str]:
     unidade = _normalizar_unidade_aba(unidade)
 
-    # Fonte operacional principal: PostgreSQL. O Google Sheets permanece como
-    # espelho e não pode impedir a abertura da tela de inventário.
+    # Fonte única durante esta fase: Supabase/PostgreSQL.
+    # O Google Sheets fica deliberadamente fora do fluxo operacional.
     dados_postgresql = _carregar_dados_postgresql(unidade)
     if dados_postgresql is not None:
         return dados_postgresql
+
+    return pd.DataFrame(columns=COLUNAS_INVENTARIO), "Supabase indisponível"
 
     planilha = conectar_google_sheets()
     nome_aba = _nome_aba(unidade)
