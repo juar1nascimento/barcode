@@ -2,10 +2,12 @@ import re
 import streamlit as st
 
 _original_selectbox = None
+_WRAPPER_ATTR = "_gti_consultorio_selectbox_wrapper"
+_ORIGINAL_ATTR = "_gti_consultorio_original_selectbox"
 
 
 def _normalizar(valor):
-    return re.sub(r"\s+", " ", str(valor or "").strip())
+    return re.sub(r"\s+"," ",str(valor or "").strip())
 
 
 def _formatar(numero, especialidade):
@@ -16,16 +18,29 @@ def _formatar(numero, especialidade):
     return f"Consultório {int(numero)} - {especialidade}"
 
 
+def _obter_selectbox_original():
+    """Recupera o selectbox real mesmo após hot-reload/rerun do Streamlit."""
+    atual = st.selectbox
+    if getattr(atual, _WRAPPER_ATTR, False):
+        original = getattr(atual, _ORIGINAL_ATTR, None)
+        if original is not None:
+            return original
+    return atual
+
+
 def ativar():
     """Ativa temporariamente o contexto número/especialidade do Consultório."""
     global _original_selectbox
+
     if _original_selectbox is not None:
         return
 
-    _original_selectbox = st.selectbox
+    _original_selectbox = _obter_selectbox_original()
+
+    original = _original_selectbox
 
     def wrapper(label, options, *args, **kwargs):
-        valor = _original_selectbox(label, options, *args, **kwargs)
+        valor = original(label, options, *args, **kwargs)
         if label != "Setor:" or valor != "Consultório":
             return valor
 
@@ -53,6 +68,8 @@ def ativar():
             st.info("Informe o número e a especialidade para identificar o consultório.")
         return resultado
 
+    setattr(wrapper, _WRAPPER_ATTR, True)
+    setattr(wrapper, _ORIGINAL_ATTR, original)
     st.selectbox = wrapper
 
 
