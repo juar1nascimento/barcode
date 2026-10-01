@@ -13,6 +13,7 @@ from urllib.parse import quote
 import streamlit as st
 
 from postgresql_persistencia import conectar
+from supabase_storage import criar_url_assinada_storage
 from Tabela_de_dados_Inventario_7_2 import (
     COLUNAS_INVENTARIO,
     _garantir_cabecalho_moderno,
@@ -30,11 +31,11 @@ FOTO_THUMBNAIL_SIZE = 96
 
 
 def _public_photo_url(bucket: str, path: str) -> str:
-    sec = st.secrets.get("supabase") or {}
-    base = str(sec.get("url") or "").strip().rstrip("/")
-    if not base:
-        raise RuntimeError("Secret [supabase].url não configurada.")
-    return f"{base}/storage/v1/object/public/{quote(bucket.strip('/'))}/{quote(path.lstrip('/'), safe='/')}"
+    """Retorna URL temporária de objeto privado para o espelho do Sheets."""
+    try:
+        return criar_url_assinada_storage(bucket, path, expires_in=31536000)
+    except Exception as exc:
+        raise RuntimeError("Não foi possível gerar URL temporária da foto.") from exc
 
 
 def _marcar_evento(conn, tabela: str, event_id: int, *, status: str, erro: str | None = None,
