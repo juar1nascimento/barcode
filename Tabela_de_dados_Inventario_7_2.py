@@ -210,6 +210,7 @@ def _carregar_dados_postgresql(unidade: str) -> Optional[Tuple[pd.DataFrame, str
                      JOIN public.unidades u ON u.id = p.unidade_id
                      LEFT JOIN public.setores s ON s.id = p.setor_id
                     WHERE u.nome = %s
+                      AND COALESCE(p.ativo, TRUE)
                     ORDER BY p.id""",
                 (unidade,),
             )
@@ -554,73 +555,13 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.session_state["ultimo_patrimonio_numero"] = numero
         st.session_state["ultimo_patrimonio_unidade"] = unidade_limpa
 
-    # Com PostgreSQL configurado, o outbox é a ponte oficial para o Sheets.
-    # Tentamos consumir imediatamente para dar baixa em tempo real, mas uma
-    # indisponibilidade do Sheets não desfaz o cadastro já confirmado no banco.
-    if persistencia_postgresql_configurada() and pg_id is not None:
-        try:
-            from sincronizador_google_sheets import processar_fila_google_sheets
-            resultado_sync = processar_fila_google_sheets(limit=25)
-            conn_sync = conectar_postgresql()
-            status_sync = None
-            if conn_sync is not None:
-                try:
-                    with conn_sync.cursor() as cur:
-                        cur.execute(
-                            """SELECT status, ultimo_erro
-                                 FROM public.patrimonios_sheets_outbox
-                                WHERE patrimonio_id=%s
-                                ORDER BY id DESC
-                                LIMIT 1""",
-                            (int(pg_id),),
-                        )
-                        status_sync = cur.fetchone()
-                finally:
-                    conn_sync.close()
-
-            if status_sync and status_sync[0] == "synced":
-                st.session_state.pop("sheets_sync_pendente", None)
-                st.session_state.pop("sheets_sync_ultimo_erro", None)
-                return True
-
-            st.session_state["sheets_sync_pendente"] = True
-            st.session_state["sheets_sync_ultimo_erro"] = (
-                (status_sync[1] if status_sync else None)
-                or "Registro confirmado no PostgreSQL e aguardando espelhamento no Google Sheets."
-            )
-            st.info(
-                "✅ Patrimônio gravado no PostgreSQL. "
-                "O Google Sheets ficará sincronizado pela fila de integração."
-            )
-            return True
-        except Exception as exc:
-            st.session_state["sheets_sync_pendente"] = True
-            st.session_state["sheets_sync_ultimo_erro"] = str(exc)[:500]
-            st.warning(
-                "✅ Patrimônio gravado no PostgreSQL. "
-                "O espelhamento no Google Sheets será tentado novamente pela fila."
-            )
-            return True
-
-    # Compatibilidade legada: sem PostgreSQL, mantém a gravação direta no Sheets.
-    nova = {
-        "Setor": setor_limpo,
-        "Tipo de Patrimônio": tipo,
-        "Nº de Patrimônio": numero,
-        "Fabricante": fabricante_limpo,
-        "Data Cadastro": _data_hora_cadastro(),
-    }
-    sucesso_sheets = _anexar_no_google(
-        pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
-        unidade_limpa,
-    )
-    if not sucesso_sheets:
-        st.session_state["sheets_sync_pendente"] = True
-        return False
-
+    # Google Sheets permanece fora do fluxo operacional durante esta fase.
+    carregar_dados_excel.clear()
     st.session_state.pop("sheets_sync_pendente", None)
     st.session_state.pop("sheets_sync_ultimo_erro", None)
     return True
+
+
 
 
 @_serializar_persistencia
@@ -691,12 +632,38 @@ def _aplicar_exclusao_patrimonio(df: pd.DataFrame, setor: str, coluna: str) -> T
 
 
 def excluir_setor(setor: str, unidade: str) -> bool:
-    df, _ = carregar_dados_excel(unidade)
-    novo, alterado = _aplicar_exclusao_setor(df, setor)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    """Exclui logicamente o conteúdo do setor no Supabase."""
+    if not persistencia_postgresql_configurada():
+        st.error("Supabase/PostgreSQL não configurado.")
+        return False
+    from postgresql_persistencia import excluir_patrimonios_setor
+    sucesso, quantidade, mensagem = excluir_patrimonios_setor(setor, unidade)
+    carregar_dados_excel.clear()
+    if not sucesso:
+        st.warning(mensagem)
+    return sucesso
 
 
 def excluir_patrimonio(setor: str, coluna: str, unidade: str) -> bool:
+    """Exclui logicamente um patrimônio identificado pelo setor e tipo."""
+    if not persistencia_postgresql_configurada():
+        st.error("Supabase/PostgreSQL não configurado.")
+        return False
     df, _ = carregar_dados_excel(unidade)
-    novo, alterado = _aplicar_exclusao_patrimonio(df, setor, coluna)
-    return salvar_no_excel(novo, unidade) if alterado else False
+    df = _normalizar_legacy_dataframe(df)
+    mask_setor = df["Setor"].map(_chave_texto).eq(_chave_texto(setor))
+    alvo = _valor_texto(coluna)
+    # A UI legada fornece o tipo da coluna; o valor correspondente é o número.
+    tipo = _normalizar_tipo(re.sub(r"\\s*-\\s*N[ºo]?\\s*de\\s*Patrim[ôo]nio", "", alvo, flags=re.I))
+    candidatos = df.loc[mask_setor & df["Tipo de Patrimônio"].eq(tipo), "Nº de Patrimônio"]
+    if candidatos.empty:
+        # Compatibilidade: caso a UI forneça diretamente o número.
+        candidatos = df.loc[mask_setor & df["Nº de Patrimônio"].map(_chave_texto).eq(_chave_texto(alvo)), "Nº de Patrimônio"]
+    if candidatos.empty:
+        return False
+    from postgresql_persistencia import excluir_patrimonio_por_numero
+    sucesso, mensagem = excluir_patrimonio_por_numero(str(candidatos.iloc[0]), unidade)
+    carregar_dados_excel.clear()
+    if not sucesso:
+        st.warning(mensagem)
+    return sucesso
