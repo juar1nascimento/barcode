@@ -4,6 +4,7 @@ from __future__ import annotations
 import streamlit as st
 
 from postgresql_persistencia import conectar
+from sincronizador_google_sheets import processar_fila_google_sheets
 
 
 def _consultar(sql: str, params=()):
@@ -101,6 +102,19 @@ def renderizar_painel_integracao():
     cols = st.columns(len(labels))
     for col, (label, value) in zip(cols, labels):
         col.metric(label, int(value or 0))
+
+    st.divider()
+
+    st.markdown("### 🔄 Sincronização do Google Sheets")
+    st.caption("O PostgreSQL continua sendo a fonte operacional; este processamento apenas consome a fila de espelhamento.")
+    if st.button("▶️ Processar fila agora", type="primary", use_container_width=True):
+        with st.spinner("Processando eventos pendentes..."):
+            resultado = processar_fila_google_sheets(limit=25)
+        st.success(
+            f"Processamento concluído: {resultado[\"sucesso\"]} sucesso(s), "
+            f"{resultado[\"falhas\"]} falha(s), {resultado[\"processados\"]} evento(s) analisado(s)."
+        )
+        st.rerun()
 
     st.divider()
 
