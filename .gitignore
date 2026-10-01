@@ -1,0 +1,23 @@
+# Secrets e credenciais
+.streamlit/secrets.toml
+*.env
+.env
+.env.*
+!.env.example
+
+# Estado local de autenticação
+db_usuarios.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Dados locais e artefatos
+*.xlsx
+*.xls
+*.csv
+*.log
+.DS_Store
