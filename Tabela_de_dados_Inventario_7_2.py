@@ -552,6 +552,55 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.session_state["ultimo_patrimonio_numero"] = numero
         st.session_state["ultimo_patrimonio_unidade"] = unidade_limpa
 
+    # Com PostgreSQL configurado, o outbox é a ponte oficial para o Sheets.
+    # Tentamos consumir imediatamente para dar baixa em tempo real, mas uma
+    # indisponibilidade do Sheets não desfaz o cadastro já confirmado no banco.
+    if persistencia_postgresql_configurada() and pg_id is not None:
+        try:
+            from sincronizador_google_sheets import processar_fila_google_sheets
+            resultado_sync = processar_fila_google_sheets(limit=25)
+            conn_sync = conectar_postgresql()
+            status_sync = None
+            if conn_sync is not None:
+                try:
+                    with conn_sync.cursor() as cur:
+                        cur.execute(
+                            """SELECT status, ultimo_erro
+                                 FROM public.patrimonios_sheets_outbox
+                                WHERE patrimonio_id=%s
+                                ORDER BY id DESC
+                                LIMIT 1""",
+                            (int(pg_id),),
+                        )
+                        status_sync = cur.fetchone()
+                finally:
+                    conn_sync.close()
+
+            if status_sync and status_sync[0] == "synced":
+                st.session_state.pop("sheets_sync_pendente", None)
+                st.session_state.pop("sheets_sync_ultimo_erro", None)
+                return True
+
+            st.session_state["sheets_sync_pendente"] = True
+            st.session_state["sheets_sync_ultimo_erro"] = (
+                (status_sync[1] if status_sync else None)
+                or "Registro confirmado no PostgreSQL e aguardando espelhamento no Google Sheets."
+            )
+            st.info(
+                "✅ Patrimônio gravado no PostgreSQL. "
+                "O Google Sheets ficará sincronizado pela fila de integração."
+            )
+            return True
+        except Exception as exc:
+            st.session_state["sheets_sync_pendente"] = True
+            st.session_state["sheets_sync_ultimo_erro"] = str(exc)[:500]
+            st.warning(
+                "✅ Patrimônio gravado no PostgreSQL. "
+                "O espelhamento no Google Sheets será tentado novamente pela fila."
+            )
+            return True
+
+    # Compatibilidade legada: sem PostgreSQL, mantém a gravação direta no Sheets.
     nova = {
         "Setor": setor_limpo,
         "Tipo de Patrimônio": tipo,
@@ -563,21 +612,8 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         pd.DataFrame([nova], columns=COLUNAS_INVENTARIO),
         unidade_limpa,
     )
-
-    # O cadastro só é considerado concluído quando o Google Sheets confirma
-    # a linha. O PostgreSQL permanece preservado para permitir recuperação.
     if not sucesso_sheets:
         st.session_state["sheets_sync_pendente"] = True
-        st.session_state["sheets_sync_ultimo_erro"] = st.session_state.get(
-            "sheets_sync_ultimo_erro",
-            "Google Sheets não confirmou a gravação do código.",
-        )
-        if pg_id is not None:
-            st.warning(
-                "O patrimônio foi gravado no banco, porém o código ainda NÃO "
-                "foi confirmado no Google Sheets. O registro não será marcado "
-                "como concluído até a sincronização ser confirmada."
-            )
         return False
 
     st.session_state.pop("sheets_sync_pendente", None)
