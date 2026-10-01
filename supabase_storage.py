@@ -1,8 +1,8 @@
 """Persistência isolada de fotos de patrimônio no Supabase Storage.
 
 Este módulo não altera a interface do sistema. Ele prepara o fluxo:
-bytes da imagem -> normalização/compressão -> Storage público ->
-metadados em public.patrimonio_fotos. O objeto é público somente para leitura;
+bytes da imagem -> normalização/compressão -> Storage privado ->
+metadados em public.patrimonio_fotos. A leitura usa URLs assinadas temporárias;
 a gravação usa a chave de backend armazenada nos Secrets.
 
 A chave Supabase é lida exclusivamente de Streamlit Secrets e nunca é
@@ -121,7 +121,11 @@ def criar_url_assinada_storage(
     path = str(path or "").strip().lstrip("/")
     if not bucket or not path:
         raise ValueError("Bucket e caminho da foto são obrigatórios.")
-    expires_in = max(60, min(int(expires_in), 31536000))
+    try:
+        expires_in = int(expires_in)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("O prazo da URL assinada deve ser um número inteiro.") from exc
+    expires_in = max(60, min(expires_in, 86400))
     endpoint = f"{config['url']}/storage/v1/object/sign/{quote(bucket)}/{quote(path, safe='/')}"
     response = requests.post(
         endpoint,
