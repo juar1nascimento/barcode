@@ -15,7 +15,7 @@ import hashlib
 import io
 import uuid
 from typing import Optional, Tuple
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 
 import requests
 from PIL import Image, ImageOps
@@ -108,6 +108,36 @@ def _headers(key: str, content_type: Optional[str] = None) -> dict:
     if content_type:
         headers["Content-Type"] = content_type
     return headers
+
+
+def criar_url_assinada_storage(
+    bucket: str,
+    path: str,
+    expires_in: int = 3600,
+) -> str:
+    """Gera URL temporária para objeto privado sem expor a chave do Supabase."""
+    config = _config_supabase()
+    bucket = str(bucket or "").strip().strip("/")
+    path = str(path or "").strip().lstrip("/")
+    if not bucket or not path:
+        raise ValueError("Bucket e caminho da foto são obrigatórios.")
+    expires_in = max(60, min(int(expires_in), 31536000))
+    endpoint = f"{config['url']}/storage/v1/object/sign/{quote(bucket)}/{quote(path, safe='/')}"
+    response = requests.post(
+        endpoint,
+        headers=_headers(config["key"], "application/json"),
+        json={"expiresIn": expires_in},
+        timeout=15,
+    )
+    if not response.ok:
+        raise RuntimeError(
+            f"Falha ao gerar URL temporária da foto (HTTP {response.status_code})."
+        )
+    payload = response.json()
+    signed = payload.get("signedURL") or payload.get("signedUrl")
+    if not signed:
+        raise RuntimeError("Supabase não retornou a URL temporária da foto.")
+    return urljoin(f"{config['url']}/", str(signed).lstrip("/"))
 
 
 def _storage_url(base_url: str, path: str) -> str:
