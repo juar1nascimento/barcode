@@ -603,34 +603,22 @@ def test_tabela_site_nao_quebra_sem_url_publica_do_supabase(monkeypatch):
 
 
 
-def test_contexto_consultorio_nao_encadeia_wrappers_em_hot_reload(monkeypatch):
+def test_contexto_consultorio_nao_monkeypatch_selectbox(monkeypatch):
     import consultorio_contexto as contexto
 
     class FakeStreamlit:
         pass
 
     fake = FakeStreamlit()
-    chamadas = []
 
     def selectbox(label, options, *args, **kwargs):
-        chamadas.append((label, options, args, kwargs))
         return "Consultório"
 
     fake.selectbox = selectbox
     monkeypatch.setattr(contexto, "st", fake)
-    monkeypatch.setattr(contexto, "_original_selectbox", None)
 
-    contexto.ativar()
-    primeira = fake.selectbox
+    original = fake.selectbox
+    resultado = contexto.selecionar_setor(["Consultório"])
+    assert resultado == "Consultório"
+    assert fake.selectbox is original
 
-    # Simula o estado deixado por um módulo antigo após hot-reload.
-    contexto._original_selectbox = None
-    contexto.ativar()
-    segunda = fake.selectbox
-
-    assert primeira is segunda
-    assert getattr(segunda, "_gti_consultorio_selectbox_wrapper", False) is True
-    assert getattr(segunda, "_gti_consultorio_original_selectbox") is selectbox
-
-    contexto.desativar()
-    assert fake.selectbox is selectbox
