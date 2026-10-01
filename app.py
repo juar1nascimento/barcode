@@ -87,7 +87,7 @@ lista_urs = [
     "URS Jacaraípe", "URS Novo Horizonte", "URS Serra Sede", "URS Serra Dourada"
 ]
 
-lista_almoxarifado = ["Almoxarifado Central SESA"]
+lista_almoxarifado = [\n    "Almoxarifado Central SESA",\n    "Almoxarifado GTI-SESA-SEDE",\n]
 
 lista_ubs = [
     "Selecione uma UBS...", "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa",
