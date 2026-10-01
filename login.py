@@ -293,7 +293,15 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                     st.session_state.tela_atual = "redefinicao_solicitar"
                     st.rerun()
                 st.write("**Origem de login**")
-                st.selectbox("Origem de login", ["SERRA.LOCAL"], label_visibility="collapsed", key="login_domain")
+                # A origem é fixa neste sistema. Não usamos st.selectbox aqui:
+                # isso mantém a tela de login independente de qualquer contexto
+                # específico do módulo de inventário.
+                st.session_state["login_domain"] = "SERRA.LOCAL"
+                st.markdown(
+                    '<div style="background:#fff;border:1px solid #d1d5da;border-radius:4px;'
+                    'padding:9px 12px;color:#24292e;min-height:20px;">SERRA.LOCAL</div>',
+                    unsafe_allow_html=True,
+                )
                 if st.form_submit_button("Entrar", use_container_width=True):
                     user = usuario.strip().lower()
                     if not user or not senha.strip():
