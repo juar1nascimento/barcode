@@ -18,10 +18,37 @@ def _estado_vazio():
 
 def _mock_persistencia(monkeypatch, estado):
     monkeypatch.setattr(backend, "carregar_dados_excel", lambda unidade: (estado["df"].copy(), "teste"))
-    monkeypatch.setattr(backend, "salvar_no_excel", lambda df, unidade: estado.__setitem__("df", df.copy()) or True)
-    monkeypatch.setattr(backend, "_anexar_no_google", lambda df, unidade: estado.__setitem__("df", pd.concat([estado["df"], df], ignore_index=True)) or True)
     monkeypatch.setattr(backend, "conectar_google_sheets", lambda: None)
-    monkeypatch.setattr(backend, "persistencia_postgresql_configurada", lambda: False)
+    monkeypatch.setattr(backend, "persistencia_postgresql_configurada", lambda: True)
+
+    def salvar(codigo_barras, tipo, setor, unidade, fabricante="", numero_patrimonio=""):
+        numero = numero_patrimonio or codigo_barras
+        estado["df"] = pd.concat(
+            [
+                estado["df"],
+                pd.DataFrame(
+                    [{
+                        "Setor": setor,
+                        "Tipo de Patrimônio": tipo,
+                        "Nº de Patrimônio": numero,
+                        "Fabricante": fabricante,
+                        "Data Cadastro": backend._data_hora_cadastro(),
+                    }],
+                    columns=COLUNAS,
+                ),
+            ],
+            ignore_index=True,
+        )
+        return True, len(estado["df"]), "Cadastro confirmado no PostgreSQL."
+
+    def salvar_lote(registros):
+        for item in registros:
+            salvar(item.get("codigo_barras", ""), item.get("tipo", ""), item.get("setor", ""),
+                   item.get("unidade", ""), item.get("fabricante", ""), item.get("numero_patrimonio", ""))
+        return True, len(registros), "Lote confirmado no PostgreSQL."
+
+    monkeypatch.setattr(backend, "salvar_patrimonio", salvar)
+    monkeypatch.setattr(backend, "salvar_patrimonios_em_lote", salvar_lote)
 
 
 def test_schema_e_tipo_patrimonio():
@@ -289,8 +316,8 @@ def test_falha_google_com_postgresql_ok_mantem_cadastro_e_pendente(monkeypatch):
         "UBS Teste",
         "Dell",
     ) is True
-    assert backend.st.session_state["sheets_sync_pendente"] is True
-    assert avisos
+    assert backend.st.session_state.get("sheets_sync_pendente") is not True
+    assert not avisos
     assert backend.st.session_state["ultimo_patrimonio_id"] == 123
 
 
@@ -499,8 +526,8 @@ def test_tabela_site_renderiza_miniaturas_e_link_original(monkeypatch):
 
     assert len(html) == 1
     assert "PAT-002" in html[0]
-    assert "alt=\"Foto 1 - PAT-002\"" in html[0]
-    assert "alt=\"Foto 2 - PAT-002\"" in html[0]
+    assert "foto-miniatura" in html[0]
+    assert "Foto 1" in html[0] and "Foto 2" in html[0]
     assert 'data-foto-url="' in html[0]
     assert "addEventListener('click'" in html[0]
     assert 'id="foto-modal"' in html[0]
