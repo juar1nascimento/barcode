@@ -505,8 +505,8 @@ def test_tabela_site_renderiza_miniaturas_e_link_original(monkeypatch):
             self.query, self.params = query, params
         def fetchall(self):
             return [
-                (2, "PAT-002", "patrimonio-fotos", "2/foto-001.jpg"),
-                (2, "PAT-002", "patrimonio-fotos", "2/foto-002.jpg"),
+                ("PAT-002", "patrimonio-fotos", "2/foto-001.jpg"),
+                ("PAT-002", "patrimonio-fotos", "2/foto-002.jpg"),
             ]
 
     class Conn:
