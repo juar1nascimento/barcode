@@ -93,11 +93,7 @@ def _url_publica_foto_site(bucket: str, path: str) -> str:
 
 
 def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
-    """Renderiza a tabela operacional com miniaturas das fotos do patrimônio.
-
-    O PostgreSQL é consultado uma única vez para toda a tabela. Falhas no
-    carregamento das fotos não impedem a visualização dos dados patrimoniais.
-    """
+    """Renderiza cada patrimônio com suas fotos na mesma linha e visualização ampliada."""
     if df_atual is None or df_atual.empty:
         return
 
@@ -144,19 +140,24 @@ def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
 
     colunas = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro", "Fotos"]
     linhas_html = []
-    for _, row in df.iterrows():
+    for indice_linha, (_, row) in enumerate(df.iterrows()):
         numero = str(row.get("Nº de Patrimônio", "") or "").strip()
         fotos = fotos_por_numero.get(numero, [])
+
         if fotos:
-            fotos_html = " ".join(
-                f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer" '
-                f'title="Foto {i}"><img src="{escape(url, quote=True)}" alt="Foto {i}" '
-                f'loading="lazy" width="72" height="72" '
-                f'style="object-fit:cover;border-radius:8px;border:1px solid #CBD5E1;"></a>'
-                for i, url in enumerate(fotos[:10], start=1)
-            )
+            miniaturas = []
+            for i, url in enumerate(fotos[:10], start=1):
+                safe_url = escape(url, quote=True)
+                miniaturas.append(
+                    f'<a href="#" class="foto-link" title="Ampliar foto {i}" '
+                    f'onclick="abrirFoto({safe_url!r}); return false;">'
+                    f'<img src="{safe_url}" alt="Foto {i} - {escape(numero)}" loading="lazy" '
+                    f'width="72" height="72" class="foto-miniatura"></a>'
+                )
+            fotos_html = '<div class="photos">' + "".join(miniaturas) + "</div>"
         else:
             fotos_html = '<span style="color:#64748B;">Sem foto</span>'
+
         celulas = [
             row.get("Setor", ""),
             row.get("Tipo de Patrimônio", ""),
@@ -188,19 +189,69 @@ def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
       td {{ padding:10px 12px; border-bottom:1px solid #E2E8F0; vertical-align:middle; }}
       tr:nth-child(even) {{ background:#F8FAFC; }}
       tr:hover {{ background:#EFF6FF; }}
-      .photos {{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }}
+      .photos {{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; max-width:430px; }}
+      .foto-link {{ display:inline-flex; cursor:zoom-in; border-radius:8px; }}
+      .foto-miniatura {{ display:block; object-fit:cover; border-radius:8px;
+                         border:1px solid #CBD5E1; transition:transform .15s, box-shadow .15s; }}
+      .foto-link:hover .foto-miniatura {{ transform:scale(1.06); box-shadow:0 4px 14px rgba(15,23,42,.22); }}
+      #foto-modal {{ display:none; position:fixed; inset:0; z-index:9999; background:rgba(15,23,42,.88);
+                     align-items:center; justify-content:center; padding:24px; box-sizing:border-box; }}
+      #foto-modal.aberta {{ display:flex; }}
+      #foto-modal img {{ max-width:96vw; max-height:88vh; width:auto; height:auto; object-fit:contain;
+                         border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.45); }}
+      #foto-modal .fechar {{ position:absolute; top:14px; right:18px; width:42px; height:42px;
+                             border:0; border-radius:50%; background:#F8FAFC; color:#0F172A;
+                             font-size:28px; line-height:42px; cursor:pointer; }}
+      #foto-modal .legenda {{ position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+                              color:#F8FAFC; background:rgba(15,23,42,.72); padding:7px 12px;
+                              border-radius:8px; font-size:12px; }}
     </style>
     {aviso}
     <div class="table-wrap"><table>
       <thead><tr>{''.join(f'<th>{escape(col)}</th>' for col in colunas)}</tr></thead>
       <tbody>{''.join(linhas_html)}</tbody>
     </table></div>
+
+    <div id="foto-modal" role="dialog" aria-modal="true" aria-label="Foto ampliada"
+         onclick="fecharFoto(event)">
+      <button type="button" class="fechar" aria-label="Fechar" onclick="fecharFoto(event)">×</button>
+      <img id="foto-modal-imagem" src="" alt="Foto ampliada">
+      <div id="foto-modal-legenda" class="legenda"></div>
+    </div>
+
+    <script>
+      function abrirFoto(url) {{
+        var modal = document.getElementById('foto-modal');
+        var imagem = document.getElementById('foto-modal-imagem');
+        var legenda = document.getElementById('foto-modal-legenda');
+        imagem.src = url;
+        legenda.textContent = 'Clique fora da imagem ou no × para fechar';
+        modal.classList.add('aberta');
+      }}
+      function fecharFoto(event) {{
+        if (event) {{
+          event.stopPropagation();
+          if (event.target && event.target.id === 'foto-modal-imagem') return;
+        }}
+        var modal = document.getElementById('foto-modal');
+        var imagem = document.getElementById('foto-modal-imagem');
+        imagem.src = '';
+        modal.classList.remove('aberta');
+      }}
+      document.addEventListener('keydown', function(event) {{
+        if (event.key === 'Escape') fecharFoto(event);
+      }});
+    </script>
+
     <div style="margin-top:8px;color:#64748B;font-size:12px;">
-      Miniaturas armazenadas no Supabase Storage. Clique em uma foto para abrir o arquivo original.
+      As fotos aparecem na mesma linha do patrimônio bipado. Clique na miniatura para ampliar.
     </div>
     """
-    st.components.v1.html(html, height=min(760, 190 + len(linhas_html) * 105), scrolling=True)
-
+    st.components.v1.html(
+        html,
+        height=min(820, 210 + len(linhas_html) * 115),
+        scrolling=True,
+    )
 
 # ==============================================================================
 # VISÃO COMPUTACIONAL / LEITURA DE IMAGEM
