@@ -19,6 +19,9 @@ DB_FILE = "db_usuarios.json"
 LOGO_FILE = Path(__file__).resolve().parent / "assets" / "logo_serra_login.jpg"
 PBKDF2_ITERATIONS = 310_000
 APPROVAL_TOKEN_TTL_SECONDS = 15 * 60
+LOGIN_MAX_TENTATIVAS = 5
+LOGIN_BLOQUEIO_SEGUNDOS = 15 * 60
+SESSAO_INATIVA_SEGUNDOS = 30 * 60
 
 
 def hash_senha(senha: str) -> str:
@@ -202,6 +205,23 @@ def _logo_uri() -> str:
         return ""
 
 
+def _limpar_sessao_autenticacao():
+    st.session_state.autenticado = False
+    st.session_state.pop("usuario_logado", None)
+    st.session_state.pop("ultimo_acesso_em", None)
+
+
+def _login_bloqueado() -> bool:
+    agora = time.time()
+    bloqueado_ate = float(st.session_state.get("login_bloqueado_ate", 0) or 0)
+    if bloqueado_ate > agora:
+        return True
+    if bloqueado_ate:
+        st.session_state.pop("login_bloqueado_ate", None)
+        st.session_state["login_tentativas"] = 0
+    return False
+
+
 def renderizar_login() -> bool:
     processar_acao_via_url()
     st.session_state.setdefault("autenticado", False)
@@ -307,27 +327,41 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                     unsafe_allow_html=True,
                 )
                 if st.form_submit_button("Entrar", use_container_width=True):
-                    user = usuario.strip().lower()
-                    if not user or not senha.strip():
-                        st.session_state.erro_login_msg = "Uso inválido de ID de sessão ou credenciais incorretas"
+                    if _login_bloqueado():
+                        st.session_state.erro_login_msg = "Acesso temporariamente bloqueado. Aguarde 15 minutos antes de tentar novamente."
                     else:
+                        user = usuario.strip().lower()
                         db = carregar_usuarios()
-                        if user not in db:
-                            st.session_state.erro_login_msg = "Acesso negado: Este e-mail não está cadastrado no sistema"
-                        elif not db[user].get("aprovado", False):
-                            st.session_state.erro_login_msg = "Seu e-mail está cadastrado, porém ainda aguarda AUTORIZAÇÃO do administrador"
-                        else:
-                            valido, migrar = verificar_senha(senha, db[user].get("senha", ""))
-                            if not valido:
+                        valido = False
+                        aprovado = False
+                        migrar = False
+                        if user and senha.strip() and user in db:
+                            aprovado = bool(db[user].get("aprovado", False))
+                            if aprovado:
+                                valido, migrar = verificar_senha(senha, db[user].get("senha", ""))
+                        if not (user and senha.strip() and user in db and aprovado and valido):
+                            tentativas = int(st.session_state.get("login_tentativas", 0)) + 1
+                            st.session_state["login_tentativas"] = tentativas
+                            if tentativas >= LOGIN_MAX_TENTATIVAS:
+                                st.session_state["login_bloqueado_ate"] = time.time() + LOGIN_BLOQUEIO_SEGUNDOS
+                                st.session_state["login_tentativas"] = 0
+                                st.session_state.erro_login_msg = "Acesso temporariamente bloqueado por excesso de tentativas. Aguarde 15 minutos."
+                            elif user in db and aprovado:
                                 st.session_state.erro_login_msg = "Uso inválido de ID de sessão ou credenciais incorretas"
+                            elif user in db:
+                                st.session_state.erro_login_msg = "Seu e-mail está cadastrado, porém ainda aguarda AUTORIZAÇÃO do administrador"
                             else:
-                                if migrar:
-                                    db[user]["senha"] = hash_senha(senha)
-                                    salvar_usuarios(db)
-                                st.session_state.autenticado = True
-                                st.session_state.usuario_logado = user
-                                st.session_state.erro_login_msg = None
-                                st.rerun()
+                                st.session_state.erro_login_msg = "Uso inválido de ID de sessão ou credenciais incorretas"
+                        else:
+                            if migrar:
+                                db[user]["senha"] = hash_senha(senha)
+                                salvar_usuarios(db)
+                            st.session_state.autenticado = True
+                            st.session_state.usuario_logado = user
+                            st.session_state.ultimo_acesso_em = time.time()
+                            st.session_state.login_tentativas = 0
+                            st.session_state.erro_login_msg = None
+                            st.rerun()
                 st.markdown('<div class="login-divider-after-button"></div>', unsafe_allow_html=True)
             if st.session_state.get("erro_login_msg"):
                 st.markdown(f'<div class="error-box">{html.escape(str(st.session_state.erro_login_msg))}</div>', unsafe_allow_html=True)
