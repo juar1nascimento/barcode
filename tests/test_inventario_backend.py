@@ -498,7 +498,8 @@ def test_tabela_site_renderiza_miniaturas_e_link_original(monkeypatch):
 
     assert len(html) == 1
     assert "PAT-002" in html[0]
-    assert "Foto 1" in html[0] and "Foto 2" in html[0]
+    assert "alt=\"Foto 1 - PAT-002\"" in html[0]
+    assert "alt=\"Foto 2 - PAT-002\"" in html[0]
     assert 'onclick="abrirFoto(' in html[0]
     assert 'id="foto-modal"' in html[0]
     assert "max-width:96vw" in html[0]
