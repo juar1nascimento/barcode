@@ -29,7 +29,7 @@ jobs:
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install psycopg[binary]==3.2.10 gspread==5.12.4 google-auth==2.57.0
+          pip install psycopg[binary]==3.2.10 gspread==5.12.4 google-auth==2.57.0 requests==2.34.2
 
       - name: Processar outbox
         env:
