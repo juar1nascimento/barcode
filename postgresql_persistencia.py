@@ -189,6 +189,7 @@ def _buscar_patrimonio_por_codigo(cur, codigo: str, for_update: bool = False):
         f"""SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
               FROM patrimonios p
              WHERE p.numero_patrimonio=%s
+               AND COALESCE(p.ativo, TRUE)
              LIMIT 1{lock}""",
         (codigo,),
     )
@@ -200,6 +201,7 @@ def _buscar_patrimonio_por_codigo(cur, codigo: str, for_update: bool = False):
         f"""SELECT p.id,p.numero_patrimonio,p.unidade_id,p.setor_id
               FROM patrimonios p
              WHERE p.codigo_barras=%s
+               AND COALESCE(p.ativo, TRUE)
              LIMIT 1{lock}""",
         (codigo,),
     )
@@ -291,6 +293,7 @@ def buscar_patrimonio_detalhado(codigo_patrimonio: str):
                              FROM patrimonios p JOIN unidades u ON u.id=p.unidade_id
                              JOIN setores s ON s.id=p.setor_id
                             WHERE p.id=%s
+                              AND COALESCE(p.ativo, TRUE)
                             LIMIT 1""", (patrimonio_id,))
             r = cur.fetchone()
             if not r:
@@ -327,6 +330,73 @@ def listar_historico_movimentacoes(codigo_patrimonio: str, limite: int = 100) ->
                     for r in cur.fetchall()]
     finally: conn.close()
 
+
+
+def excluir_patrimonio_por_numero(numero_patrimonio: str, unidade: str) -> tuple[bool, str]:
+    """Desativa logicamente um patrimônio, preservando fotos e histórico."""
+    numero = str(numero_patrimonio or "").strip()
+    nome_unidade = str(unidade or "").strip()
+    if not numero or not nome_unidade:
+        return False, "Patrimônio e unidade são obrigatórios."
+    conn = conectar()
+    if conn is None:
+        return False, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE public.patrimonios p
+                   SET ativo = FALSE, atualizado_em = NOW()
+                  FROM public.unidades u
+                 WHERE p.unidade_id = u.id
+                   AND p.numero_patrimonio = %s
+                   AND u.nome = %s
+                   AND COALESCE(p.ativo, TRUE)
+                RETURNING p.id
+            """, (numero, nome_unidade))
+            row = cur.fetchone()
+        conn.commit()
+        if not row:
+            return False, "Patrimônio não encontrado ou já excluído."
+        return True, "Patrimônio excluído da tabela ativa; histórico e fotos foram preservados."
+    except Exception as exc:
+        conn.rollback()
+        return False, f"Falha ao excluir patrimônio: {exc}"
+    finally:
+        conn.close()
+
+
+def excluir_patrimonios_setor(setor: str, unidade: str) -> tuple[bool, int, str]:
+    """Desativa logicamente todos os patrimônios de um setor."""
+    nome_setor = str(setor or "").strip()
+    nome_unidade = str(unidade or "").strip()
+    if not nome_setor or not nome_unidade:
+        return False, 0, "Setor e unidade são obrigatórios."
+    conn = conectar()
+    if conn is None:
+        return False, 0, "Não foi possível conectar ao PostgreSQL."
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE public.patrimonios p
+                   SET ativo = FALSE, atualizado_em = NOW()
+                  FROM public.unidades u, public.setores s
+                 WHERE p.unidade_id = u.id
+                   AND p.setor_id = s.id
+                   AND s.unidade_id = u.id
+                   AND u.nome = %s
+                   AND s.nome = %s
+                   AND COALESCE(p.ativo, TRUE)
+            """, (nome_unidade, nome_setor))
+            quantidade = cur.rowcount
+        conn.commit()
+        mensagem = ("Setor excluído da tabela ativa; histórico e fotos foram preservados."
+                    if quantidade else "Nenhum patrimônio ativo encontrado no setor.")
+        return quantidade > 0, quantidade, mensagem
+    except Exception as exc:
+        conn.rollback()
+        return False, 0, f"Falha ao excluir setor: {exc}"
+    finally:
+        conn.close()
 
 def salvar_patrimonio(
     codigo_barras: str,
