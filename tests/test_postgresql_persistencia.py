@@ -1,12 +1,13 @@
 import pytest
 from unittest.mock import MagicMock
 
+import postgresql_persistencia as db
+
 
 @pytest.fixture(autouse=True)
 def _admin_de_teste(monkeypatch):
     monkeypatch.setattr(db.st, "secrets", {"email": {"admin_email": "operador"}})
 
-import postgresql_persistencia as db
 
 
 def test_dividir_setor():
