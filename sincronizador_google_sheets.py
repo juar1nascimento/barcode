@@ -97,15 +97,15 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                        atualizado_em=now()
                   FROM candidatos c
                  WHERE o.id=c.id
-             RETURNING o.id, o.patrimonio_id, o.tentativas
+             RETURNING o.id, o.patrimonio_id, o.foto_id, o.tentativas
                 """,
                 (MAX_TENTATIVAS, STALE_MINUTES, max(1, min(limit, 100))),
             )
             rows = cur.fetchall()
         conn.commit()
         return [
-            {"id": int(r[0]), "patrimonio_id": int(r[1]), "foto_id": None,
-             "tentativas": int(r[2])}
+            {"id": int(r[0]), "patrimonio_id": int(r[1]), "foto_id": int(r[2]) if r[2] is not None else None,
+             "tentativas": int(r[3])}
             for r in rows
         ]
     except Exception:
@@ -291,8 +291,11 @@ def _processar_evento(tabela: str, item: dict) -> None:
     if tabela == "patrimonios_sheets_outbox":
         _espelhar_patrimonio(item)
     else:
-        # A fila de fotos é agregada por patrimônio.
-        _espelhar_fotos_do_patrimonio(item["patrimonio_id"])
+        if item.get("foto_id") is not None:
+            _espelhar_foto(item)
+        else:
+            # Compatibilidade com eventos antigos sem foto_id.
+            _espelhar_fotos_do_patrimonio(item["patrimonio_id"])
 
 
 def processar_fila_google_sheets(limit: int = 25) -> dict:
