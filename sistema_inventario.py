@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import pandas as pd
 import numpy as np
@@ -150,7 +151,7 @@ def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
                 safe_url = escape(url, quote=True)
                 miniaturas.append(
                     f'<a href="#" class="foto-link" title="Ampliar foto {i}" '
-                    f'onclick="abrirFoto({safe_url!r}); return false;">'
+                    f'onclick="abrirFoto({json.dumps(url)}); return false;">'
                     f'<img src="{safe_url}" alt="Foto {i} - {escape(numero)}" loading="lazy" '
                     f'width="72" height="72" class="foto-miniatura"></a>'
                 )
