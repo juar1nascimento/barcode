@@ -38,8 +38,16 @@ def ativar():
     if _original_selectbox is not None:
         return
 
-    _original_selectbox = _obter_selectbox_original()
-    original = _original_selectbox
+    atual = st.selectbox
+    original = _obter_selectbox_original()
+
+    # Se o Streamlit ainda estiver com um wrapper de uma execução anterior
+    # (hot-reload/rerun), reutiliza-o em vez de criar outro wrapper.
+    if getattr(atual, _WRAPPER_ATTR, False):
+        _original_selectbox = original
+        return
+
+    _original_selectbox = original
 
     def wrapper(*args, **kwargs):
         # Mantém integralmente a assinatura flexível da API do Streamlit,
