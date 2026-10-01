@@ -486,7 +486,7 @@ def test_tabela_site_renderiza_miniaturas_e_link_original(monkeypatch):
 
     html = []
     monkeypatch.setattr(ui, "conectar_postgresql", lambda: Conn())
-    monkeypatch.setattr(ui.st, "secrets", {"supabase": {"url": "https://vgabxdprocwmpmhoxrgt.supabase.co"}})
+    monkeypatch.setattr(ui, "criar_url_assinada_storage", lambda bucket, path, expires_in: f"https://vgabxdprocwmpmhoxrgt.supabase.co/storage/v1/object/sign/{bucket}/{path}?token=test")
     monkeypatch.setattr(ui.st.components.v1, "html", lambda markup, **kwargs: html.append(markup))
 
     df = pd.DataFrame([{
@@ -507,7 +507,7 @@ def test_tabela_site_renderiza_miniaturas_e_link_original(monkeypatch):
     assert 'id="foto-modal"' in html[0]
     assert "max-width:96vw" in html[0]
     assert "mesma linha do patrimônio bipado" in html[0]
-    assert "storage/v1/object/public/patrimonio-fotos/2/foto-001.jpg" in html[0]
+    assert "storage/v1/object/sign/patrimonio-fotos/2/foto-001.jpg?token=test" in html[0]
 
 
 def test_tabela_site_mostra_sem_foto_quando_nao_ha_registros(monkeypatch):
