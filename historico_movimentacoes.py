@@ -8,7 +8,7 @@ def renderizar_historico_movimentacoes():
     if not codigo.strip():
         st.info("Informe um patrimônio para consultar seu histórico.")
         return
-    patrimonio = buscar_patrimonio_detalhado(codigo)
+    patrimonio = buscar_patrimonio_detalhado(codigo, incluir_inativos=True)
     if not patrimonio:
         st.error("Patrimônio não encontrado.")
         return
