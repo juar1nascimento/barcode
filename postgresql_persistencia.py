@@ -304,7 +304,7 @@ def registrar_movimentacao(codigo_patrimonio: str, tipo: str, usuario: str,
         return True, movimento_id, f"Movimentação {tipo} registrada com sucesso."
     except Exception as exc:
         conn.rollback()
-        return False, None, f"Falha ao registrar movimentação: {exc}"
+        return False, None, "Não foi possível registrar a movimentação. A operação foi revertida."
     finally:
         conn.close()
 
@@ -415,7 +415,7 @@ def excluir_patrimonio_por_numero(numero_patrimonio: str, unidade: str) -> tuple
         return True, "Patrimônio excluído da tabela ativa; histórico e fotos foram preservados."
     except Exception as exc:
         conn.rollback()
-        return False, f"Falha ao excluir patrimônio: {exc}"
+        return False, "Não foi possível excluir o patrimônio. A operação foi revertida."
     finally:
         conn.close()
 
@@ -451,7 +451,7 @@ def excluir_patrimonios_setor(setor: str, unidade: str) -> tuple[bool, int, str]
         return quantidade > 0, quantidade, mensagem
     except Exception as exc:
         conn.rollback()
-        return False, 0, f"Falha ao excluir setor: {exc}"
+        return False, 0, "Não foi possível excluir o setor. A operação foi revertida."
     finally:
         conn.close()
 
@@ -528,7 +528,7 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
         conn.rollback()
         texto = str(exc)
         if "duplicate key" in texto.lower() or "unique" in texto.lower():
-            return False, [], f"Lote cancelado: patrimônio duplicado no PostgreSQL ({texto})."
-        return False, [], f"Lote cancelado e revertido: {texto}"
+            return False, [], "Lote cancelado: existe patrimônio duplicado no PostgreSQL."
+        return False, [], "Lote cancelado e revertido por uma falha de persistência."
     finally:
         conn.close()
