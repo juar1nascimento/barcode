@@ -38,14 +38,15 @@ def persistencia_postgresql_configurada() -> bool:
 
 
 def _config() -> dict:
-    sec = st.secrets["postgresql"]
+    import os
+    sec = st.secrets.get("postgresql") or {}
     return {
-        "host": sec.get("host"),
-        "port": int(sec.get("port", 5432)),
-        "dbname": sec.get("dbname") or sec.get("database"),
-        "user": sec.get("user"),
-        "password": sec.get("password"),
-        "sslmode": sec.get("sslmode", "require"),
+        "host": sec.get("host") or os.getenv("PGHOST"),
+        "port": int(sec.get("port") or os.getenv("PGPORT") or 5432),
+        "dbname": sec.get("dbname") or sec.get("database") or os.getenv("PGDATABASE") or "postgres",
+        "user": sec.get("user") or os.getenv("PGUSER"),
+        "password": sec.get("password") or os.getenv("PGPASSWORD"),
+        "sslmode": sec.get("sslmode") or os.getenv("PGSSLMODE") or "require",
     }
 
 
