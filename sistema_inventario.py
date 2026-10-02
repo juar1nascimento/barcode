@@ -21,6 +21,9 @@ from postgresql_persistencia import (
     registrar_movimentacao,
 )
 from supabase_storage import criar_url_assinada_storage
+
+FOTO_URL_EXPIRATION_SECONDS = 86_400
+FOTO_URL_REFRESH_INTERVAL = "50m"
 from consultorio_contexto import selecionar_setor
 
 # ==============================================================================
@@ -89,11 +92,12 @@ def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
 def _url_publica_foto_site(bucket: str, path: str) -> str:
     """Gera URL temporária para foto privada exibida na tabela do site."""
     try:
-        return criar_url_assinada_storage(bucket, path, expires_in=3600)
+        return criar_url_assinada_storage(bucket, path, expires_in=FOTO_URL_EXPIRATION_SECONDS)
     except Exception:
         return ""
 
 
+@st.fragment(run_every=FOTO_URL_REFRESH_INTERVAL, key="tabela_fotos_site")
 def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
     """Renderiza cada patrimônio com suas fotos na mesma linha e visualização ampliada."""
     if df_atual is None or df_atual.empty:
