@@ -226,8 +226,14 @@ def renderizar_login() -> bool:
     processar_acao_via_url()
     st.session_state.setdefault("autenticado", False)
     st.session_state.setdefault("tela_atual", "login")
-    if st.session_state.autenticado:
-        return True
+    if st.session_state.get("autenticado"):
+        ultimo_acesso = float(st.session_state.get("ultimo_acesso_em", 0) or 0)
+        if ultimo_acesso and time.time() - ultimo_acesso > SESSAO_INATIVA_SEGUNDOS:
+            _limpar_sessao_autenticacao()
+            st.warning("Sua sessão expirou por inatividade. Faça login novamente.")
+        else:
+            st.session_state["ultimo_acesso_em"] = time.time()
+            return True
     logo = _logo_uri()
     st.markdown('''<style>
 html,body,[data-testid="stAppViewContainer"],[data-testid="stAppViewContainer"]>.main,.stApp{background:#f5f7fb!important}header,footer,#MainMenu{visibility:hidden!important}
@@ -284,6 +290,14 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                             st.error(msg)
                         else:
                             db = carregar_usuarios()
+                            if user in db:
+                                st.error(
+                                    "Este e-mail já possui cadastro. "
+                                    "Para redefinir uma conta existente, utilize o fluxo "
+                                    "de recuperação autorizado; não é permitido sobrescrever "
+                                    "credenciais ou aprovação existentes."
+                                )
+                                return False
                             db[user] = {"senha": hash_senha(nova), "aprovado": False}
                             salvar_usuarios(db)
                             cfg = st.secrets.get("email", {})
