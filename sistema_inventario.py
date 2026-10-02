@@ -587,7 +587,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     # Usuários comuns não recebem o menu administrativo de movimentação.
     # A autorização também é validada em registrar_movimentacao().
-        # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
+    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
     # Não é montado a partir dos dados existentes na planilha.
     opcoes_setor = [
         "Consultório",
