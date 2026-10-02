@@ -273,7 +273,7 @@ def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
             fecharFoto(event);
           }}
         }});
-      }});
+      }})();
     </script>
 
     <div style="margin-top:8px;color:#64748B;font-size:12px;">
