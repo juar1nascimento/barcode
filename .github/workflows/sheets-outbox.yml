@@ -39,7 +39,16 @@ jobs:
           SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.GTI_SUPABASE_SERVICE_ROLE_KEY }}
           OUTBOX_BATCH_SIZE: "20"
+          SHEETS_RENEWAL_MAX_ROWS: "5000"
         run: python sheets_outbox_worker.py
+
+      - name: Verificar exposição acidental de segredos nos logs
+        if: always()
+        run: |
+          if grep -RniE 'SUPABASE_SERVICE_ROLE_KEY|GOOGLE_SERVICE_ACCOUNT_JSON|AIza[0-9A-Za-z_-]{20,}|service_role' .github/workflows sheets_outbox_worker.py; then
+            echo "Possível exposição de segredo encontrada no código/workflow."
+            exit 1
+          fi
 
       - name: Relatar resultado
         if: always()
