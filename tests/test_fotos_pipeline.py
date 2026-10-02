@@ -79,3 +79,53 @@ def test_fotos_table_uses_periodic_fragment_refresh():
     assert app.FOTO_URL_REFRESH_INTERVAL == "50m"
     assert getattr(app._renderizar_tabela_site, "__name__", "") == "_renderizar_tabela_site"
     assert getattr(app._renderizar_tabela_site_fragment, "__name__", "") == "_renderizar_tabela_site_fragment"
+
+
+def test_signed_url_expiry_and_path_helpers(monkeypatch):
+    import base64
+    import json
+    import sheets_outbox_worker as worker
+
+    payload = {"exp": 2_000_000_000}
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    token = f"header.{encoded}.signature"
+    url = (
+        "https://example.supabase.co/storage/v1/object/sign/"
+        "patrimonio-fotos/2/foto-001.jpg?token=" + token
+    )
+    assert worker._signed_url_expiry(url) == 2_000_000_000
+    assert worker._photo_path_from_url(url) == "2/foto-001.jpg"
+
+
+def test_photo_formula_is_image_and_hyperlink():
+    import sheets_outbox_worker as worker
+
+    formula = worker._photo_formula(
+        "https://example.supabase.co/storage/v1/object/sign/"
+        "patrimonio-fotos/2/foto.jpg?token=test"
+    )
+    assert formula.startswith('=HYPERLINK("')
+    assert 'IMAGE("' in formula
+    assert ',4,96,96))' in formula
+
+
+def test_sheet_url_uses_24_hour_expiration(monkeypatch):
+    import sheets_outbox_worker as worker
+
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+
+    captured = {}
+
+    class Response:
+        ok = True
+        def json(self):
+            return {"signedURL": "/storage/v1/object/sign/patrimonio-fotos/2/foto.jpg?token=test"}
+
+    def fake_post(*args, **kwargs):
+        captured["json"] = kwargs["json"]
+        return Response()
+
+    monkeypatch.setattr(worker.requests, "post", fake_post)
+    worker.sheet_url("2/foto.jpg")
+    assert captured["json"]["expiresIn"] == 86_400
