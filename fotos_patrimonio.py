@@ -35,7 +35,7 @@ def _intervalo_colunas_foto(cabecalho: list[str]) -> tuple[int, int]:
 def _url_publica_foto(storage_path: str) -> str:
     """Mantém compatibilidade do fluxo Sheets usando URL temporária privada."""
     try:
-        return criar_url_assinada_storage("patrimonio-fotos", storage_path, expires_in=31536000)
+        return criar_url_assinada_storage("patrimonio-fotos", storage_path, expires_in=86400)
     except Exception as exc:
         raise RuntimeError("Não foi possível gerar a URL temporária da fotografia.") from exc
 
