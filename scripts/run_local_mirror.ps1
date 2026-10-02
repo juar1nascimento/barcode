@@ -10,3 +10,10 @@ if ($LASTEXITCODE -ne 0) { throw "Pré-validação operacional falhou. Sincroniz
 
 & $Python.Source (Join-Path $RepoRoot "scripts\mirror_local_server.py")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Write-Host "Executando reconciliação não destrutiva..."
+& $Python.Source (Join-Path $RepoRoot "scripts\reconcile_local_mirror.py")
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Reconciliação encontrou divergências. Nenhum arquivo foi excluído automaticamente."
+    exit 3
+}
