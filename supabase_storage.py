@@ -281,9 +281,11 @@ def salvar_foto_patrimonio(
                 pass
             raise
 
-    except Exception as exc:
+    except Exception:
         try:
             conn.rollback()
         except Exception:
             pass
-        return False, None, f"Falha ao salvar foto: {exc}"
+        # Não propagar detalhes internos, endpoints ou mensagens do provedor
+        # para a interface. O diagnóstico operacional deve permanecer no backend.
+        return False, None, "Não foi possível concluir o armazenamento da foto."
