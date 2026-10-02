@@ -268,14 +268,14 @@ def conectar_google_sheets():
         if sheet_id:
             try:
                 planilha = client.open_by_key(str(sheet_id).strip())
-                        return planilha
+                return planilha
             except Exception as erro_id:
                 if not sheet_url:
                     raise erro_id
 
         if sheet_url:
             planilha = client.open_by_url(str(sheet_url).strip())
-                return planilha
+            return planilha
 
         erro = (
             "Google Sheets não configurado: informe spreadsheet_id ou spreadsheet "
