@@ -141,7 +141,7 @@ def criar_url_assinada_storage(
     signed = payload.get("signedURL") or payload.get("signedUrl")
     if not signed:
         raise RuntimeError("Supabase não retornou a URL temporária da foto.")
-    return urljoin(f"{config['url']}/", str(signed).lstrip("/"))
+    return urljoin(f"{config['url']}/storage/v1/", str(signed).lstrip("/"))
 
 
 def _storage_url(base_url: str, path: str) -> str:
