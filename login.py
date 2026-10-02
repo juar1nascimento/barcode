@@ -393,11 +393,11 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 st.session_state["login_tentativas"] = 0
                                 st.session_state.erro_login_msg = "Acesso temporariamente bloqueado por excesso de tentativas. Aguarde 15 minutos."
                             elif user in db and aprovado:
-                                st.session_state.erro_login_msg = "Uso inválido de ID de sessão ou credenciais incorretas"
+                                st.session_state.erro_login_msg = "Usuário ou senha inválidos."
                             elif user in db:
-                                st.session_state.erro_login_msg = "Seu e-mail está cadastrado, porém ainda aguarda AUTORIZAÇÃO do administrador"
+                                st.session_state.erro_login_msg = "Usuário ou senha inválidos."
                             else:
-                                st.session_state.erro_login_msg = "Uso inválido de ID de sessão ou credenciais incorretas"
+                                st.session_state.erro_login_msg = "Usuário ou senha inválidos."
                         else:
                             if migrar:
                                 db[user]["senha"] = hash_senha(senha)
