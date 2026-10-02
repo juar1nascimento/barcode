@@ -129,3 +129,17 @@ def test_sheet_url_uses_24_hour_expiration(monkeypatch):
     monkeypatch.setattr(worker.requests, "post", fake_post)
     worker.sheet_url("2/foto.jpg")
     assert captured["json"]["expiresIn"] == 86_400
+
+
+def test_photo_history_renders_signed_image_without_navigating_to_storage():
+    source = open("fotos_patrimonio.py", encoding="utf-8").read()
+    assert "criar_url_assinada_storage(" in source
+    assert "st.image(" in source
+    assert "storage_path" in source
+
+
+def test_photo_save_does_not_expose_internal_exception():
+    source = open("fotos_patrimonio.py", encoding="utf-8").read()
+    assert 'f"Erro ao salvar a fotografia: {exc}"' not in source
+    source_storage = open("supabase_storage.py", encoding="utf-8").read()
+    assert 'f"Falha ao salvar foto: {exc}"' not in source_storage
