@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 import openpyxl
 import psycopg
+from copy import copy
 import requests
 from psycopg.rows import dict_row
 
@@ -129,7 +130,9 @@ def _build_workbook(rows: list[dict[str, Any]]) -> bytes:
         ws = workbook.create_sheet(_safe_sheet_name(unidade, used))
         ws.append(COLUNAS_SITE)
         for cell in ws[1]:
-            cell.font = cell.font.copy(bold=True)
+            font = copy(cell.font)
+            font.bold = True
+            cell.font = font
         for item in itens:
             ws.append([
                 str(item["setor"] or ""),
