@@ -77,6 +77,15 @@ def salvar_usuarios(db: dict):
         json.dump(db, f, indent=4, ensure_ascii=False)
 
 
+def registrar_novo_usuario(db: dict, usuario: str, senha: str) -> bool:
+    """Cria apenas contas inexistentes; nunca sobrescreve credenciais existentes."""
+    usuario = str(usuario or "").strip().lower()
+    if not usuario or usuario in db:
+        return False
+    db[usuario] = {"senha": hash_senha(senha), "aprovado": False}
+    return True
+
+
 def validar_email(email: str) -> bool:
     return bool(re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email.strip()))
 
@@ -290,7 +299,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                             st.error(msg)
                         else:
                             db = carregar_usuarios()
-                            if user in db:
+                            if not registrar_novo_usuario(db, user, nova):
                                 st.error(
                                     "Este e-mail já possui cadastro. "
                                     "Para redefinir uma conta existente, utilize o fluxo "
@@ -298,7 +307,6 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                     "credenciais ou aprovação existentes."
                                 )
                                 return False
-                            db[user] = {"senha": hash_senha(nova), "aprovado": False}
                             salvar_usuarios(db)
                             cfg = st.secrets.get("email", {})
                             admin = cfg.get("admin_email", "")
