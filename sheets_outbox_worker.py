@@ -119,7 +119,7 @@ def renew_expiring_sheet_photo_urls(sheets, max_rows: int = SHEETS_RENEWAL_MAX_R
     now = int(time.time())
 
     for aba in spreadsheet.worksheets():
-        values = aba.get_all_values()
+        values = aba.get_all_values(value_render_option="FORMULA")
         if not values:
             continue
         header = list(values[0])
