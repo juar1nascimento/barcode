@@ -172,6 +172,16 @@ def sheets_client():
     return gspread.authorize(Credentials.from_service_account_info(data, scopes=scopes))
 
 
+def _safe_error(error: Exception | str) -> str:
+    """Remove credenciais e URLs potencialmente sensíveis dos logs."""
+    value = str(error or "")
+    value = re.sub(r"(?i)(postgres(?:ql)?://)[^\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)(token=)[^&\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", "[REDACTED PEM]", value, flags=re.DOTALL)
+    return value[:500]
+
+
 def open_spreadsheet(client):
     spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID", "").strip()
     spreadsheet_url = os.getenv("GOOGLE_SPREADSHEET_URL", "").strip()
@@ -389,7 +399,7 @@ def main():
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
                 }, ensure_ascii=False))
             except Exception as exc:
-                error = str(exc)
+                error = _safe_error(exc)
                 for outbox_id in event_ids:
                     mark(conn, outbox_id, "failed", error, max_attempts=max_attempts)
                 failed += len(event_ids)
