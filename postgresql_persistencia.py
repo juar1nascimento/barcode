@@ -54,9 +54,10 @@ def conectar() -> Optional[object]:
     if not _conexao_configurada():
         return None
     try:
+        import os
         import psycopg
-        sec = st.secrets["postgresql"]
-        url = str(sec.get("url") or "").strip()
+        sec = st.secrets.get("postgresql") or {}
+        url = str(sec.get("url") or os.getenv("DATABASE_URL") or "").strip()
         if url:
             return psycopg.connect(url)
 
