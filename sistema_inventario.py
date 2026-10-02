@@ -497,8 +497,15 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     # ------------------------------------------------------------------
     # MOVIMENTAÇÃO: operação transacional no Supabase.
+    # Saída/transferência são operações administrativas e o backend também
+    # aplica a mesma autorização como defesa em profundidade.
     # ------------------------------------------------------------------
-    with st.expander("🔄 Movimentar patrimônio", expanded=False):
+    admin_email = str(st.secrets.get("email", {}).get("admin_email", "")).strip().casefold()
+    usuario_atual = str(st.session_state.get("usuario_logado", "")).strip().casefold()
+    is_admin = bool(usuario_atual and admin_email and usuario_atual == admin_email)
+
+    if is_admin:
+        with st.expander("🔄 Movimentar patrimônio", expanded=False):
         st.caption("Entrada, transferência e saída são registradas atomicamente no Supabase.")
         codigo_mov = st.text_input(
             "Código ou número do patrimônio",
@@ -578,7 +585,9 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
                 else:
                     st.error(mensagem)
 
-    # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
+    # Usuários comuns não recebem o menu administrativo de movimentação.
+    # A autorização também é validada em registrar_movimentacao().
+        # IMPORTANTE: o menu de Setor é uma lista fechada e única para todas as UBS/URS.
     # Não é montado a partir dos dados existentes na planilha.
     opcoes_setor = [
         "Consultório",
