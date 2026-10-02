@@ -250,3 +250,38 @@ def test_registrar_movimentacao_rejeita_transferencia_para_mesma_localizacao(mon
         "INSERT INTO movimentacoes_patrimonio" in str(call.args[0])
         for call in cur.execute.call_args_list
     )
+
+
+def test_registrar_movimentacao_nao_expoe_erro_interno(monkeypatch):
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchone.return_value = (10, "PAT-001", 1, 2)
+    cur.execute.side_effect = RuntimeError("senha=segredo endpoint interno")
+    monkeypatch.setattr(db, "conectar", lambda: conn)
+
+    ok, movement_id, message = db.registrar_movimentacao(
+        "PAT-001", "ENTRADA", "operador", 3, 4
+    )
+
+    assert ok is False
+    assert movement_id is None
+    assert "senha" not in message.lower()
+    assert "endpoint" not in message.lower()
+    assert "Não foi possível registrar" in message
+    conn.rollback.assert_called_once()
+
+
+def test_excluir_patrimonio_nao_expoe_erro_interno(monkeypatch):
+    monkeypatch.setattr(db, "_usuario_atual_e_admin", lambda: True)
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.execute.side_effect = RuntimeError("postgresql://usuario:senha@host/interno")
+    monkeypatch.setattr(db, "conectar", lambda: conn)
+
+    ok, message = db.excluir_patrimonio_por_numero("PAT-001", "Unidade")
+
+    assert ok is False
+    assert "postgresql://" not in message.lower()
+    assert "senha" not in message.lower()
+    assert "Não foi possível excluir" in message
+    conn.rollback.assert_called_once()
