@@ -17,6 +17,7 @@ import json
 import os
 import tempfile
 from datetime import datetime, timezone
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -69,6 +70,40 @@ def _db_connection() -> psycopg.Connection:
         connect_timeout=DB_CONNECT_TIMEOUT,
         row_factory=dict_row,
     )
+
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _acquire_lock(root: Path) -> Path:
+    lock = root / "manifest" / ".mirror.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    if lock.exists():
+        try:
+            if time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:
+                lock.unlink()
+        except OSError:
+            pass
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise RuntimeError("Já existe uma sincronização local em execução.") from exc
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump({"pid": os.getpid(), "inicio": datetime.now(timezone.utc).isoformat()}, handle)
+    return lock
+
+
+def _release_lock(lock: Path) -> None:
+    try:
+        lock.unlink()
+    except OSError:
+        pass
 
 
 def _safe_sheet_name(name: str, used: set[str]) -> str:
@@ -179,6 +214,9 @@ def _mirror_photos(conn: psycopg.Connection, root: Path) -> tuple[int, int]:
 
     copied = 0
     for foto in fotos:
+        expected = str(foto["sha256"] or "").lower()
+        if destination.is_file() and expected and _sha256_file(destination).lower() == expected:
+            continue
         payload = _download_storage_object(
             base_url,
             service_key,
@@ -186,7 +224,6 @@ def _mirror_photos(conn: psycopg.Connection, root: Path) -> tuple[int, int]:
             str(foto["storage_path"]),
         )
         digest = hashlib.sha256(payload).hexdigest()
-        expected = str(foto["sha256"] or "").lower()
         if expected and digest != expected:
             raise RuntimeError(f"Integridade da foto {foto['id']} inválida: SHA-256 divergente.")
 
@@ -207,9 +244,11 @@ def run() -> dict[str, Any]:
     (root / "backup").mkdir(parents=True, exist_ok=True)
     (root / "logs").mkdir(parents=True, exist_ok=True)
 
+    lock = _acquire_lock(root)
     started = datetime.now(timezone.utc)
 
-    with _db_connection() as conn:
+    try:
+        with _db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """select p.id, p.numero_patrimonio, p.codigo_barras, p.tipo,
@@ -261,7 +300,7 @@ def run() -> dict[str, Any]:
         root,
     )
 
-    archive = {
+        archive = {
         "gerado_em": datetime.now(timezone.utc).isoformat(),
         "fonte_operacional": "Supabase PostgreSQL",
         "destino_principal": str(root),
@@ -271,18 +310,18 @@ def run() -> dict[str, Any]:
         "movimentacoes": movimentos,
         "fotos": fotos,
     }
-    _atomic_write_json(root / "dados" / "inventario_completo.json", archive)
+        _atomic_write_json(root / "dados" / "inventario_completo.json", archive)
 
-    checksums = {
+        checksums = {
         "inventario_site.xlsx": hashlib.sha256(workbook_payload).hexdigest(),
     }
     for foto in (root / "fotos" / "patrimonio").rglob("*"):
         if foto.is_file():
             checksums[str(foto.relative_to(root)).replace("\\", "/")] = hashlib.sha256(foto.read_bytes()).hexdigest()
-    _atomic_write_json(root / "manifest" / "checksums.json", checksums)
+        _atomic_write_json(root / "manifest" / "checksums.json", checksums)
 
-    finished = datetime.now(timezone.utc)
-    manifest = {
+        finished = datetime.now(timezone.utc)
+        manifest = {
         "status": "ok",
         "inicio": started.isoformat(),
         "fim": finished.isoformat(),
@@ -294,8 +333,10 @@ def run() -> dict[str, Any]:
         "fotos_mirroradas": copied_photos,
         "arquivo_tabela": str(workbook_path),
     }
-    _atomic_write_json(root / "manifest" / "estado.json", manifest)
-    return manifest
+        _atomic_write_json(root / "manifest" / "estado.json", manifest)
+        return manifest
+    finally:
+        _release_lock(lock)
 
 
 if __name__ == "__main__":
