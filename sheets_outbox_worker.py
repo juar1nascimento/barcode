@@ -33,6 +33,17 @@ def env(name: str) -> str:
     return value
 
 
+def database_url() -> str:
+    value = env("DATABASE_URL")
+    if value.upper() == "URL" or "://" not in value:
+        raise RuntimeError(
+            "GTI_DATABASE_URL inválida: o secret deve conter a connection string "
+            "PostgreSQL completa (postgresql://...). O valor configurado não é "
+            "uma URL de conexão válida."
+        )
+    return value
+
+
 def col_letter(n: int) -> str:
     out = ""
     while n:
@@ -262,7 +273,7 @@ def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
 def main():
     limit = max(1, int(os.getenv("OUTBOX_BATCH_SIZE", "20")))
     max_attempts = max(1, int(os.getenv("OUTBOX_MAX_ATTEMPTS", "8")))
-    conn = psycopg.connect(env("DATABASE_URL"))
+    conn = psycopg.connect(database_url())
     try:
         reset_stale(conn)
         with conn.cursor() as cur:
