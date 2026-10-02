@@ -78,3 +78,4 @@ def test_fotos_table_uses_periodic_fragment_refresh():
     assert app.FOTO_URL_EXPIRATION_SECONDS == 86_400
     assert app.FOTO_URL_REFRESH_INTERVAL == "50m"
     assert getattr(app._renderizar_tabela_site, "__name__", "") == "_renderizar_tabela_site"
+    assert getattr(app._renderizar_tabela_site_fragment, "__name__", "") == "_renderizar_tabela_site_fragment"
