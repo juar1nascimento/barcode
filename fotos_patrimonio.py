@@ -386,11 +386,11 @@ def _salvar_fotografia(
             dados,
             arquivo.name,
         )
-    except Exception as exc:
+    except Exception:
         return (
             False,
             None,
-            f"Erro ao salvar a fotografia: {exc}",
+            "Não foi possível salvar a fotografia. Tente novamente.",
         )
     finally:
         _fechar_conexao(conn)
@@ -516,9 +516,23 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
             if detalhes:
                 st.caption(" • ".join(detalhes))
 
-            st.caption(
-                f"Storage: {foto['bucket']}/{foto['storage_path']}"
-            )
+            try:
+                url = criar_url_assinada_storage(
+                    foto["bucket"],
+                    foto["storage_path"],
+                    expires_in=86_400,
+                )
+                st.image(
+                    url,
+                    caption=f"Foto {foto['ordem']} — {foto['arquivo_nome']}",
+                    use_container_width=True,
+                )
+            except Exception:
+                # Nunca expõe detalhes internos, tokens ou endpoints ao usuário.
+                st.warning(
+                    "A fotografia está cadastrada, mas não foi possível "
+                    "carregar a visualização neste momento."
+                )
 
             if foto["sha256"]:
                 with st.expander("Integridade / SHA-256"):
