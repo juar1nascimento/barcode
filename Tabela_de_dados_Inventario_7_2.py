@@ -231,16 +231,17 @@ def _carregar_dados_postgresql(unidade: str) -> Optional[Tuple[pd.DataFrame, str
 
 
 def conectar_google_sheets():
-    """Abre a planilha configurada e preserva o erro real para diagnóstico."""
+    """Conecta ao Sheets via Streamlit Secrets ou CI env, sem registrar credenciais."""
+    import os
+    import json
     try:
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-            sec = st.secrets["connections"]["gsheets"]
+            sec = dict(st.secrets["connections"]["gsheets"])
         elif "gcp_service_account" in st.secrets:
-            sec = st.secrets["gcp_service_account"]
+            sec = dict(st.secrets["gcp_service_account"])
+        elif os.getenv("GOOGLE_SHEETS_CREDENTIALS"):
+            sec = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
         else:
-            st.session_state["sheets_sync_ultimo_erro"] = (
-                "Credenciais do Google Sheets não configuradas nos Secrets."
-            )
             return None
 
         scopes = [
@@ -257,8 +258,8 @@ def conectar_google_sheets():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
 
-        sheet_url = sec.get("spreadsheet") or st.secrets.get("spreadsheet_url")
-        sheet_id = sec.get("spreadsheet_id") or st.secrets.get("spreadsheet_id")
+        sheet_url = sec.get("spreadsheet") or os.getenv("GOOGLE_SHEET_URL") or st.secrets.get("spreadsheet_url")
+        sheet_id = sec.get("spreadsheet_id") or os.getenv("GOOGLE_SHEET_ID") or st.secrets.get("spreadsheet_id")
         if not sheet_id and sheet_url:
             match = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", str(sheet_url))
             if match:
@@ -267,27 +268,23 @@ def conectar_google_sheets():
         if sheet_id:
             try:
                 planilha = client.open_by_key(str(sheet_id).strip())
-                st.session_state.pop("sheets_sync_ultimo_erro", None)
-                return planilha
+                        return planilha
             except Exception as erro_id:
                 if not sheet_url:
                     raise erro_id
 
         if sheet_url:
             planilha = client.open_by_url(str(sheet_url).strip())
-            st.session_state.pop("sheets_sync_ultimo_erro", None)
-            return planilha
+                return planilha
 
         erro = (
             "Google Sheets não configurado: informe spreadsheet_id ou spreadsheet "
             "em [connections.gsheets]/[gcp_service_account] nos Secrets."
         )
-        st.session_state["sheets_sync_ultimo_erro"] = erro
         return None
 
     except Exception as e:
         erro = f"Falha ao conectar ao Google Sheets: {str(e)[:500]}"
-        st.session_state["sheets_sync_ultimo_erro"] = erro
         return None
 
 def _nome_aba(unidade: str) -> str:
