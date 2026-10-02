@@ -30,6 +30,13 @@ st.markdown("""
             .stButton > button, .stDownloadButton > button { width: 100% !important; min-height: 48px !important; font-size: 16px !important; font-weight: bold !important; }
         }
         .scanner-wrapper { width: 100%; max-width: 100%; margin: auto; }
+
+        /* O menu nativo do Streamlit não é uma função do sistema GTI.
+           Mantê-lo oculto reduz superfícies administrativas para usuários comuns.
+           A autorização real continua sendo aplicada no roteamento abaixo. */
+        #MainMenu { visibility: hidden !important; }
+        header [data-testid="stToolbar"] { visibility: hidden !important; }
+        footer { visibility: hidden !important; }
     </style>
 """, unsafe_allow_html=True)
 
