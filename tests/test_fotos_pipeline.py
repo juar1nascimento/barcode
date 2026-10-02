@@ -70,3 +70,11 @@ def test_required_env_rejects_missing(monkeypatch):
         assert "SUPABASE_URL" in str(exc)
     else:
         raise AssertionError("env() deveria rejeitar variável ausente")
+
+
+def test_fotos_table_uses_periodic_fragment_refresh():
+    import sistema_inventario as app
+
+    assert app.FOTO_URL_EXPIRATION_SECONDS == 86_400
+    assert app.FOTO_URL_REFRESH_INTERVAL == "50m"
+    assert getattr(app._renderizar_tabela_site, "__name__", "") == "_renderizar_tabela_site"
