@@ -31,12 +31,17 @@ JPEG_QUALITY_MIN = 55
 
 
 def _config_supabase() -> dict:
-    sec = st.secrets.get("supabase")
-    if not sec:
-        raise RuntimeError("Secret [supabase] não configurada.")
+    import os
+    sec = st.secrets.get("supabase") or {}
 
-    url = str(sec.get("url") or "").strip().rstrip("/")
-    key = str(sec.get("secret_key") or sec.get("service_role_key") or "").strip()
+    url = str(sec.get("url") or os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+    key = str(
+        sec.get("secret_key")
+        or sec.get("service_role_key")
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("SUPABASE_SECRET_KEY")
+        or ""
+    ).strip()
 
     if not url or not key:
         raise RuntimeError(
