@@ -17,16 +17,20 @@ TIPOS_PATRIMONIO = (
 
 
 def _conexao_configurada() -> bool:
+    """Aceita Streamlit Secrets no app e variáveis de ambiente no worker CI."""
     try:
+        import os
         sec = st.secrets.get("postgresql")
-        if not sec:
-            return False
-        if sec.get("url"):
+        if sec and sec.get("url"):
             return True
-        obrigatorios = ("host", "dbname", "user", "password")
-        return all(sec.get(k) for k in obrigatorios)
+        if sec:
+            obrigatorios = ("host", "dbname", "user", "password")
+            if all(sec.get(k) for k in obrigatorios):
+                return True
+        return bool(os.getenv("DATABASE_URL"))
     except Exception:
-        return False
+        import os
+        return bool(os.getenv("DATABASE_URL"))
 
 def persistencia_postgresql_configurada() -> bool:
     """Indica se o PostgreSQL está configurado sem abrir uma conexão."""
