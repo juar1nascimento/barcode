@@ -347,8 +347,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 else:
                                     st.success("Solicitação enviada ao administrador.")
                                     st.session_state.tela_atual = "login"
-                            except RuntimeError as exc:
-                                st.error(str(exc))
+                            except RuntimeError:\n                                st.error("Não foi possível processar a solicitação de autorização. Verifique a configuração do ambiente.")
             if st.button("← Cancelar", use_container_width=True, key="btn_cancelar_criar"):
                 st.session_state.tela_atual = "login"
                 st.rerun()
