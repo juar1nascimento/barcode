@@ -97,7 +97,6 @@ def _url_publica_foto_site(bucket: str, path: str) -> str:
         return ""
 
 
-@st.fragment(run_every=FOTO_URL_REFRESH_INTERVAL, key="tabela_fotos_site")
 def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
     """Renderiza cada patrimônio com suas fotos na mesma linha e visualização ampliada."""
     if df_atual is None or df_atual.empty:
@@ -289,6 +288,12 @@ def _renderizar_tabela_site(df_atual: pd.DataFrame) -> None:
         height=min(820, 210 + len(linhas_html) * 115),
         scrolling=True,
     )
+
+
+@st.fragment(run_every=FOTO_URL_REFRESH_INTERVAL, key="tabela_fotos_site")
+def _renderizar_tabela_site_fragment(df_atual: pd.DataFrame) -> None:
+    """Atualiza periodicamente as URLs assinadas sem alterar a função testável."""
+    _renderizar_tabela_site(df_atual)
 
 # ==============================================================================
 # VISÃO COMPUTACIONAL / LEITURA DE IMAGEM
@@ -752,7 +757,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         df_atual, _ = carregar_dados_excel(unidade)
 
     if not df_atual.empty:
-        _renderizar_tabela_site(df_atual)
+        _renderizar_tabela_site_fragment(df_atual)
 
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
