@@ -34,6 +34,34 @@ def test_sheet_url_removes_leading_slash(monkeypatch):
     assert worker.sheet_url("/2/foto-002.jpg").endswith("?token=test")
 
 
+def test_signed_storage_url_preserves_storage_api_base(monkeypatch):
+    import supabase_storage as storage
+
+    monkeypatch.setattr(
+        storage,
+        "_config_supabase",
+        lambda: {"url": "https://example.supabase.co", "key": "test-key"},
+    )
+
+    class Response:
+        ok = True
+
+        def json(self):
+            return {
+                "signedURL": "/object/sign/patrimonio-fotos/2/foto-001.jpg?token=test"
+            }
+
+    monkeypatch.setattr(storage.requests, "post", lambda *args, **kwargs: Response())
+
+    url = storage.criar_url_assinada_storage(
+        "patrimonio-fotos", "2/foto-001.jpg", expires_in=3600
+    )
+    assert url == (
+        "https://example.supabase.co/storage/v1/"
+        "object/sign/patrimonio-fotos/2/foto-001.jpg?token=test"
+    )
+
+
 def test_required_env_rejects_missing(monkeypatch):
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     try:
