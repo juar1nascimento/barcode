@@ -153,6 +153,7 @@ def reset_stale(conn):
                       ultimo_erro='job recuperado após expiração do lock',
                       atualizado_em=now()
                 WHERE status='processing'
+                  AND processando_em IS NOT NULL
                   AND processando_em < now() - interval '15 minutes'"""
         )
     conn.commit()
