@@ -123,7 +123,8 @@ if st.session_state.pagina_atual == "portal":
         st.write("")
         renderizar_card_entrada(lista_urs, lista_ubs)
         st.write("")
-        renderizar_card_saida(lista_urs, lista_ubs)
+        if is_admin:
+            renderizar_card_saida(lista_urs, lista_ubs)
 
 elif st.session_state.pagina_atual == "inventario":
     renderizar_sistema_inventario()
