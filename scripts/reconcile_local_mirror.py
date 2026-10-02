@@ -124,6 +124,10 @@ def validate(root: Path) -> dict[str, Any]:
     if len(archive.get("patrimonios", [])) != len(patrimonios):
         result["erros"].append("Quantidade de patrimônios no JSON difere do PostgreSQL.")
 
+    expected_workbook_sha = str(checksums.get("inventario_site.xlsx") or "").lower()
+    if expected_workbook_sha and sha256(required[0]) != expected_workbook_sha:
+        result["erros"].append("SHA-256 do inventario_site.xlsx difere do manifest/checksums.json.")
+
     workbook = openpyxl.load_workbook(required[0], read_only=True, data_only=True)
     workbook_rows = 0
     try:
