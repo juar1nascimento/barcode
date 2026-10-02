@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 import time
+from copy import copy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,6 @@ from urllib.parse import quote
 
 import openpyxl
 import psycopg
-from copy import copy
 import requests
 from psycopg.rows import dict_row
 
