@@ -12,13 +12,6 @@ permissions:
 jobs:
   audit-test:
     runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-      GOOGLE_SHEET_ID: 12mNKTWLExRwZx3EKSB78oTScQk6ctGvi6eNKt5QyXEw
-      APP_URL: https://barcode-prxfe2eu4o34ae9tpejqpc.streamlit.app/
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
