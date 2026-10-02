@@ -9,6 +9,9 @@ on:
   schedule:
     - cron: "*/5 * * * *"
 
+permissions:
+  contents: read
+
 concurrency:
   group: gti-sheets-photo-outbox
   cancel-in-progress: false
@@ -31,6 +34,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install psycopg[binary]==3.2.10 gspread==5.12.4 google-auth==2.57.0 requests==2.34.2
 
+      - name: Validar worker antes de acessar dados
+        run: python -m py_compile sheets_outbox_worker.py
+
+      - name: Validar configuração sem expor segredos
+        env:
+          DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+          value = os.getenv("DATABASE_URL", "").strip()
+          parsed = urlparse(value)
+          if parsed.scheme not in ("postgresql", "postgres") or not parsed.netloc:
+              raise SystemExit("GTI_DATABASE_URL ausente ou inválida: configure uma connection string PostgreSQL completa no GitHub Secrets.")
+          print("GTI_DATABASE_URL: formato válido (conteúdo não será exibido).")
+          PY
       - name: Processar outbox
         env:
           DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
@@ -42,8 +61,6 @@ jobs:
           SHEETS_RENEWAL_MAX_ROWS: "5000"
         run: python sheets_outbox_worker.py
 
-      - name: Validar sintaxe do worker
-        run: python -m py_compile sheets_outbox_worker.py
 
       - name: Relatar resultado
         if: always()
