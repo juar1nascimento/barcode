@@ -37,3 +37,8 @@ def test_administrative_pages_are_guarded_by_admin_check():
                 assert "Acesso não autorizado." in text
 
     assert guarded == administrative_pages
+
+
+def test_restricted_exit_menu_is_only_rendered_for_admins():
+    source = _load_app_source()
+    assert "if is_admin:\n            renderizar_card_saida" in source
