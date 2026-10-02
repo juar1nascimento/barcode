@@ -11,7 +11,8 @@ import json
 import os
 import re
 import time
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse, parse_qs
+import base64
 import requests
 from datetime import datetime, timezone
 
@@ -24,6 +25,9 @@ PHOTO_COLUMNS = [f"Foto {i}" for i in range(1, 11)]
 ID_COLUMN = "ID Patrimônio"
 BUCKET = "patrimonio-fotos"
 PHOTO_THUMBNAIL_SIZE = 96
+PHOTO_URL_EXPIRATION_SECONDS = 86_400
+PHOTO_URL_REFRESH_THRESHOLD_SECONDS = 7_200
+SHEETS_RENEWAL_MAX_ROWS = max(1, int(os.getenv("SHEETS_RENEWAL_MAX_ROWS", "5000")))
 
 
 def env(name: str) -> str:
@@ -62,7 +66,7 @@ def sheet_url(storage_path: str) -> str:
     response = requests.post(
         endpoint,
         headers={"Authorization": f"Bearer {key}", "apikey": key, "Content-Type": "application/json"},
-        json={"expiresIn": 31536000},
+        json={"expiresIn": PHOTO_URL_EXPIRATION_SECONDS},
         timeout=15,
     )
     if not response.ok:
@@ -72,6 +76,85 @@ def sheet_url(storage_path: str) -> str:
     if not signed:
         raise RuntimeError("Supabase não retornou URL temporária da foto.")
     return urljoin(f"{base}/", str(signed).lstrip("/"))
+
+
+def _signed_url_expiry(url: str) -> int | None:
+    """Extrai expiração de tokens JWT usados por URLs assinadas do Storage."""
+    try:
+        token = parse_qs(urlparse(url).query).get("token", [""])[0]
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+        return int(data.get("exp"))
+    except (ValueError, TypeError, KeyError, IndexError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+
+def _photo_formula(url: str) -> str:
+    escaped = url.replace('"', '""')
+    return (
+        f'=HYPERLINK("{escaped}",'
+        f'IMAGE("{escaped}",4,{PHOTO_THUMBNAIL_SIZE},{PHOTO_THUMBNAIL_SIZE}))'
+    )
+
+
+def _photo_path_from_url(url: str) -> str | None:
+    marker = "/storage/v1/object/sign/"
+    object_part = urlparse(url).path.split(marker, 1)[-1]
+    prefix = f"{BUCKET}/"
+    if not object_part.startswith(prefix):
+        return None
+    return object_part[len(prefix):]
+
+
+def _url_from_formula(formula: str) -> str | None:
+    match = re.search(r'HYPERLINK\("((?:[^"]|"")+)"', str(formula or ""))
+    return match.group(1).replace('""', '"') if match else None
+
+
+def renew_expiring_sheet_photo_urls(sheets, max_rows: int = SHEETS_RENEWAL_MAX_ROWS) -> dict:
+    """Renova URLs próximas da expiração sem alterar a imagem exibida na célula."""
+    spreadsheet = open_spreadsheet(sheets)
+    renewed = scanned = errors = 0
+    now = int(time.time())
+
+    for aba in spreadsheet.worksheets():
+        values = aba.get_all_values()
+        if not values:
+            continue
+        header = list(values[0])
+        photo_indexes = [header.index(col) for col in PHOTO_COLUMNS if col in header]
+        if not photo_indexes:
+            continue
+
+        for row_idx, row in enumerate(values[1:max_rows + 1], start=2):
+            for col_idx in photo_indexes:
+                if col_idx >= len(row):
+                    continue
+                current = str(row[col_idx] or "").strip()
+                url = _url_from_formula(current)
+                if not url:
+                    continue
+                scanned += 1
+                exp = _signed_url_expiry(url)
+                if exp is not None and exp - now > PHOTO_URL_REFRESH_THRESHOLD_SECONDS:
+                    continue
+                path = _photo_path_from_url(url)
+                if not path:
+                    errors += 1
+                    continue
+                try:
+                    new_url = sheet_url(path)
+                    aba.update(
+                        values=[[_photo_formula(new_url)]],
+                        range_name=f"{col_letter(col_idx + 1)}{row_idx}",
+                        value_input_option="USER_ENTERED",
+                    )
+                    renewed += 1
+                except Exception:
+                    errors += 1
+
+    return {"scanned": scanned, "renewed": renewed, "errors": errors}
 
 
 def normalize_unit(value: str) -> str:
@@ -239,14 +322,7 @@ def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
         range_name=f"{col_letter(id_idx + 1)}{row_number}",
     )
 
-    formulas = [
-        (
-            f'=HYPERLINK("{sheet_url(path).replace(chr(34), chr(34) * 2)}",'
-            f'IMAGE("{sheet_url(path).replace(chr(34), chr(34) * 2)}",4,'
-            f'{PHOTO_THUMBNAIL_SIZE},{PHOTO_THUMBNAIL_SIZE}))'
-        )
-        for _, path in fotos[:10]
-    ]
+    formulas = [_photo_formula(sheet_url(path)) for _, path in fotos[:10]]
     formulas += [""] * (10 - len(formulas))
     first = header.index(PHOTO_COLUMNS[0]) + 1
     last = first + 9
@@ -281,7 +357,13 @@ def main():
             reconciled = int(cur.fetchone()[0] or 0)
         conn.commit()
         sheets = sheets_client()
-        spreadsheet = open_spreadsheet(sheets)
+        renewal = renew_expiring_sheet_photo_urls(sheets)
+        print(json.dumps({
+            "event": "sheets_photo_url_renewal",
+            **renewal,
+            "expiration_seconds": PHOTO_URL_EXPIRATION_SECONDS,
+            "refresh_threshold_seconds": PHOTO_URL_REFRESH_THRESHOLD_SECONDS,
+        }, ensure_ascii=False))
         claimed = claim_batch(conn, limit)
 
         # Vários eventos do mesmo patrimônio são consolidados em uma única
