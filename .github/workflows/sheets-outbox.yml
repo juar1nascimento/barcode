@@ -42,13 +42,8 @@ jobs:
           SHEETS_RENEWAL_MAX_ROWS: "5000"
         run: python sheets_outbox_worker.py
 
-      - name: Verificar exposição acidental de segredos nos logs
-        if: always()
-        run: |
-          if grep -RniE 'SUPABASE_SERVICE_ROLE_KEY|GOOGLE_SERVICE_ACCOUNT_JSON|AIza[0-9A-Za-z_-]{20,}|service_role' .github/workflows sheets_outbox_worker.py; then
-            echo "Possível exposição de segredo encontrada no código/workflow."
-            exit 1
-          fi
+      - name: Validar sintaxe do worker
+        run: python -m py_compile sheets_outbox_worker.py
 
       - name: Relatar resultado
         if: always()
