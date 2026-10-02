@@ -42,3 +42,19 @@ def test_session_timeout_is_enforced_in_login_flow():
     assert "SESSAO_INATIVA_SEGUNDOS" in function_source
     assert "_limpar_sessao_autenticacao()" in function_source
     assert "time.time() - ultimo_acesso" in function_source
+
+
+def test_approval_token_digest_is_one_way_and_deterministic():
+    token = "nonce.payload.signature"
+    digest_a = login._digest_token_aprovacao(token)
+    digest_b = login._digest_token_aprovacao(token)
+    assert digest_a == digest_b
+    assert digest_a != token
+    assert len(digest_a) == 64
+
+
+def test_approval_flow_consumes_persisted_token_digest():
+    source = Path("login.py").read_text(encoding="utf-8")
+    assert "_digest_token_aprovacao(str(token))" in source
+    assert 'db[user].get("approval_token_digests", {})' in source
+    assert 'db[user].pop("approval_token_digests", None)' in source
