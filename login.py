@@ -114,6 +114,10 @@ def _criar_token_aprovacao(acao: str, usuario: str) -> str:
     return secrets.token_urlsafe(8) + "." + urllib.parse.quote(payload, safe="") + "." + assinatura
 
 
+def _digest_token_aprovacao(token: str) -> str:
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+
+
 def _validar_token_aprovacao(token: str) -> tuple[str, str] | None:
     segredo = _segredo_aprovacao()
     try:
@@ -200,7 +204,18 @@ def processar_acao_via_url():
     if user not in db:
         st.error("Usuário da solicitação não encontrado.")
         return
+
+    # Tokens de aprovação são de uso único. O HMAC garante autenticidade,
+    # enquanto o digest persistido impede replay dentro do TTL de 15 minutos.
+    token_digest = _digest_token_aprovacao(str(token))
+    digests = db[user].get("approval_token_digests", {})
+    esperado = str(digests.get(acao, ""))
+    if not esperado or not hmac.compare_digest(token_digest, esperado):
+        st.error("Link de autorização já utilizado ou inválido.")
+        return
+
     db[user]["aprovado"] = acao == "aprovar"
+    db[user].pop("approval_token_digests", None)
     salvar_usuarios(db)
     corpo = f"<h3>Prefeitura Municipal da Serra</h3><p>Sua solicitação para <b>{html.escape(user)}</b> foi <b>{'ACEITA' if acao == 'aprovar' else 'RECUSADA'}</b>.</p>"
     enviar_email(user, "Atualização do cadastro - Prefeitura da Serra", corpo)
@@ -314,6 +329,15 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                             try:
                                 token_aprovar = _criar_token_aprovacao("aprovar", user)
                                 token_recusar = _criar_token_aprovacao("recusar", user)
+                                db = carregar_usuarios()
+                                if user not in db:
+                                    st.error("Não foi possível localizar o cadastro recém-criado.")
+                                    return False
+                                db[user]["approval_token_digests"] = {
+                                    "aprovar": _digest_token_aprovacao(token_aprovar),
+                                    "recusar": _digest_token_aprovacao(token_recusar),
+                                }
+                                salvar_usuarios(db)
                                 link_aprovar = base + "/?" + urllib.parse.urlencode({"token": token_aprovar})
                                 link_recusar = base + "/?" + urllib.parse.urlencode({"token": token_recusar})
                                 body = f'<p>Solicitação de cadastro: <b>{html.escape(user)}</b></p><p><a href="{html.escape(link_aprovar, quote=True)}">Autorizar</a> | <a href="{html.escape(link_recusar, quote=True)}">Recusar</a></p>'
