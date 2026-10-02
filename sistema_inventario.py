@@ -506,84 +506,84 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     if is_admin:
         with st.expander("🔄 Movimentar patrimônio", expanded=False):
-        st.caption("Entrada, transferência e saída são registradas atomicamente no Supabase.")
-        codigo_mov = st.text_input(
-            "Código ou número do patrimônio",
-            placeholder="Bipe ou digite o patrimônio...",
-            key="mov_codigo_inventario",
-        )
-        tipo_mov = st.selectbox(
-            "Tipo de movimentação",
-            ["TRANSFERENCIA", "ENTRADA", "SAIDA"],
-            key="mov_tipo_inventario",
-        )
-        usuario_mov = st.text_input(
-            "Usuário responsável",
-            value=str(st.session_state.get("usuario_logado", "") or st.session_state.get("usuario", "") or ""),
-            key="mov_usuario_inventario",
-        )
-
-        destino_id = setor_destino_id = None
-        if tipo_mov != "SAIDA":
-            locais = listar_unidades_setores()
-            unidades_destino = sorted({item["unidade"] for item in locais})
-            unidade_destino = st.selectbox(
-                "Unidade de destino",
-                unidades_destino,
-                index=None,
-                placeholder="Selecione a unidade...",
-                key="mov_unidade_destino",
+            st.caption("Entrada, transferência e saída são registradas atomicamente no Supabase.")
+            codigo_mov = st.text_input(
+                "Código ou número do patrimônio",
+                placeholder="Bipe ou digite o patrimônio...",
+                key="mov_codigo_inventario",
             )
-            setores_destino = [
-                item for item in locais
-                if unidade_destino and item["unidade"] == unidade_destino
-            ]
-            rotulos_setor = {
-                item["setor_id"]: (
-                    f'{item["setor"]}'
-                    + (f' {item["numero_consultorio"]}' if item["numero_consultorio"] is not None else "")
-                    + (f' - {item["especialidade"]}' if item["especialidade"] else "")
-                )
-                for item in setores_destino
-            }
-            setor_label = st.selectbox(
-                "Setor de destino",
-                list(rotulos_setor.values()),
-                index=None,
-                placeholder="Selecione o setor...",
-                key="mov_setor_destino",
+            tipo_mov = st.selectbox(
+                "Tipo de movimentação",
+                ["TRANSFERENCIA", "ENTRADA", "SAIDA"],
+                key="mov_tipo_inventario",
             )
-            setor_destino_id = next(
-                (sid for sid, label in rotulos_setor.items() if label == setor_label),
-                None,
-            )
-            destino_id = next(
-                (item["unidade_id"] for item in setores_destino if item["setor_id"] == setor_destino_id),
-                None,
+            usuario_mov = st.text_input(
+                "Usuário responsável",
+                value=str(st.session_state.get("usuario_logado", "") or st.session_state.get("usuario", "") or ""),
+                key="mov_usuario_inventario",
             )
 
-        motivo_mov = st.text_input("Motivo", key="mov_motivo_inventario")
-        observacao_mov = st.text_area("Observação", key="mov_observacao_inventario")
-        if st.button("Confirmar movimentação", type="primary", key="btn_confirmar_movimentacao"):
-            if not codigo_mov.strip() or not usuario_mov.strip():
-                st.warning("Informe o patrimônio e o usuário responsável.")
-            elif tipo_mov != "SAIDA" and (not destino_id or not setor_destino_id):
-                st.warning("Selecione a unidade e o setor de destino.")
-            else:
-                ok, _, mensagem = registrar_movimentacao(
-                    codigo_patrimonio=codigo_mov.strip(),
-                    tipo=tipo_mov,
-                    usuario=usuario_mov.strip(),
-                    unidade_destino_id=destino_id,
-                    setor_destino_id=setor_destino_id,
-                    motivo=motivo_mov,
-                    observacao=observacao_mov,
+            destino_id = setor_destino_id = None
+            if tipo_mov != "SAIDA":
+                locais = listar_unidades_setores()
+                unidades_destino = sorted({item["unidade"] for item in locais})
+                unidade_destino = st.selectbox(
+                    "Unidade de destino",
+                    unidades_destino,
+                    index=None,
+                    placeholder="Selecione a unidade...",
+                    key="mov_unidade_destino",
                 )
-                if ok:
-                    st.success(mensagem)
-                    st.rerun()
+                setores_destino = [
+                    item for item in locais
+                    if unidade_destino and item["unidade"] == unidade_destino
+                ]
+                rotulos_setor = {
+                    item["setor_id"]: (
+                        f'{item["setor"]}'
+                        + (f' {item["numero_consultorio"]}' if item["numero_consultorio"] is not None else "")
+                        + (f' - {item["especialidade"]}' if item["especialidade"] else "")
+                    )
+                    for item in setores_destino
+                }
+                setor_label = st.selectbox(
+                    "Setor de destino",
+                    list(rotulos_setor.values()),
+                    index=None,
+                    placeholder="Selecione o setor...",
+                    key="mov_setor_destino",
+                )
+                setor_destino_id = next(
+                    (sid for sid, label in rotulos_setor.items() if label == setor_label),
+                    None,
+                )
+                destino_id = next(
+                    (item["unidade_id"] for item in setores_destino if item["setor_id"] == setor_destino_id),
+                    None,
+                )
+
+            motivo_mov = st.text_input("Motivo", key="mov_motivo_inventario")
+            observacao_mov = st.text_area("Observação", key="mov_observacao_inventario")
+            if st.button("Confirmar movimentação", type="primary", key="btn_confirmar_movimentacao"):
+                if not codigo_mov.strip() or not usuario_mov.strip():
+                    st.warning("Informe o patrimônio e o usuário responsável.")
+                elif tipo_mov != "SAIDA" and (not destino_id or not setor_destino_id):
+                    st.warning("Selecione a unidade e o setor de destino.")
                 else:
-                    st.error(mensagem)
+                    ok, _, mensagem = registrar_movimentacao(
+                        codigo_patrimonio=codigo_mov.strip(),
+                        tipo=tipo_mov,
+                        usuario=usuario_mov.strip(),
+                        unidade_destino_id=destino_id,
+                        setor_destino_id=setor_destino_id,
+                        motivo=motivo_mov,
+                        observacao=observacao_mov,
+                    )
+                    if ok:
+                        st.success(mensagem)
+                        st.rerun()
+                    else:
+                        st.error(mensagem)
 
     # Usuários comuns não recebem o menu administrativo de movimentação.
     # A autorização também é validada em registrar_movimentacao().
