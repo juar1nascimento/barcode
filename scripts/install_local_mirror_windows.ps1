@@ -18,5 +18,9 @@ if (-not $Python) {
 
 $env:INVENTARIO_MIRROR_ROOT = $MirrorRoot
 
-Write-Host "Dependências verificadas. O agente está pronto para a primeira sincronização."
+Write-Host "Executando pré-validação local sem acessar o banco ou o Storage..."
+& $Python.Source (Join-Path $RepoRoot "scripts\check_local_mirror.py") --local-only
+if ($LASTEXITCODE -ne 0) { throw "A pré-validação local falhou. Nenhuma sincronização foi executada." }
+
+Write-Host "Dependências e acesso ao destino verificados. O agente está pronto para a pré-validação operacional."
 Write-Host "Configure DATABASE_URL (ou PGHOST/PGDATABASE/PGUSER/PGPASSWORD) e SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY somente no ambiente seguro do serviço."
