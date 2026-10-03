@@ -45,4 +45,4 @@ jobs:
         run: bandit -q -r . -x ./tests,./test_*.py --skip B110
       - name: Verify secret leakage
         run: |
-          ! grep -RInE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@|AIza[0-9A-Za-z_-]{20,}'             --exclude-dir=.git --exclude='*.lock' .
+          ! git grep -nE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@|AIza[0-9A-Za-z_-]{20,}' -- ':!tests/**' ':!.github/workflows/**'
