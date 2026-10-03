@@ -121,11 +121,6 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install dependencies
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
       - name: Validate photo sync secret without exposing value
         run: |
           test -n "${SUPABASE_SERVICE_ROLE_KEY}" || {
