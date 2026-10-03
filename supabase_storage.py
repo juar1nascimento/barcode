@@ -269,6 +269,18 @@ def salvar_foto_patrimonio(
                          ultimo_erro = NULL""",
                     (patrimonio_id, foto_id),
                 )
+                cur.execute(
+                    """INSERT INTO public.patrimonio_fotos_drive_outbox
+                         (patrimonio_id, foto_id, evento)
+                       VALUES (%s, %s, 'upsert')
+                       ON CONFLICT (foto_id, evento)
+                       DO UPDATE SET
+                         status = 'pending',
+                         proxima_tentativa_em = now(),
+                         atualizado_em = now(),
+                         ultimo_erro = NULL""",
+                    (patrimonio_id, foto_id),
+                )
             conn.commit()
             return True, foto_id, f"Foto {ordem} gravada com sucesso."
         except Exception:
