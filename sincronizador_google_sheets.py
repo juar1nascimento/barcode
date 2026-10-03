@@ -171,6 +171,7 @@ def _espelhar_patrimonio(item: dict) -> None:
         patrimonio["numero"],
         patrimonio["fabricante"],
         patrimonio["data"],
+        patrimonio["codigo"],
     ]
     atuais = aba.get_all_values()
     for indice, linha in enumerate(atuais[1:], start=2):
