@@ -1,6 +1,6 @@
 """Saneamento seguro de dados legados do inventário.
 
-A rotina trabalha sempre sobre o schema canônico de cinco colunas. Por padrão,
+A rotina trabalha sempre sobre o schema canônico de seis colunas. Por padrão,
 ela apenas calcula o plano de saneamento (dry-run); a escrita só ocorre quando
 ``aplicar=True`` é informado explicitamente pelo código chamador.
 """
@@ -31,7 +31,7 @@ def preparar_saneamento(df: pd.DataFrame, unidade: str) -> tuple[pd.DataFrame, R
     Regras conservadoras:
     - remove linhas sem Setor, Tipo de Patrimônio ou Nº de Patrimônio;
     - converte aliases conhecidos de tipo para o catálogo oficial;
-    - mantém apenas as cinco colunas canônicas;
+    - mantém apenas as seis colunas canônicas, incluindo o código de barras;
     - remove duplicatas pelo número de patrimônio, preservando a primeira;
     - não inventa fabricante, setor, tipo ou número para linhas incompletas.
     """
