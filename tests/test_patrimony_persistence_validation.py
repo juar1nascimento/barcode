@@ -44,3 +44,32 @@ def test_sector_whitespace_is_normalized_before_persistence(monkeypatch):
     assert ok is True
     assert ids == [1]
     assert captured["setor"] == "Sala de Preparo"
+
+
+
+def test_duplicate_barcode_is_rejected_before_database_connection(monkeypatch):
+    def fail_connect():
+        raise AssertionError("a duplicidade deve ser rejeitada antes da conexão")
+
+    monkeypatch.setattr(persistence, "conectar", fail_connect)
+
+    ok, ids, message = persistence.salvar_patrimonios_em_lote([
+        {
+            "codigo_barras": "BARCODE-001",
+            "numero_patrimonio": "PAT-001",
+            "tipo": "Mouse",
+            "setor": "Sala A",
+            "unidade": "UBS Feu Rosa",
+        },
+        {
+            "codigo_barras": "BARCODE-001",
+            "numero_patrimonio": "PAT-002",
+            "tipo": "Teclado",
+            "setor": "Sala B",
+            "unidade": "UBS Feu Rosa",
+        },
+    ])
+
+    assert ok is False
+    assert ids == []
+    assert "código de barras duplicado" in message
