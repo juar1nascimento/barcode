@@ -21,7 +21,6 @@ jobs:
     timeout-minutes: 5
     env:
       GTI_DB_HOST: ${{ secrets.GTI_DB_HOST }}
-      GTI_DB_PORT: ${{ secrets.GTI_DB_PORT }}
       GTI_DB_NAME: ${{ secrets.GTI_DB_NAME }}
       GTI_DB_USER: ${{ secrets.GTI_DB_USER }}
       GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
@@ -56,7 +55,6 @@ jobs:
     timeout-minutes: 10
     env:
       GTI_DB_HOST: ${{ secrets.GTI_DB_HOST }}
-      GTI_DB_PORT: ${{ secrets.GTI_DB_PORT }}
       GTI_DB_NAME: ${{ secrets.GTI_DB_NAME }}
       GTI_DB_USER: ${{ secrets.GTI_DB_USER }}
       GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
@@ -88,7 +86,6 @@ jobs:
     timeout-minutes: 10
     env:
       GTI_DB_HOST: ${{ secrets.GTI_DB_HOST }}
-      GTI_DB_PORT: ${{ secrets.GTI_DB_PORT }}
       GTI_DB_NAME: ${{ secrets.GTI_DB_NAME }}
       GTI_DB_USER: ${{ secrets.GTI_DB_USER }}
       GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
