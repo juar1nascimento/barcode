@@ -1,6 +1,8 @@
 name: Inventário GTI SESA - Google Sheets Sync
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
