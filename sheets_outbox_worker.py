@@ -297,7 +297,8 @@ def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
         raise RuntimeError(f"Patrimônio {patrimonio_id} não encontrado.")
 
     _, numero, unidade = patrimonio
-    aba = sheets.worksheet(normalize_unit(unidade))
+    spreadsheet = open_spreadsheet(sheets)
+    aba = spreadsheet.worksheet(normalize_unit(unidade))
     values = aba.get_all_values()
     if not values:
         raise RuntimeError(f"Aba {unidade} sem cabeçalho.")
