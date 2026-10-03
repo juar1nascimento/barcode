@@ -1,9 +1,8 @@
 -- GTI-SESA / Sistema de Inventários
--- Schema definitivo para PostgreSQL em nuvem (Supabase).
--- O Google Sheets permanece como tabela operacional/espelho.
--- Este arquivo cria apenas a estrutura; NÃO migra dados históricos.
+-- Schema canônico de referência para PostgreSQL/Supabase.
+-- Não executa migração de dados históricos.
 
-CREATE TABLE IF NOT EXISTS unidades (
+CREATE TABLE IF NOT EXISTS public.unidades (
     id BIGSERIAL PRIMARY KEY,
     nome VARCHAR(150) NOT NULL UNIQUE,
     tipo VARCHAR(10) NOT NULL CHECK (tipo IN ('UBS', 'URS', 'ALMOX')),
@@ -11,9 +10,9 @@ CREATE TABLE IF NOT EXISTS unidades (
     criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS setores (
+CREATE TABLE IF NOT EXISTS public.setores (
     id BIGSERIAL PRIMARY KEY,
-    unidade_id BIGINT NOT NULL REFERENCES unidades(id) ON DELETE CASCADE,
+    unidade_id BIGINT NOT NULL REFERENCES public.unidades(id) ON DELETE CASCADE,
     nome VARCHAR(120) NOT NULL,
     numero_consultorio INTEGER,
     especialidade VARCHAR(150),
@@ -29,21 +28,20 @@ CREATE TABLE IF NOT EXISTS setores (
     )
 );
 
--- Regras de unicidade sem depender da semântica de NULL do PostgreSQL:
--- 1) setor normal: uma ocorrência por unidade/nome;
--- 2) consultório: uma ocorrência por unidade/número/especialidade.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_setor_normal
-    ON setores (unidade_id, nome)
+    ON public.setores (unidade_id, nome)
     WHERE nome <> 'Consultório' AND numero_consultorio IS NULL AND especialidade IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_setor_consultorio
-    ON setores (unidade_id, numero_consultorio, especialidade)
-    WHERE nome = 'Consultório' AND numero_consultorio IS NOT NULL AND especialidade IS NOT NULL;
+    ON public.setores (unidade_id, numero_consultorio, especialidade)
+    WHERE nome = 'Consultório'
+      AND numero_consultorio IS NOT NULL
+      AND especialidade IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS patrimonios (
+CREATE TABLE IF NOT EXISTS public.patrimonios (
     id BIGSERIAL PRIMARY KEY,
-    unidade_id BIGINT NOT NULL REFERENCES unidades(id) ON DELETE RESTRICT,
-    setor_id BIGINT NOT NULL REFERENCES setores(id) ON DELETE RESTRICT,
+    unidade_id BIGINT NOT NULL REFERENCES public.unidades(id) ON DELETE RESTRICT,
+    setor_id BIGINT NOT NULL REFERENCES public.setores(id) ON DELETE RESTRICT,
     tipo VARCHAR(50) NOT NULL CHECK (
         tipo IN ('CPU', 'Monitores', 'Teclado', 'Mouse', 'Imprenssoras', 'Outros Dispositivos')
     ),
@@ -56,18 +54,14 @@ CREATE TABLE IF NOT EXISTS patrimonios (
     CONSTRAINT uq_patrimonio_codigo_barras UNIQUE (codigo_barras)
 );
 
-CREATE INDEX IF NOT EXISTS idx_setores_unidade ON setores(unidade_id);
-CREATE INDEX IF NOT EXISTS idx_patrimonios_unidade ON patrimonios(unidade_id);
-CREATE INDEX IF NOT EXISTS idx_patrimonios_setor ON patrimonios(setor_id);
-CREATE INDEX IF NOT EXISTS idx_patrimonios_tipo ON patrimonios(tipo);
+CREATE INDEX IF NOT EXISTS idx_setores_unidade ON public.setores(unidade_id);
+CREATE INDEX IF NOT EXISTS idx_patrimonios_unidade ON public.patrimonios(unidade_id);
+CREATE INDEX IF NOT EXISTS idx_patrimonios_setor ON public.patrimonios(setor_id);
+CREATE INDEX IF NOT EXISTS idx_patrimonios_tipo ON public.patrimonios(tipo);
 
--- Fotos do patrimônio:
--- o arquivo físico fica no bucket privado do Supabase Storage e esta tabela
--- mantém o vínculo, a ordem e os metadados necessários para consulta/auditoria.
-CREATE TABLE IF NOT EXISTS patrimonio_fotos (
+CREATE TABLE IF NOT EXISTS public.patrimonio_fotos (
     id BIGSERIAL PRIMARY KEY,
-    patrimonio_id BIGINT NOT NULL
-        REFERENCES patrimonios(id) ON DELETE CASCADE,
+    patrimonio_id BIGINT NOT NULL REFERENCES public.patrimonios(id) ON DELETE CASCADE,
     ordem INTEGER NOT NULL CHECK (ordem > 0),
     storage_bucket VARCHAR(100) NOT NULL DEFAULT 'patrimonio-fotos',
     storage_path VARCHAR(500) NOT NULL,
@@ -76,44 +70,21 @@ CREATE TABLE IF NOT EXISTS patrimonio_fotos (
     tamanho_bytes INTEGER NOT NULL CHECK (tamanho_bytes > 0),
     largura INTEGER,
     altura INTEGER,
-    sha256 CHAR(64) NOT NULL
-        CHECK (sha256 ~ '^[0-9a-fA-F]{64}
+    sha256 CHAR(64) NOT NULL CHECK (sha256 ~ '^[0-9a-fA-F]{64}$'),
     criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT ck_patrimonio_fotos_dimensoes CHECK (
         (largura IS NULL AND altura IS NULL)
-        OR
-        (largura > 0 AND altura > 0)
+        OR (largura > 0 AND altura > 0)
     ),
     CONSTRAINT uq_patrimonio_fotos_ordem UNIQUE (patrimonio_id, ordem),
     CONSTRAINT uq_patrimonio_fotos_storage_path UNIQUE (storage_bucket, storage_path)
 );
 
 CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_patrimonio
-    ON patrimonio_fotos(patrimonio_id);
+    ON public.patrimonio_fotos(patrimonio_id);
 
 CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_sha256
-    ON patrimonio_fotos(sha256);
+    ON public.patrimonio_fotos(sha256);
 
--- Compatibilidade operacional: a coluna Setor do Google Sheets pode continuar
--- exibindo "Consultório 5 - Odontologia", enquanto o PostgreSQL mantém os
--- componentes estruturados em nome/numero_consultorio/especialidade.
-),
-    criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT ck_patrimonio_fotos_dimensoes CHECK (
-        (largura IS NULL AND altura IS NULL)
-        OR
-        (largura > 0 AND altura > 0)
-    ),
-    CONSTRAINT uq_patrimonio_fotos_ordem UNIQUE (patrimonio_id, ordem),
-    CONSTRAINT uq_patrimonio_fotos_storage_path UNIQUE (storage_bucket, storage_path)
-);
-
-CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_patrimonio
-    ON patrimonio_fotos(patrimonio_id);
-
-CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_sha256
-    ON patrimonio_fotos(sha256);
-
--- Compatibilidade operacional: a coluna Setor do Google Sheets pode continuar
--- exibindo "Consultório 5 - Odontologia", enquanto o PostgreSQL mantém os
--- componentes estruturados em nome/numero_consultorio/especialidade.
+-- A coluna Setor do Google Sheets pode apresentar "Consultório 5 - Odontologia",
+-- enquanto o PostgreSQL mantém nome, número e especialidade estruturados.
