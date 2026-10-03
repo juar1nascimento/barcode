@@ -1,4 +1,5 @@
 import os
+import re
 from psycopg.conninfo import make_conninfo
 
 
@@ -12,13 +13,20 @@ REQUIRED = (
 POOLER_PORT = 6543
 
 
-def _validate_shape(host: str, user: str, dbname: str) -> None:
-    import re
+def _normalize_pooler_host(value: str) -> str:
+    host = value.strip()
+    if host.endswith(f":{POOLER_PORT}"):
+        host = host[: -(len(str(POOLER_PORT)) + 1)]
+    return host
 
-    if not re.fullmatch(r"aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com", host):
+
+def _validate_shape(host: str, user: str, dbname: str) -> str:
+    normalized_host = _normalize_pooler_host(host)
+    if not re.fullmatch(r"aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com", normalized_host):
         raise SystemExit(
-            "GTI_DB_HOST inválido: use exatamente o host do Transaction pooler "
-            "copiado no Connect do Supabase."
+            "GTI_DB_HOST inválido: use o host do Transaction pooler copiado no "
+            "Connect do Supabase. É aceito o host puro ou o host seguido de :6543; "
+            "não use URL completa nem componha o host manualmente."
         )
     if user != f"postgres.{PROJECT_REF}":
         raise SystemExit(
@@ -29,6 +37,7 @@ def _validate_shape(host: str, user: str, dbname: str) -> None:
         raise SystemExit(
             "GTI_DB_NAME inválido: use o banco postgres."
         )
+    return normalized_host
 
 
 def main():
@@ -36,10 +45,10 @@ def main():
     if missing:
         raise SystemExit("Secrets PostgreSQL ausentes: " + ", ".join(missing))
 
-    host = os.environ["GTI_DB_HOST"].strip()
+    configured_host = os.environ["GTI_DB_HOST"].strip()
     dbname = os.environ["GTI_DB_NAME"].strip()
     user = os.environ["GTI_DB_USER"].strip()
-    _validate_shape(host, user, dbname)
+    host = _validate_shape(configured_host, user, dbname)
 
     value = make_conninfo(
         host=host,
