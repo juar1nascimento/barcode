@@ -486,7 +486,8 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
         return False, [], "O lote excede o limite de 1000 patrimônios por operação."
 
     preparados = []
-    vistos = set()
+    vistos_numeros = set()
+    vistos_barras = set()
     for posicao, item in enumerate(itens, start=1):
         item = item or {}
         numero = str(item.get("numero_patrimonio") or item.get("codigo_barras") or "").strip()
@@ -497,10 +498,17 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
         fabricante = str(item.get("fabricante") or "").strip() or None
         if not numero or not tipo or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
             return False, [], f"Registro {posicao}: dados insuficientes ou inválidos."
-        chave = numero.casefold()
-        if chave in vistos:
+        chave_numero = numero.casefold()
+        if chave_numero in vistos_numeros:
             return False, [], f"Registro {posicao}: patrimônio `{numero}` duplicado no lote."
-        vistos.add(chave)
+        vistos_numeros.add(chave_numero)
+
+        if codigo is not None:
+            chave_codigo = codigo.casefold()
+            if chave_codigo in vistos_barras:
+                return False, [], f"Registro {posicao}: código de barras duplicado no lote."
+            vistos_barras.add(chave_codigo)
+
         preparados.append((numero, codigo, tipo, setor, unidade, fabricante))
 
     conn = conectar()
