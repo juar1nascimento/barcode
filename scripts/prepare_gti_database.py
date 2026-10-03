@@ -29,7 +29,7 @@ def _normalize_pooler_host(value: str) -> str:
 
 def _validate_shape(host: str, user: str, dbname: str) -> str:
     normalized_host = _normalize_pooler_host(host)
-    if not re.fullmatch(r"aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com", normalized_host):
+    if not re.fullmatch(r"[a-z0-9-]+\.pooler\.supabase\.com", normalized_host):
         raise SystemExit(
             "GTI_DB_HOST inválido: informe o endpoint do Transaction pooler do "
             "Connect do Supabase. O validador aceita host puro, host:porta ou "
