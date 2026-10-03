@@ -138,6 +138,46 @@ def reset_stale(conn):
     conn.commit()
 
 
+def migrate_legacy_cpu_sheet(values: list[list[str]]) -> list[list[str]]:
+    """Converte apenas a estrutura legada conhecida, sem inventar dados.
+
+    Mapeamento preservador:
+      Setor -> Setor
+      CPU Nº de Patrimônio -> Nº de Patrimônio
+      Fabricante CPU -> Fabricante
+    Os campos Tipo de Patrimônio e Data Cadastro ficam vazios para registros
+    legados até que sejam reconciliados com a fonte PostgreSQL.
+    """
+    if not values:
+        raise ValueError("Planilha legada vazia.")
+    header = [str(value or "").strip() for value in values[0]]
+    import unicodedata
+
+    def key(value: str) -> str:
+        text = unicodedata.normalize("NFKD", str(value or ""))
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
+        return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+    if [key(item) for item in header] != [
+        "setor",
+        "cpu no de patrimonio",
+        "fabricante cpu",
+    ]:
+        raise ValueError("Estrutura legada não reconhecida para migração segura.")
+
+    migrated = [COLUNAS]
+    for row in values[1:]:
+        cells = list(row) + ["", "", ""]
+        migrated.append([
+            str(cells[0] or "").strip(),
+            "",
+            str(cells[1] or "").strip(),
+            str(cells[2] or "").strip(),
+            "",
+        ])
+    return migrated
+
+
 def sync_one(conn, spreadsheet, patrimonio_id: int):
     with conn.cursor() as cur:
         cur.execute(
@@ -185,11 +225,16 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
     normalized_header = [aliases.get(_header_key(item), str(item or "").strip()) for item in header]
     legacy_header = [_header_key(item) for item in header]
     legacy_cpu = ["setor", "cpu no de patrimonio", "fabricante cpu"]
-    if legacy_header[:3] == legacy_cpu:
-        raise RuntimeError(
-            f"Aba {unidade} usa estrutura legada de patrimônio (Setor/CPU Nº de Patrimônio/Fabricante CPU). "
-            "Migração estrutural obrigatória antes da sincronização."
+    if len(header) == 3 and legacy_header == legacy_cpu:
+        migrated = migrate_legacy_cpu_sheet(values)
+        aba.update(
+            values=migrated,
+            range_name=f"A1:E{len(migrated)}",
+            value_input_option="RAW",
         )
+        values = migrated
+        header = list(values[0])
+        normalized_header = header
     required_keys = [_header_key(item) for item in COLUNAS]
     actual_keys = [_header_key(item) for item in normalized_header]
     if actual_keys[:len(COLUNAS)] != required_keys:
