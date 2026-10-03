@@ -41,7 +41,7 @@ def database_url() -> str:
     value = env("DATABASE_URL")
     if value.upper() == "URL" or "://" not in value:
         raise RuntimeError(
-            "GTI_DATABASE_URL inválida: o secret deve conter a connection string "
+            "DATABASE_URL inválida: a variável deve conter a connection string "
             "PostgreSQL completa (postgresql://...). O valor configurado não é "
             "uma URL de conexão válida."
         )
@@ -343,9 +343,6 @@ def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
         value_input_option="USER_ENTERED",
     )
 
-    # Confirmação pós-escrita: só concluímos o evento quando o destino
-    # devolve as mesmas fórmulas esperadas. Isso torna o processamento
-    # idempotente e evita marcar como synced uma escrita não confirmada.
     confirmed = aba.get(target_range, value_render_option="FORMULA")
     actual = confirmed[0] if confirmed else []
     actual = list(actual) + [""] * (10 - len(actual))
@@ -376,8 +373,6 @@ def main():
         }, ensure_ascii=False))
         claimed = claim_batch(conn, limit)
 
-        # Vários eventos do mesmo patrimônio são consolidados em uma única
-        # sincronização: sync_one já projeta todas as fotos do patrimônio.
         by_patrimonio = {}
         for outbox_id, patrimonio_id, _foto_id in claimed:
             by_patrimonio.setdefault(int(patrimonio_id), []).append(int(outbox_id))
@@ -424,6 +419,7 @@ def main():
         }, ensure_ascii=False))
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     main()
