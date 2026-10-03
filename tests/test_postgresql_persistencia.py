@@ -200,7 +200,7 @@ def test_registrar_movimentacao_faz_rollback_se_banco_rejeitar_integridade(monke
 
     assert ok is False
     assert movement_id is None
-    assert "falha ao registrar movimentação" in message.lower()
+    assert "não foi possível registrar a movimentação" in message.lower()
     conn.rollback.assert_called_once()
     conn.commit.assert_not_called()
 
