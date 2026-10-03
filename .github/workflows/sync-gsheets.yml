@@ -92,7 +92,7 @@ jobs:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
       SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.GTI_SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.GTI_SUPABASE_SECRET_KEY }}
       OUTBOX_BATCH_SIZE: "20"
       OUTBOX_MAX_ATTEMPTS: "8"
       SHEETS_RENEWAL_MAX_ROWS: "5000"
@@ -116,8 +116,8 @@ jobs:
             https://*|http://*) ;;
             *) echo "::error::Secret GTI_SUPABASE_URL inválido."; exit 1 ;;
           esac
-          test -n "${SUPABASE_SERVICE_ROLE_KEY}" || {
-            echo "::error::Secret GTI_SUPABASE_SERVICE_ROLE_KEY não configurado; sincronização de fotos permanece bloqueada por segurança."
+          test -n "${SUPABASE_SECRET_KEY}" || {
+            echo "::error::Secret GTI_SUPABASE_SECRET_KEY não configurado; sincronização de fotos permanece bloqueada por segurança."
             exit 1
           }
       - name: Install dependencies
