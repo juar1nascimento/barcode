@@ -8,8 +8,6 @@ Drive/Shared Drive.
 
 from __future__ import annotations
 
-import base64
-import io
 import json
 import os
 import re
@@ -18,6 +16,7 @@ from typing import Optional
 import requests
 import streamlit as st
 from google.oauth2.service_account import Credentials
+from google.auth.transport.requests import Request
 
 from supabase_storage import criar_url_assinada_storage
 
@@ -70,7 +69,7 @@ def _token() -> str:
         _google_service_account(),
         scopes=[DRIVE_SCOPE],
     )
-    credentials.refresh(__import__("google.auth.transport.requests", fromlist=["Request"]).Request())
+    credentials.refresh(Request())
     if not credentials.token:
         raise RuntimeError("Google não retornou token de acesso ao Drive.")
     return credentials.token
@@ -176,7 +175,7 @@ def _find_existing_photo(token: str, folder_id: str, name: str, sha256: str) -> 
                 f"and '{folder_id}' in parents"
             ),
             "pageSize": 10,
-            "fields": "files(id,name,md5Checksum,webViewLink,parents,size)",
+            "fields": "files(id,name,md5Checksum,webViewLink,parents,size,appProperties)",
             "supportsAllDrives": "true",
             "includeItemsFromAllDrives": "true",
         },
