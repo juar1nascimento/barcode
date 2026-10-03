@@ -4,7 +4,6 @@ import psycopg
 
 REQUIRED = (
     "GTI_DB_HOST",
-    "GTI_DB_PORT",
     "GTI_DB_NAME",
     "GTI_DB_USER",
     "GTI_DB_PASSWORD",
@@ -12,22 +11,17 @@ REQUIRED = (
     "GOOGLE_SPREADSHEET_ID",
 )
 
+POOLER_PORT = 6543
+
 
 def main():
     missing = [name for name in REQUIRED if not os.getenv(name, "").strip()]
     if missing:
         raise SystemExit("Secrets GTI ausentes: " + ", ".join(missing))
 
-    try:
-        port = int(os.environ["GTI_DB_PORT"])
-        if not 1 <= port <= 65535:
-            raise ValueError
-    except ValueError:
-        raise SystemExit("GTI_DB_PORT inválido; informe uma porta PostgreSQL válida.") from None
-
     params = {
         "host": os.environ["GTI_DB_HOST"].strip(),
-        "port": port,
+        "port": POOLER_PORT,
         "dbname": os.environ["GTI_DB_NAME"].strip(),
         "user": os.environ["GTI_DB_USER"].strip(),
         "password": os.environ["GTI_DB_PASSWORD"],
@@ -37,7 +31,7 @@ def main():
     try:
         print(
             "Teste PostgreSQL: "
-            f"host={params['host']}, port={params['port']}, "
+            f"host={params['host']}, port={POOLER_PORT}, "
             f"database={params['dbname']}, user_configured={bool(params['user'])}."
         )
         with psycopg.connect(**params, connect_timeout=8) as conn:
