@@ -198,7 +198,7 @@ def main() -> int:
     try:
         result = validate(Path(args.root))
     except Exception as exc:
-        print(json.dumps({"status": "erro", "erros": [str(exc)]}, ensure_ascii=False))
+        print(json.dumps({"status": "erro", "erros": ["Falha durante a reconciliação do espelho local. Consulte os logs operacionais para diagnóstico."]}, ensure_ascii=False))
         return 2
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
