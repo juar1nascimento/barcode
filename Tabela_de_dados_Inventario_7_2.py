@@ -98,7 +98,11 @@ def _numero_patrimonio_existe_na_planilha(planilha, numero_patrimonio: str) -> b
             valores = aba.get_all_values()
             if not valores:
                 continue
-            df = _normalizar_legacy_dataframe(pd.DataFrame(valores[1:], columns=valores[0])) if len(valores) > 1 else pd.DataFrame(columns=COLUNAS_INVENTARIO)
+            cabecalho = list(valores[0])
+            largura = len(cabecalho)
+            linhas = [list(linha) + [""] * max(0, largura - len(linha)) for linha in valores[1:]]
+            linhas = [linha[:largura] for linha in linhas]
+            df = _normalizar_legacy_dataframe(pd.DataFrame(linhas, columns=cabecalho)) if linhas else pd.DataFrame(columns=COLUNAS_INVENTARIO)
             if not df.empty and df["Nº de Patrimônio"].map(_chave_texto).eq(chave).any():
                 return True
     except Exception:
