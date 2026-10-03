@@ -1,7 +1,7 @@
 import streamlit as st
 
 # Importações dos módulos independentes
-from login import renderizar_login
+from login import renderizar_login, _limpar_sessao_autenticacao
 from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
 from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso_storage
@@ -81,8 +81,7 @@ with st.sidebar:
             st.rerun()
 
     if st.button("🚪 Sair do Sistema"):
-        st.session_state.autenticado = False
-        st.session_state.usuario_logado = ""
+        _limpar_sessao_autenticacao()
         st.session_state.pagina_atual = "portal"
         st.rerun()
 
