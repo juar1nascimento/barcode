@@ -43,7 +43,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from urllib.parse import urlparse
+          from psycopg.conninfo import conninfo_to_dict
 
           required = [
               "DATABASE_URL",
@@ -55,11 +55,12 @@ jobs:
               raise SystemExit("Secrets GTI ausentes: " + ", ".join(missing))
 
           database = os.environ["DATABASE_URL"].strip()
-          parsed = urlparse(database)
-          is_uri = parsed.scheme in ("postgresql", "postgres") and bool(parsed.netloc)
-          is_libpq_dsn = all(token in database.lower() for token in ("host=", "dbname="))
-          if not (is_uri or is_libpq_dsn):
-              raise SystemExit("GTI_DATABASE_URL inválida: use URI PostgreSQL ou DSN libpq válido.")
+          try:
+              parsed = conninfo_to_dict(database)
+          except Exception:
+              raise SystemExit("GTI_DATABASE_URL inválida para o driver PostgreSQL.")
+          if not parsed.get("host") or not parsed.get("dbname"):
+              raise SystemExit("GTI_DATABASE_URL inválida: host e banco de dados são obrigatórios.")
 
           print("Configuração GTI base validada sem exibir valores sensíveis.")
           PY
