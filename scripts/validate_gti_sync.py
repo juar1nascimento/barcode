@@ -24,11 +24,20 @@ def _safe_error(exc: Exception) -> str:
     return message[:300] or type(exc).__name__
 
 
-def _validate_shape(host: str, user: str, dbname: str) -> None:
-    if not re.fullmatch(r"aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com", host):
+def _normalize_pooler_host(value: str) -> str:
+    host = value.strip()
+    if host.endswith(f":{POOLER_PORT}"):
+        host = host[: -(len(str(POOLER_PORT)) + 1)]
+    return host
+
+
+def _validate_shape(host: str, user: str, dbname: str) -> str:
+    normalized_host = _normalize_pooler_host(host)
+    if not re.fullmatch(r"aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com", normalized_host):
         raise SystemExit(
-            "GTI_DB_HOST inválido: use exatamente o host do Transaction pooler "
-            "copiado no Connect do Supabase; não componha o host manualmente."
+            "GTI_DB_HOST inválido: use o host do Transaction pooler copiado no "
+            "Connect do Supabase. É aceito o host puro ou o host seguido de :6543; "
+            "não use URL completa nem componha o host manualmente."
         )
     if user != f"postgres.{PROJECT_REF}":
         raise SystemExit(
@@ -40,6 +49,7 @@ def _validate_shape(host: str, user: str, dbname: str) -> None:
             "GTI_DB_NAME inválido: a conexão do pooler deste workflow deve usar "
             "o banco postgres."
         )
+    return normalized_host
 
 
 def main():
@@ -50,10 +60,12 @@ def main():
     configured_host = os.environ["GTI_DB_HOST"].strip()
     configured_user = os.environ["GTI_DB_USER"].strip()
     configured_dbname = os.environ["GTI_DB_NAME"].strip()
-    _validate_shape(configured_host, configured_user, configured_dbname)
+    normalized_host = _validate_shape(
+        configured_host, configured_user, configured_dbname
+    )
 
     params = {
-        "host": configured_host,
+        "host": normalized_host,
         "port": POOLER_PORT,
         "dbname": configured_dbname,
         "user": configured_user,
@@ -64,7 +76,7 @@ def main():
     try:
         print(
             "Teste PostgreSQL: "
-            f"endpoint={configured_host}:{POOLER_PORT}, "
+            f"endpoint={normalized_host}:{POOLER_PORT}, "
             f"database={configured_dbname}, user_configured=True."
         )
         with psycopg.connect(**params) as conn:
@@ -73,7 +85,7 @@ def main():
                 cur.fetchone()
         print(
             "Conexão PostgreSQL validada sem exibir valores sensíveis; "
-            f"endpoint={configured_host}:{POOLER_PORT}."
+            f"endpoint={normalized_host}:{POOLER_PORT}."
         )
     except Exception as exc:
         sqlstate = getattr(exc, "sqlstate", None)
