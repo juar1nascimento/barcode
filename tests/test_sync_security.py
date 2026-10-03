@@ -33,3 +33,5 @@ def test_photo_sync_does_not_expose_internal_exception():
     source = open("fotos_patrimonio.py", encoding="utf-8").read()
     assert "Falha ao sincronizar as fotografias no Google Sheets." in source
     assert "Falha ao sincronizar fotos no Google Sheets: {exc}" not in source
+
+# Cobertura de segurança da sincronização mantida como requisito de CI.
