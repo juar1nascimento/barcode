@@ -148,7 +148,7 @@ def pasta_patrimonio(token: str, unidade: str, numero: str) -> str:
 
 
 def _safe_name(value: str) -> str:
-    value = re.sub(r"[\\/:*?"<>|]+", "-", str(value or "").strip())
+    value = re.sub(r'[\\/:*?"<>|]+', "-", str(value or "").strip())
     value = re.sub(r"\s+", " ", value).strip(" .")
     return value[:120] or "Sem identificação"
 
