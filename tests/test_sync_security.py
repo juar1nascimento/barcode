@@ -42,3 +42,8 @@ def test_storage_does_not_fallback_to_service_role_key():
     source = open("supabase_storage.py", encoding="utf-8").read()
     assert 'sec.get("service_role_key")' not in source
     assert 'SUPABASE_SERVICE_ROLE_KEY' not in source
+
+
+def test_storage_error_does_not_mention_service_role_key():
+    source = open("supabase_storage.py", encoding="utf-8").read()
+    assert "service_role_key" not in source
