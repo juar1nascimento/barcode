@@ -176,7 +176,7 @@ def _espelhar_patrimonio(item: dict) -> None:
     atuais = aba.get_all_values()
     for indice, linha in enumerate(atuais[1:], start=2):
         if len(linha) > 2 and _chave_texto(linha[2]) == _chave_texto(patrimonio["numero"]):
-            aba.update(values=[valores], range_name=f"A{indice}:E{indice}", value_input_option="RAW")
+            aba.update(values=[valores], range_name=f"A{indice}:{_coluna(len(COLUNAS_INVENTARIO))}{indice}", value_input_option="RAW")
             return
 
     aba.append_row(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS")
