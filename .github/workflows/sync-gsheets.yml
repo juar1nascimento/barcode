@@ -17,7 +17,7 @@ concurrency:
 jobs:
   validate:
     name: Validate sync configuration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
@@ -26,11 +26,11 @@ jobs:
       SUPABASE_POOLER_HOST: aws-0-sa-east-1.pooler.supabase.com
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: false
       - name: Configure Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -110,7 +110,7 @@ jobs:
   sync-patrimonios:
     name: Sync patrimonies
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
@@ -121,11 +121,11 @@ jobs:
       SUPABASE_POOLER_HOST: aws-0-sa-east-1.pooler.supabase.com
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: false
       - name: Configure Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -165,7 +165,7 @@ jobs:
   sync-fotos:
     name: Sync photos and renew signed URLs
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
@@ -179,11 +179,11 @@ jobs:
       SHEETS_RENEWAL_MAX_ROWS: "5000"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: false
       - name: Configure Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
