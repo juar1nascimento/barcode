@@ -184,9 +184,13 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
     }
     normalized_header = [aliases.get(_header_key(item), str(item or "").strip()) for item in header]
     required_keys = [_header_key(item) for item in COLUNAS]
-    actual_keys = [_header_key(aliases.get(_header_key(item), item)) for item in normalized_header]
+    actual_keys = [_header_key(item) for item in normalized_header]
     if actual_keys[:len(COLUNAS)] != required_keys:
-        raise RuntimeError(f"Aba {unidade} possui cabeçalho incompatível com o inventário.")
+        missing = [COLUNAS[i] for i, key in enumerate(required_keys) if i >= len(actual_keys) or actual_keys[i] != key]
+        raise RuntimeError(
+            f"Aba {unidade} possui cabeçalho incompatível com o inventário. "
+            f"Coluna divergente: {missing[0] if missing else 'desconhecida'}."
+        )
 
     numero = str(numero or "").strip()
     setor = str(setor or "").strip()
