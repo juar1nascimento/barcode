@@ -9,6 +9,7 @@ REQUIRED = (
     "GTI_DB_PASSWORD",
 )
 
+POOLER_HOST = "aws-0-sa-east-1.pooler.supabase.com"
 POOLER_PORT = 6543
 
 
@@ -17,8 +18,11 @@ def main():
     if missing:
         raise SystemExit("Secrets PostgreSQL ausentes: " + ", ".join(missing))
 
+    configured_host = os.environ["GTI_DB_HOST"].strip()
+    host = POOLER_HOST if configured_host.startswith("db.") else configured_host
+
     value = make_conninfo(
-        host=os.environ["GTI_DB_HOST"].strip(),
+        host=host,
         port=POOLER_PORT,
         dbname=os.environ["GTI_DB_NAME"].strip(),
         user=os.environ["GTI_DB_USER"].strip(),
@@ -29,8 +33,8 @@ def main():
     with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
         env_file.write("DATABASE_URL=" + value + "\n")
     print(
-        "Conexão PostgreSQL preparada com porta fixa do pooler: "
-        f"host={os.environ['GTI_DB_HOST'].strip()}, port={POOLER_PORT}, "
+        "Conexão PostgreSQL preparada com endpoint seguro do pooler: "
+        f"host={host}, port={POOLER_PORT}, "
         f"database={os.environ['GTI_DB_NAME'].strip()}, "
         f"user_configured={bool(os.environ['GTI_DB_USER'].strip())}."
     )
