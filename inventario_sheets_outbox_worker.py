@@ -181,16 +181,12 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
         "fabricante": "Fabricante",
         "data cadastro": "Data Cadastro",
         "data de cadastro": "Data Cadastro",
-        "n° de patrimonio": "Nº de Patrimônio",
-        "nº de patrimonio": "Nº de Patrimônio",
-        "no de patrimonio": "Nº de Patrimônio",
-        "no patrimonio": "Nº de Patrimônio",
     }
     normalized_header = [aliases.get(_header_key(item), str(item or "").strip()) for item in header]
-    if normalized_header[:len(COLUNAS)] != COLUNAS:
-        raise RuntimeError(
-            f"Aba {unidade} possui cabeçalho incompatível com o inventário."
-        )
+    required_keys = [_header_key(item) for item in COLUNAS]
+    actual_keys = [_header_key(aliases.get(_header_key(item), item)) for item in normalized_header]
+    if actual_keys[:len(COLUNAS)] != required_keys:
+        raise RuntimeError(f"Aba {unidade} possui cabeçalho incompatível com o inventário.")
 
     numero = str(numero or "").strip()
     setor = str(setor or "").strip()
