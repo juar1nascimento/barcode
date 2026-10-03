@@ -1,0 +1,61 @@
+name: Inventário GTI SESA - sincronização incremental
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7/5 * * * *"
+
+concurrency:
+  group: inventario-gti-sesa-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+      GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configuração mínima
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in DATABASE_URL SUPABASE_URL SUPABASE_SECRET_KEY GOOGLE_SHEETS_CREDENTIALS GOOGLE_DRIVE_ROOT_FOLDER_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::warning::Secret ${name} não configurada; sincronização não executada."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "CONFIGURACAO_INCOMPLETA=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Instalar dependências
+        if: env.CONFIGURACAO_INCOMPLETA != '1'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Executar sincronização incremental
+        if: env.CONFIGURACAO_INCOMPLETA != '1'
+        run: |
+          python - <<'PY'
+          import json
+          from sincronizador_orquestrador import processar_sincronizacao_incremental
+
+          resultado = processar_sincronizacao_incremental(limit=25)
+          print(json.dumps(resultado, ensure_ascii=False))
+          if not resultado.get("ok"):
+              raise SystemExit(2)
+          PY
