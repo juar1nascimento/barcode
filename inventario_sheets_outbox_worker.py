@@ -187,9 +187,11 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
     actual_keys = [_header_key(item) for item in normalized_header]
     if actual_keys[:len(COLUNAS)] != required_keys:
         missing = [COLUNAS[i] for i, key in enumerate(required_keys) if i >= len(actual_keys) or actual_keys[i] != key]
+        observed = actual_keys[:len(COLUNAS)]
         raise RuntimeError(
             f"Aba {unidade} possui cabeçalho incompatível com o inventário. "
-            f"Coluna divergente: {missing[0] if missing else 'desconhecida'}."
+            f"Coluna divergente: {missing[0] if missing else 'desconhecida'}. "
+            f"Chaves observadas: {observed!r}."
         )
 
     numero = str(numero or "").strip()
