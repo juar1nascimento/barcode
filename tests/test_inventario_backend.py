@@ -33,6 +33,7 @@ def _mock_persistencia(monkeypatch, estado):
                         "Nº de Patrimônio": numero,
                         "Fabricante": fabricante,
                         "Data Cadastro": backend._data_hora_cadastro(),
+                        "Código de Barras": codigo_barras or "",
                     }],
                     columns=COLUNAS,
                 ),
@@ -52,8 +53,8 @@ def _mock_persistencia(monkeypatch, estado):
 
 
 def test_schema_e_tipo_patrimonio():
-    assert COLUNAS == ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
-    assert "Código de Barras" not in COLUNAS
+    assert COLUNAS == ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro", "Código de Barras"]
+    assert "Código de Barras" in COLUNAS
     assert "Origem" not in COLUNAS
     assert "Status" not in COLUNAS
     assert TIPOS == ("CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos")
@@ -98,14 +99,16 @@ def test_registro_usa_codigo_lido_como_numero_de_patrimonio(monkeypatch):
     assert backend.registrar_patrimonio("789000000002", "Monitores", "Farmacia", "UBS Teste", "HP")
     assert len(estado["df"]) == 2
     assert set(estado["df"]["Nº de Patrimônio"]) == {"789000000001", "789000000002"}
-    assert not any(c in estado["df"].columns for c in ("Código de Barras", "Origem", "Status"))
+    assert "Código de Barras" in estado["df"].columns
+    assert "Origem" not in estado["df"].columns
+    assert "Status" not in estado["df"].columns
     assert avisos == []
 
 
 def test_registro_bloqueia_numero_duplicado_com_espacos_e_maiusculas(monkeypatch):
     estado = {"df": pd.DataFrame([{
         "Setor": "Farmacia", "Tipo de Patrimônio": "Monitores", "Nº de Patrimônio": "abc 123",
-        "Fabricante": "Dell", "Data Cadastro": "",
+        "Fabricante": "Dell", "Data Cadastro": "", "Código de Barras": "",
     }], columns=COLUNAS)}
     avisos = []
     _mock_persistencia(monkeypatch, estado)
@@ -118,7 +121,7 @@ def test_registro_bloqueia_numero_duplicado_com_espacos_e_maiusculas(monkeypatch
 def test_mesmo_numero_e_bloqueado_em_outro_setor_da_mesma_unidade(monkeypatch):
     estado = {"df": pd.DataFrame([{
         "Setor": "Farmacia", "Tipo de Patrimônio": "CPU", "Nº de Patrimônio": "PAT-001",
-        "Fabricante": "Dell", "Data Cadastro": "",
+        "Fabricante": "Dell", "Data Cadastro": "", "Código de Barras": "",
     }], columns=COLUNAS)}
     _mock_persistencia(monkeypatch, estado)
     monkeypatch.setattr(backend.st, "warning", lambda mensagem: None)
@@ -222,7 +225,7 @@ def test_cadastro_legacy_da_tela_e_convertido_para_schema_atual():
     legado = pd.DataFrame([{"Setor": "Farmacia", "CPU": "CPU-UI-001", "Fabricante CPU": "Dell"}])
     assert backend._normalizar_legacy_dataframe(legado).to_dict("records") == [{
         "Setor": "Farmacia", "Tipo de Patrimônio": "CPU", "Nº de Patrimônio": "CPU-UI-001",
-        "Fabricante": "Dell", "Data Cadastro": "",
+        "Fabricante": "Dell", "Data Cadastro": "", "Código de Barras": "",
     }]
 
 
@@ -282,7 +285,7 @@ def test_salvar_no_google_confirma_leitura_de_volta(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(backend.st, "error", lambda mensagem: None)
     assert backend.salvar_no_excel(_df_exemplo(), "UBS Teste") is True
-    assert planilha.sheets["UBS Teste"].rows == [COLUNAS, ["Farmacia", "Monitores", "MON-001", "Samsung", "2026-09-09 12:00:00"]]
+    assert planilha.sheets["UBS Teste"].rows == [COLUNAS, ["Farmacia", "Monitores", "MON-001", "Samsung", "2026-09-09 12:00:00", ""]]
 
 
 def test_google_com_leitura_de_confirmacao_diferente_eh_falha(monkeypatch, tmp_path):
@@ -473,7 +476,7 @@ def test_cadastro_repetido_apos_append_e_idempotente(monkeypatch, tmp_path):
 
 def test_identificador_nao_pode_repetir_em_outra_unidade(monkeypatch):
     class Sheet:
-        def get_all_values(self): return [COLUNAS, ['Recepção','CPU','GLOBAL-001','Dell','']]
+        def get_all_values(self): return [COLUNAS, ['Recepção','CPU','GLOBAL-001','Dell','','']]
     class Planilha:
         def worksheets(self): return [Sheet()]
     planilha=Planilha()
