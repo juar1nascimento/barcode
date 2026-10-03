@@ -213,7 +213,8 @@ def _carregar_dados_postgresql(unidade: str) -> Optional[Tuple[pd.DataFrame, str
                           p.tipo,
                           p.numero_patrimonio,
                           COALESCE(p.fabricante, ''),
-                          COALESCE(to_char(p.data_cadastro, 'YYYY-MM-DD HH24:MI:SS'), '')
+                          COALESCE(to_char(p.data_cadastro, 'YYYY-MM-DD HH24:MI:SS'), ''),
+                          COALESCE(p.codigo_barras, '')
                      FROM public.patrimonios p
                      JOIN public.unidades u ON u.id = p.unidade_id
                      LEFT JOIN public.setores s ON s.id = p.setor_id
