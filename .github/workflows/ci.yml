@@ -9,23 +9,40 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: gti-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   audit-test:
+    name: Build, tests and security checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - name: Instalar dependências
-        run: python -m pip install -r requirements.txt
-      - name: Instalar dependências de teste
-        run: python -m pip install -r requirements-dev.txt
-      - name: Compilar Python
-        run: python -m compileall -q .
-      - name: Executar testes automatizados
-        run: python -m pytest -q
-      - name: Verificar vazamento de segredos
+      - name: Install dependencies
         run: |
-          ! grep -RInE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@'             --exclude-dir=.git --exclude='*.lock' .
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+      - name: Compile Python
+        run: python -m compileall -q .
+      - name: Run automated tests
+        run: python -m pytest -q
+      - name: Dependency security audit
+        run: |
+          python -m pip install pip-audit==2.9.0 bandit==1.8.6
+          pip-audit -r requirements.txt
+      - name: Static security audit
+        run: bandit -q -r . -x ./tests,./test_*.py --skip B110
+      - name: Verify secret leakage
+        run: |
+          ! grep -RInE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@|AIza[0-9A-Za-z_-]{20,}'             --exclude-dir=.git --exclude='*.lock' .
