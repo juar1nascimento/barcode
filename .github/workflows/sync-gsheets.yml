@@ -61,7 +61,7 @@ jobs:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
       OUTBOX_BATCH_SIZE: "20"
-      OUTBOX_MAX_ATTEMPTS: "8"
+      OUTBOX_MAX_ATTEMPTS: "12"
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -94,7 +94,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
       SUPABASE_SECRET_KEY: ${{ secrets.GTI_SUPABASE_SECRET_KEY }}
       OUTBOX_BATCH_SIZE: "20"
-      OUTBOX_MAX_ATTEMPTS: "8"
+      OUTBOX_MAX_ATTEMPTS: "12"
       SHEETS_RENEWAL_MAX_ROWS: "5000"
     steps:
       - name: Checkout
