@@ -21,7 +21,7 @@ from google.oauth2.service_account import Credentials
 
 ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Setor"
-COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Código de Barras", "Origem", "Status"]
+COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Origem", "Status"]
 TIPOS_PATRIMONIO = ("CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos")
 COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro", "Código de Barras"]
 COLUNAS_PADRAO = COLUNAS_INVENTARIO.copy()
