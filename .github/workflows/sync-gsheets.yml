@@ -23,6 +23,7 @@ jobs:
       DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+      SUPABASE_POOLER_HOST: aws-0-sa-east-1.pooler.supabase.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,6 +44,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          from urllib.parse import urlsplit, urlunsplit
           import psycopg
 
           required = [
@@ -55,14 +57,50 @@ jobs:
               raise SystemExit("Secrets GTI ausentes: " + ", ".join(missing))
 
           database = os.environ["DATABASE_URL"].strip()
-          try:
-              with psycopg.connect(database, connect_timeout=5) as conn:
-                  with conn.cursor() as cur:
-                      cur.execute("SELECT 1")
-                      cur.fetchone()
-          except Exception:
-              raise SystemExit("GTI_DATABASE_URL não pôde ser validada; conexão PostgreSQL indisponível ou string inválida.")
-          print("Configuração GTI base validada sem exibir valores sensíveis.")
+          candidates = [database]
+          parsed = urlsplit(database)
+          project_ref = ""
+          host = parsed.hostname or ""
+          if host.startswith("db.") and host.endswith(".supabase.co"):
+              project_ref = host[3:-len(".supabase.co")]
+          if project_ref and parsed.scheme in {"postgres", "postgresql"}:
+              username = parsed.username or ""
+              if username == "postgres":
+                  username = f"postgres.{project_ref}"
+              password = parsed.password or ""
+              userinfo = username
+              if password:
+                  userinfo += ":" + password
+              pooler = urlunsplit((
+                  parsed.scheme,
+                  f"{userinfo}@{os.environ['SUPABASE_POOLER_HOST']}:6543",
+                  parsed.path or "/postgres",
+                  parsed.query,
+                  parsed.fragment,
+              ))
+              candidates.append(pooler)
+
+          last_error_type = "desconhecido"
+          for index, candidate in enumerate(candidates):
+              try:
+                  with psycopg.connect(candidate, connect_timeout=5) as conn:
+                      with conn.cursor() as cur:
+                          cur.execute("SELECT 1")
+                          cur.fetchone()
+                  if index == 1:
+                      print("Conexão PostgreSQL validada pelo pooler IPv4 do Supabase.")
+                      with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+                          env_file.write(f"DATABASE_URL={candidate}\\n")
+                  else:
+                      print("Conexão PostgreSQL validada sem exibir valores sensíveis.")
+                  break
+              except Exception as exc:
+                  last_error_type = type(exc).__name__
+          else:
+              raise SystemExit(
+                  "GTI_DATABASE_URL não pôde ser conectada; valide o secret e a conectividade PostgreSQL. "
+                  f"Tipo técnico: {last_error_type}."
+              )
           PY
       - name: Validate no hardcoded secret patterns
         run: |
@@ -79,6 +117,7 @@ jobs:
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
       OUTBOX_BATCH_SIZE: "20"
       OUTBOX_MAX_ATTEMPTS: "8"
+      SUPABASE_POOLER_HOST: aws-0-sa-east-1.pooler.supabase.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -91,6 +130,33 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+      - name: Prepare PostgreSQL connection
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit, urlunsplit
+
+          value = os.environ["DATABASE_URL"].strip()
+          parsed = urlsplit(value)
+          host = parsed.hostname or ""
+          if host.startswith("db.") and host.endswith(".supabase.co") and parsed.scheme in {"postgres", "postgresql"}:
+              project_ref = host[3:-len(".supabase.co")]
+              username = parsed.username or ""
+              if username == "postgres":
+                  username = f"postgres.{project_ref}"
+              userinfo = username
+              if parsed.password:
+                  userinfo += ":" + parsed.password
+              value = urlunsplit((
+                  parsed.scheme,
+                  f"{userinfo}@{os.environ['SUPABASE_POOLER_HOST']}:6543",
+                  parsed.path or "/postgres",
+                  parsed.query,
+                  parsed.fragment,
+              ))
+              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+                  env_file.write(f"DATABASE_URL={value}\\n")
+          PY
       - name: Process patrimony outbox
         run: python inventario_sheets_outbox_worker.py
 
@@ -105,6 +171,7 @@ jobs:
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
       SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.GTI_SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_POOLER_HOST: aws-0-sa-east-1.pooler.supabase.com
       OUTBOX_BATCH_SIZE: "20"
       OUTBOX_MAX_ATTEMPTS: "8"
       SHEETS_RENEWAL_MAX_ROWS: "5000"
@@ -134,5 +201,32 @@ jobs:
           }
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+      - name: Prepare PostgreSQL connection
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit, urlunsplit
+
+          value = os.environ["DATABASE_URL"].strip()
+          parsed = urlsplit(value)
+          host = parsed.hostname or ""
+          if host.startswith("db.") and host.endswith(".supabase.co") and parsed.scheme in {"postgres", "postgresql"}:
+              project_ref = host[3:-len(".supabase.co")]
+              username = parsed.username or ""
+              if username == "postgres":
+                  username = f"postgres.{project_ref}"
+              userinfo = username
+              if parsed.password:
+                  userinfo += ":" + parsed.password
+              value = urlunsplit((
+                  parsed.scheme,
+                  f"{userinfo}@{os.environ['SUPABASE_POOLER_HOST']}:6543",
+                  parsed.path or "/postgres",
+                  parsed.query,
+                  parsed.fragment,
+              ))
+              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+                  env_file.write(f"DATABASE_URL={value}\\n")
+          PY
       - name: Process photo outbox
         run: python sheets_outbox_worker.py
