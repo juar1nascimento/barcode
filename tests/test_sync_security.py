@@ -35,3 +35,4 @@ def test_photo_sync_does_not_expose_internal_exception():
     assert "Falha ao sincronizar fotos no Google Sheets: {exc}" not in source
 
 # Cobertura de segurança da sincronização mantida como requisito de CI.
+# Disparo controlado para validar o workflow com a configuração atual.
