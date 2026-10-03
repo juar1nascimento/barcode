@@ -163,7 +163,26 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
         values = [COLUNAS]
 
     header = list(values[0])
-    if header[:len(COLUNAS)] != COLUNAS:
+
+    def _header_key(value: str) -> str:
+        import unicodedata
+        text = unicodedata.normalize("NFKD", str(value or ""))
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
+        return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+    aliases = {
+        "setor": "Setor",
+        "tipo de patrimonio": "Tipo de Patrimônio",
+        "tipo patrimonio": "Tipo de Patrimônio",
+        "n de patrimonio": "Nº de Patrimônio",
+        "n patrimonio": "Nº de Patrimônio",
+        "numero de patrimonio": "Nº de Patrimônio",
+        "numero patrimonio": "Nº de Patrimônio",
+        "fabricante": "Fabricante",
+        "data cadastro": "Data Cadastro",
+    }
+    normalized_header = [aliases.get(_header_key(item), str(item or "").strip()) for item in header]
+    if normalized_header[:len(COLUNAS)] != COLUNAS:
         raise RuntimeError(
             f"Aba {unidade} possui cabeçalho incompatível com o inventário."
         )
