@@ -492,7 +492,7 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
         numero = str(item.get("numero_patrimonio") or item.get("codigo_barras") or "").strip()
         codigo = str(item.get("codigo_barras") or "").strip() or None
         tipo = str(item.get("tipo") or "").strip()
-        setor = re.sub(r"\\s+", " ", str(item.get("setor") or "").strip())
+        setor = re.sub(r"\s+", " ", str(item.get("setor") or "").strip())
         unidade = str(item.get("unidade") or "").strip()
         fabricante = str(item.get("fabricante") or "").strip() or None
         if not numero or not tipo or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
