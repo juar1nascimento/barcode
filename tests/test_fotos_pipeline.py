@@ -12,7 +12,7 @@ def test_col_letter():
 
 def test_sheet_url_canonical_path(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co/")
-    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "test-key")
     class Response:
         ok = True
         def json(self):
@@ -25,7 +25,7 @@ def test_sheet_url_canonical_path(monkeypatch):
 
 def test_sheet_url_removes_leading_slash(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
-    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "test-key")
     class Response:
         ok = True
         def json(self):
@@ -113,7 +113,7 @@ def test_sheet_url_uses_24_hour_expiration(monkeypatch):
     import sheets_outbox_worker as worker
 
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
-    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "test-key")
 
     captured = {}
 
