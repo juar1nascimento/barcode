@@ -57,6 +57,7 @@ def test_saneamento_remove_colunas_obsoletas():
     ])
     resultado, _ = preparar_saneamento(df, "UBS Teste")
     assert list(resultado.columns) == COLUNAS
-    assert "Código de Barras" not in resultado.columns
+    assert "Código de Barras" in resultado.columns
+    assert resultado.iloc[0]["Código de Barras"] == "123"
     assert "Origem" not in resultado.columns
     assert "Status" not in resultado.columns
