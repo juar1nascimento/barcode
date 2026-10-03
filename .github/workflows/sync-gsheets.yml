@@ -44,7 +44,6 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from urllib.parse import quote, unquote, urlsplit, urlunsplit
           import psycopg
 
           required = [
@@ -89,7 +88,7 @@ jobs:
                               cur.execute("SELECT 1")
                               cur.fetchone()
                   else:
-                      print(f"Teste PostgreSQL [{label}]: host={host}, port={parsed.port or 5432}, database={parsed.path.lstrip('/') or 'postgres'}, user_configured={bool(parsed.username)}.")
+                      print(f"Teste PostgreSQL [{label}]: host={params.get('host')}, port={params.get('port',5432)}, database={params.get('dbname','postgres')}, user_configured={bool(params.get('user'))}.")
                       with psycopg.connect(candidate, connect_timeout=8) as conn:
                           with conn.cursor() as cur:
                               cur.execute("SELECT 1")
