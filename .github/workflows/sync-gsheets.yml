@@ -89,6 +89,7 @@ jobs:
                           cur.fetchone()
                   if index == 1:
                       print("Conexão PostgreSQL validada pelo pooler IPv4 do Supabase.")
+                      print(f"::add-mask::{candidate}")
                       with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
                           env_file.write(f"DATABASE_URL={candidate}\\n")
                   else:
@@ -154,6 +155,7 @@ jobs:
                   parsed.query,
                   parsed.fragment,
               ))
+              print(f"::add-mask::{value}")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
                   env_file.write(f"DATABASE_URL={value}\\n")
           PY
@@ -225,6 +227,7 @@ jobs:
                   parsed.query,
                   parsed.fragment,
               ))
+              print(f"::add-mask::{value}")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
                   env_file.write(f"DATABASE_URL={value}\\n")
           PY
