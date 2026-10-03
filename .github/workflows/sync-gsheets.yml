@@ -43,7 +43,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from psycopg.conninfo import conninfo_to_dict
+          import psycopg
 
           required = [
               "DATABASE_URL",
@@ -56,12 +56,12 @@ jobs:
 
           database = os.environ["DATABASE_URL"].strip()
           try:
-              parsed = conninfo_to_dict(database)
+              with psycopg.connect(database, connect_timeout=5) as conn:
+                  with conn.cursor() as cur:
+                      cur.execute("SELECT 1")
+                      cur.fetchone()
           except Exception:
-              raise SystemExit("GTI_DATABASE_URL inválida para o driver PostgreSQL.")
-          if not parsed.get("host") or not parsed.get("dbname"):
-              raise SystemExit("GTI_DATABASE_URL inválida: host e banco de dados são obrigatórios.")
-
+              raise SystemExit("GTI_DATABASE_URL não pôde ser validada; conexão PostgreSQL indisponível ou string inválida.")
           print("Configuração GTI base validada sem exibir valores sensíveis.")
           PY
       - name: Validate no hardcoded secret patterns
