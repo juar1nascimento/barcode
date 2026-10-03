@@ -58,26 +58,27 @@ jobs:
 
           database = os.environ["DATABASE_URL"].strip()
           from psycopg.conninfo import conninfo_to_dict
-          parsed = urlsplit(database)
-          host = parsed.hostname or ""
+
+          try:
+              params = conninfo_to_dict(database)
+          except Exception as exc:
+              raise SystemExit("GTI_DATABASE_URL possui formato inválido; use uma URI PostgreSQL válida. Tipo técnico: " + type(exc).__name__ + ".")
+
+          host = params.get("host", "")
+          if not host:
+              raise SystemExit("GTI_DATABASE_URL possui formato inválido; informe o host PostgreSQL.")
           candidates = [("primary", database)]
-          if parsed.scheme not in {"postgres", "postgresql"} or not host:
-              raise SystemExit("GTI_DATABASE_URL possui formato inválido; use uma URI PostgreSQL válida.")
+
           project_ref = ""
           if host.startswith("db.") and host.endswith(".supabase.co"):
               project_ref = host[3:-len(".supabase.co")]
           if project_ref:
-              try:
-                  params = conninfo_to_dict(database)
-                  username = params.get("user", "")
-                  if username == "postgres":
-                      username = f"postgres.{project_ref}"
-                  params["host"] = os.environ["SUPABASE_POOLER_HOST"]
-                  params["port"] = 6543
-                  params["user"] = username
-                  candidates.append(("supabase-pooler", params))
-              except Exception as exc:
-                  raise SystemExit("GTI_DATABASE_URL não pôde ser interpretada. Tipo técnico: " + type(exc).__name__ + ".")
+              pooler_params = dict(params)
+              if pooler_params.get("user") == "postgres":
+                  pooler_params["user"] = f"postgres.{project_ref}"
+              pooler_params["host"] = os.environ["SUPABASE_POOLER_HOST"]
+              pooler_params["port"] = 6543
+              candidates.append(("supabase-pooler", pooler_params))
           failures = []
           for label, candidate in candidates:
               try:
@@ -135,30 +136,21 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from urllib.parse import quote, unquote, urlsplit, urlunsplit
+          from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
           value = os.environ["DATABASE_URL"].strip()
-          parsed = urlsplit(value)
-          host = parsed.hostname or ""
-          if host.startswith("db.") and host.endswith(".supabase.co") and parsed.scheme in {"postgres", "postgresql"}:
+          params = conninfo_to_dict(value)
+          host = params.get("host", "")
+          if host.startswith("db.") and host.endswith(".supabase.co"):
               project_ref = host[3:-len(".supabase.co")]
-              username = parsed.username or ""
-              if username == "postgres":
-                  username = f"postgres.{project_ref}"
-              userinfo = quote(unquote(username), safe="")
-              if parsed.password:
-                  userinfo += ":" + quote(unquote(parsed.password), safe="")
-              value = urlunsplit((
-                  parsed.scheme,
-                  f"{userinfo}@{os.environ['SUPABASE_POOLER_HOST']}:6543",
-                  parsed.path or "/postgres",
-                  parsed.query,
-                  parsed.fragment,
-              ))
+              if params.get("user") == "postgres":
+                  params["user"] = f"postgres.{project_ref}"
+              params["host"] = os.environ["SUPABASE_POOLER_HOST"]
+              params["port"] = 6543
+              value = make_conninfo(**params)
               print(f"::add-mask::{value}")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
                   env_file.write(f"DATABASE_URL={value}\n")
-          PY
       - name: Process patrimony outbox
         run: python inventario_sheets_outbox_worker.py
 
@@ -207,29 +199,20 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from urllib.parse import quote, unquote, urlsplit, urlunsplit
+          from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
           value = os.environ["DATABASE_URL"].strip()
-          parsed = urlsplit(value)
-          host = parsed.hostname or ""
-          if host.startswith("db.") and host.endswith(".supabase.co") and parsed.scheme in {"postgres", "postgresql"}:
+          params = conninfo_to_dict(value)
+          host = params.get("host", "")
+          if host.startswith("db.") and host.endswith(".supabase.co"):
               project_ref = host[3:-len(".supabase.co")]
-              username = parsed.username or ""
-              if username == "postgres":
-                  username = f"postgres.{project_ref}"
-              userinfo = quote(unquote(username), safe="")
-              if parsed.password:
-                  userinfo += ":" + quote(unquote(parsed.password), safe="")
-              value = urlunsplit((
-                  parsed.scheme,
-                  f"{userinfo}@{os.environ['SUPABASE_POOLER_HOST']}:6543",
-                  parsed.path or "/postgres",
-                  parsed.query,
-                  parsed.fragment,
-              ))
+              if params.get("user") == "postgres":
+                  params["user"] = f"postgres.{project_ref}"
+              params["host"] = os.environ["SUPABASE_POOLER_HOST"]
+              params["port"] = 6543
+              value = make_conninfo(**params)
               print(f"::add-mask::{value}")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
                   env_file.write(f"DATABASE_URL={value}\n")
-          PY
       - name: Process photo outbox
         run: python sheets_outbox_worker.py
