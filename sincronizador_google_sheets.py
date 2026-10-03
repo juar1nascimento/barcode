@@ -29,6 +29,7 @@ MAX_TENTATIVAS = 5
 STALE_MINUTES = 15
 FOTO_PREFIXO_COLUNA = "Foto "
 FOTO_THUMBNAIL_SIZE = 96
+FOTO_MAX_COLUNAS = 12
 
 
 def _public_photo_url(bucket: str, path: str) -> str:
@@ -188,7 +189,8 @@ def _buscar_foto(foto_id: int) -> dict:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT f.id,f.patrimonio_id,f.ordem,f.storage_bucket,f.storage_path,
-                          p.numero_patrimonio,u.nome
+                          p.numero_patrimonio,u.nome,
+                          f.drive_file_id,f.drive_file_name,f.drive_folder_id,f.drive_web_url
                      FROM public.patrimonio_fotos f
                      JOIN public.patrimonios p ON p.id=f.patrimonio_id
                      JOIN public.unidades u ON u.id=p.unidade_id
@@ -202,6 +204,10 @@ def _buscar_foto(foto_id: int) -> dict:
             "id": int(r[0]), "patrimonio_id": int(r[1]), "ordem": int(r[2]),
             "bucket": str(r[3]), "path": str(r[4]), "numero": str(r[5]),
             "unidade": str(r[6]),
+            "drive_file_id": str(r[7] or ""),
+            "drive_file_name": str(r[8] or ""),
+            "drive_folder_id": str(r[9] or ""),
+            "drive_web_url": str(r[10] or ""),
         }
     finally:
         conn.close()
@@ -209,10 +215,10 @@ def _buscar_foto(foto_id: int) -> dict:
 
 def _garantir_colunas_fotos(aba, quantidade: int) -> None:
     headers = [str(v).strip() for v in (aba.row_values(1) or [])]
-    alvo = 5 + max(1, quantidade)
+    alvo = 5 + max(1, min(quantidade, FOTO_MAX_COLUNAS))
     novos = []
-    for ordem in range(1, max(1, quantidade) + 1):
-        nome = f"{FOTO_PREFIXO_COLUNA}{ordem}"
+    for ordem in range(1, max(1, min(quantidade, FOTO_MAX_COLUNAS)) + 1):
+        nome = f"{FOTO_PREFIXO_COLUNA}{ordem:02d}"
         if nome not in headers:
             novos.append(nome)
     if novos:
@@ -227,6 +233,11 @@ def _coluna(numero: int) -> str:
         numero, resto = divmod(numero - 1, 26)
         resultado = chr(65 + resto) + resultado
     return resultado
+
+
+def _nome_foto_drive(foto: dict) -> str:
+    nome = str(foto.get("drive_file_name") or "").strip()
+    return nome or f"{foto['numero']} - Foto {int(foto['ordem']):02d}.jpg"
 
 
 def _espelhar_foto(item: dict) -> None:
@@ -247,7 +258,9 @@ def _espelhar_foto(item: dict) -> None:
 
     _garantir_colunas_fotos(aba, foto["ordem"])
     headers = [str(v).strip() for v in (aba.row_values(1) or [])]
-    coluna_nome = f"{FOTO_PREFIXO_COLUNA}{foto['ordem']}"
+    if foto["ordem"] > FOTO_MAX_COLUNAS:
+        raise RuntimeError("Limite de fotos por patrimônio excedido para o modelo tabular do Sheets.")
+    coluna_nome = f"{FOTO_PREFIXO_COLUNA}{foto['ordem']:02d}"
     coluna = headers.index(coluna_nome) + 1
     if coluna <= 5:
         raise RuntimeError("Coluna de foto inválida.")
@@ -270,12 +283,15 @@ def _espelhar_foto(item: dict) -> None:
     if linha_planilha is None:
         raise RuntimeError(f"Linha do patrimônio {patrimonio['numero']} não encontrada no Sheets.")
 
-    url = _public_photo_url(foto["bucket"], foto["path"])
-    url_planilha = url.replace(chr(34), chr(34) + chr(34))
-    formula = (
-        f'=HYPERLINK("{url_planilha}",'
-        f'IMAGE("{url_planilha}",4,{FOTO_THUMBNAIL_SIZE},{FOTO_THUMBNAIL_SIZE}))'
-    )
+    drive_url = str(foto.get("drive_web_url") or "").strip()
+    if not drive_url:
+        # Fail-closed: a foto não pode ser marcada como sincronizada no Sheets
+        # enquanto o repositório corporativo do Drive não confirmar o arquivo.
+        raise RuntimeError("Foto ainda não está disponível no repositório corporativo do Google Drive.")
+
+    nome = _nome_foto_drive(foto).replace(chr(34), chr(34) + chr(34))
+    url_planilha = drive_url.replace(chr(34), chr(34) + chr(34))
+    formula = f'=HYPERLINK("{url_planilha}","{nome}")'
     aba.update_cell(linha_planilha, coluna, formula, value_input_option="USER_ENTERED")
 
 
