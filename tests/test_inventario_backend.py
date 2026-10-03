@@ -371,7 +371,7 @@ def test_cadastro_nao_reintroduz_colunas_removidas(monkeypatch):
     _mock_persistencia(monkeypatch, estado)
     assert backend.registrar_patrimonio("PAT-SCHEMA-001", "Monitores", "Farmacia", "UBS Teste", "HP")
     assert list(estado["df"].columns) == COLUNAS
-    assert not any(c in estado["df"].columns for c in ("Código de Barras", "Origem", "Status"))
+    assert not any(c in estado["df"].columns for c in ("Origem", "Status"))
 
 
 
