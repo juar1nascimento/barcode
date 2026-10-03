@@ -147,7 +147,7 @@ def test_salvar_foto_patrimonio_remove_orfao_se_insert_falhar(monkeypatch):
 
     assert ok is False
     assert foto_id is None
-    assert "falha simulada no INSERT" in mensagem
+    assert "Não foi possível concluir o armazenamento da foto." in mensagem
     assert conn.commit_count == 0
     assert conn.rollback_count >= 1
     supabase_storage._upload_storage.assert_called_once()
