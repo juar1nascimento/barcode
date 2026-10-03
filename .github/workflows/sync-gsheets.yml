@@ -28,11 +28,11 @@ jobs:
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Configure Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -46,7 +46,7 @@ jobs:
         run: python scripts/validate_gti_sync.py
       - name: Validate no hardcoded secret patterns
         run: |
-          ! git grep -nE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@|AIza[0-9A-Za-z_-]{20,}' -- ':!tests/**' ':!.github/workflows/**'
+          ! git grep -nE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@|AIza[0-9A-Za-z_-]{20,}|sb_secret_[A-Za-z0-9_-]+' -- ':!tests/**' ':!.github/workflows/**'
 
   sync-patrimonios:
     name: Sync patrimonies
@@ -64,11 +64,11 @@ jobs:
       OUTBOX_MAX_ATTEMPTS: "8"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Configure Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -98,11 +98,11 @@ jobs:
       SHEETS_RENEWAL_MAX_ROWS: "5000"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Configure Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -120,6 +120,10 @@ jobs:
             echo "::error::Secret GTI_SUPABASE_SECRET_KEY não configurado; sincronização de fotos permanece bloqueada por segurança."
             exit 1
           }
+          case "${SUPABASE_SECRET_KEY}" in
+            sb_secret_*) ;;
+            *) echo "::error::Secret GTI_SUPABASE_SECRET_KEY não está no formato esperado."; exit 1 ;;
+          esac
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Prepare PostgreSQL connection
