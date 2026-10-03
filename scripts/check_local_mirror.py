@@ -16,6 +16,7 @@ from pathlib import Path
 import psycopg
 import requests
 from psycopg.rows import dict_row
+from psycopg import sql
 
 DEFAULT_ROOT = r"\\172.17.27.246\t.i\02 - SUPORTE\BACKUP\Inventário gti-sesa"
 REQUIRED_TABLES = (
@@ -74,7 +75,7 @@ def _check_local(root: Path) -> list[str]:
             handle.flush()
         probe.unlink()
     except Exception as exc:
-        errors.append(f"Destino sem permissão de escrita: {exc}")
+        errors.append("Destino sem permissão de escrita.")
 
     return errors
 
@@ -100,10 +101,10 @@ def _check_database() -> tuple[list[str], dict[str, int]]:
                     return errors, counts
 
                 for table in REQUIRED_TABLES:
-                    cur.execute(f"select count(*) as total from public.{table}")
+                    cur.execute(sql.SQL("select count(*) as total from public.{}").format(sql.Identifier(table)))
                     counts[table] = int(cur.fetchone()["total"])
     except Exception as exc:
-        errors.append(f"PostgreSQL indisponível ou credenciais inválidas: {exc}")
+        errors.append("PostgreSQL indisponível ou credenciais inválidas.")
 
     return errors, counts
 
@@ -129,7 +130,7 @@ def _check_storage() -> list[str]:
         )
         response.raise_for_status()
     except Exception as exc:
-        errors.append(f"Supabase Storage indisponível ou credencial inválida: {exc}")
+        errors.append("Supabase Storage indisponível ou credencial inválida.")
     return errors
 
 
