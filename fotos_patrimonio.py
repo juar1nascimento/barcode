@@ -107,7 +107,7 @@ def _sincronizar_fotos_google(patrimonio_id: int) -> tuple[bool, str]:
 
         return True, f"{len(fotos)} foto(s) sincronizada(s) no Google Sheets."
     except Exception as exc:
-        return False, f"Falha ao sincronizar fotos no Google Sheets: {exc}"
+        return False, "Falha ao sincronizar as fotografias no Google Sheets. A fila de sincronização continuará disponível para nova tentativa."
 
 
 def marcar_sincronizacao_fotos_ok(patrimonio_id: int) -> None:
