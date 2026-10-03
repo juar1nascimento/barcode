@@ -39,12 +39,23 @@ def env(name: str) -> str:
 
 def database_url() -> str:
     value = env("DATABASE_URL")
-    if value.upper() == "URL" or "://" not in value:
+    if value.upper() == "URL":
         raise RuntimeError(
-            "DATABASE_URL inválida: a variável deve conter a connection string "
-            "PostgreSQL completa (postgresql://...). O valor configurado não é "
-            "uma URL de conexão válida."
+            "DATABASE_URL inválida: a variável contém um placeholder e não "
+            "uma conexão PostgreSQL configurada."
         )
+    # psycopg aceita tanto uma URI PostgreSQL quanto conninfo key=value.
+    # O preparador do CI usa conninfo para evitar expor credenciais em URLs.
+    if "://" in value:
+        if not value.lower().startswith(("postgresql://", "postgres://")):
+            raise RuntimeError("DATABASE_URL inválida: esquema PostgreSQL não suportado.")
+    else:
+        fields = {part.split("=", 1)[0] for part in value.split() if "=" in part}
+        if "host" not in fields or "dbname" not in fields or "user" not in fields:
+            raise RuntimeError(
+                "DATABASE_URL inválida: informe uma URI PostgreSQL ou um conninfo "
+                "com host, dbname e user."
+            )
     return value
 
 
