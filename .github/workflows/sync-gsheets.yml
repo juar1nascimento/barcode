@@ -44,7 +44,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from urllib.parse import quote, urlsplit, urlunsplit
+          from urllib.parse import quote, unquote, urlsplit, urlunsplit
           import psycopg
 
           required = [
@@ -68,9 +68,9 @@ jobs:
               if username == "postgres":
                   username = f"postgres.{project_ref}"
               password = parsed.password or ""
-              userinfo = quote(username, safe="")
+              userinfo = quote(unquote(username), safe="")
               if password:
-                  userinfo += ":" + quote(password, safe="")
+                  userinfo += ":" + quote(unquote(password), safe="")
               pooler = urlunsplit((
                   parsed.scheme,
                   f"{userinfo}@{os.environ['SUPABASE_POOLER_HOST']}:6543",
@@ -91,7 +91,7 @@ jobs:
                       print("Conexão PostgreSQL validada pelo pooler IPv4 do Supabase.")
                       print(f"::add-mask::{candidate}")
                       with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-                          env_file.write(f"DATABASE_URL={candidate}\\n")
+                          env_file.write(f"DATABASE_URL={candidate}\n")
                   else:
                       print("Conexão PostgreSQL validada sem exibir valores sensíveis.")
                   break
@@ -135,7 +135,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from urllib.parse import quote, urlsplit, urlunsplit
+          from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
           value = os.environ["DATABASE_URL"].strip()
           parsed = urlsplit(value)
@@ -145,9 +145,9 @@ jobs:
               username = parsed.username or ""
               if username == "postgres":
                   username = f"postgres.{project_ref}"
-              userinfo = quote(username, safe="")
+              userinfo = quote(unquote(username), safe="")
               if parsed.password:
-                  userinfo += ":" + quote(parsed.password, safe="")
+                  userinfo += ":" + quote(unquote(parsed.password), safe="")
               value = urlunsplit((
                   parsed.scheme,
                   f"{userinfo}@{os.environ['SUPABASE_POOLER_HOST']}:6543",
@@ -157,7 +157,7 @@ jobs:
               ))
               print(f"::add-mask::{value}")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-                  env_file.write(f"DATABASE_URL={value}\\n")
+                  env_file.write(f"DATABASE_URL={value}\n")
           PY
       - name: Process patrimony outbox
         run: python inventario_sheets_outbox_worker.py
@@ -207,7 +207,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from urllib.parse import quote, urlsplit, urlunsplit
+          from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
           value = os.environ["DATABASE_URL"].strip()
           parsed = urlsplit(value)
@@ -217,9 +217,9 @@ jobs:
               username = parsed.username or ""
               if username == "postgres":
                   username = f"postgres.{project_ref}"
-              userinfo = quote(username, safe="")
+              userinfo = quote(unquote(username), safe="")
               if parsed.password:
-                  userinfo += ":" + quote(parsed.password, safe="")
+                  userinfo += ":" + quote(unquote(parsed.password), safe="")
               value = urlunsplit((
                   parsed.scheme,
                   f"{userinfo}@{os.environ['SUPABASE_POOLER_HOST']}:6543",
@@ -229,7 +229,7 @@ jobs:
               ))
               print(f"::add-mask::{value}")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-                  env_file.write(f"DATABASE_URL={value}\\n")
+                  env_file.write(f"DATABASE_URL={value}\n")
           PY
       - name: Process photo outbox
         run: python sheets_outbox_worker.py
