@@ -82,13 +82,13 @@ jobs:
           for label, candidate in candidates:
               try:
                   if isinstance(candidate, dict):
-                      print(f"Teste PostgreSQL [{label}]: host={candidate.get("host")}, port={candidate.get("port",5432)}, database={candidate.get("dbname","postgres")}, user_configured={bool(candidate.get("user"))}.")
+                      print(f"Teste PostgreSQL [{label}]: host={candidate.get('host')}, port={candidate.get('port',5432)}, database={candidate.get('dbname','postgres')}, user_configured={bool(candidate.get('user'))}.")
                       with psycopg.connect(**candidate, connect_timeout=8) as conn:
                           with conn.cursor() as cur:
                               cur.execute("SELECT 1")
                               cur.fetchone()
                   else:
-                      print(f"Teste PostgreSQL [{label}]: host={host}, port={parsed.port or 5432}, database={parsed.path.lstrip("/") or "postgres"}, user_configured={bool(parsed.username)}.")
+                      print(f"Teste PostgreSQL [{label}]: host={host}, port={parsed.port or 5432}, database={parsed.path.lstrip('/') or 'postgres'}, user_configured={bool(parsed.username)}.")
                       with psycopg.connect(candidate, connect_timeout=8) as conn:
                           with conn.cursor() as cur:
                               cur.execute("SELECT 1")
