@@ -25,6 +25,16 @@ def env(name: str) -> str:
     return value
 
 
+def safe_error(error: Exception | str) -> str:
+    """Remove credenciais e detalhes potencialmente sensíveis dos registros operacionais."""
+    value = str(error or "")
+    value = re.sub(r"(?i)(postgres(?:ql)?://)[^\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)(token=)[^&\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", "[REDACTED PEM]", value, flags=re.DOTALL)
+    return value[:500]
+
+
 def normalize_unit(value: str) -> str:
     aliases = {
         "URS Jacara_pe": "URS Jacaraípe",
@@ -109,7 +119,7 @@ def mark(conn, outbox_id: int, status: str, error: str | None = None, max_attemp
                           END,
                           ultimo_erro=%s, atualizado_em=now()
                     WHERE id=%s""",
-                (max_attempts, max_attempts, str(error or "erro")[:2000], outbox_id),
+                (max_attempts, max_attempts, safe_error(error or "erro"), outbox_id),
             )
     conn.commit()
 
@@ -225,14 +235,14 @@ def main():
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
                 }, ensure_ascii=False))
             except Exception as exc:
-                mark(conn, int(outbox_id), "failed", str(exc), max_attempts)
+                mark(conn, int(outbox_id), "failed", safe_error(exc), max_attempts)
                 failed += 1
                 print(json.dumps({
                     "event": "patrimonios_sheets_outbox",
                     "outbox_id": int(outbox_id),
                     "patrimonio_id": int(patrimonio_id),
                     "result": "failed",
-                    "error": str(exc)[:500],
+                    "error": safe_error(exc),
                 }, ensure_ascii=False))
 
         print(json.dumps({
