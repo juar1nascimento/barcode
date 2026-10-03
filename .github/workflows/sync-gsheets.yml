@@ -12,21 +12,17 @@ concurrency:
   group: inventory-gsheets-sync
   cancel-in-progress: false
 
-env:
-  DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
-  GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
-  GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
-  SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
-  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.GTI_SUPABASE_SERVICE_ROLE_KEY }}
-  OUTBOX_BATCH_SIZE: "20"
-  OUTBOX_MAX_ATTEMPTS: "8"
-  SHEETS_RENEWAL_MAX_ROWS: "5000"
-
 jobs:
   validate:
     name: Validate sync configuration
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+      SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.GTI_SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,6 +76,12 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+      OUTBOX_BATCH_SIZE: "20"
+      OUTBOX_MAX_ATTEMPTS: "8"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -100,6 +102,15 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+      SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.GTI_SUPABASE_SERVICE_ROLE_KEY }}
+      OUTBOX_BATCH_SIZE: "20"
+      OUTBOX_MAX_ATTEMPTS: "8"
+      SHEETS_RENEWAL_MAX_ROWS: "5000"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
