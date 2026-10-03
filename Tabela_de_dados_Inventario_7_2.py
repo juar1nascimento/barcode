@@ -66,7 +66,7 @@ def _normalizar_unidade_aba(nome: str) -> str:
 
 
 def _valor_texto(v) -> str:
-    if v is None:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
         return ""
     s = str(v).strip()
     if re.fullmatch(r"-?\d+\.0", s):
