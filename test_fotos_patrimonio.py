@@ -27,7 +27,7 @@ def test_worker_sheet_url_usa_url_assinada(monkeypatch):
     import sheets_outbox_worker as worker
 
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
-    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "test-key")
     class Response:
         ok = True
         def json(self):
@@ -36,8 +36,6 @@ def test_worker_sheet_url_usa_url_assinada(monkeypatch):
     assert worker.sheet_url("patrimonio/1/foto 001.jpg").startswith(
         "https://example.supabase.co/storage/v1/object/sign/"
     )
-
-
 def test_intervalo_colunas_foto_nao_sobrescreve_id_patrimonio():
     from fotos_patrimonio import _intervalo_colunas_foto
 
