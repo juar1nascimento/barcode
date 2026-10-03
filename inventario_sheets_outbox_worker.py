@@ -183,6 +183,13 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
         "data de cadastro": "Data Cadastro",
     }
     normalized_header = [aliases.get(_header_key(item), str(item or "").strip()) for item in header]
+    legacy_header = [_header_key(item) for item in header]
+    legacy_cpu = ["setor", "cpu no de patrimonio", "fabricante cpu"]
+    if legacy_header[:3] == legacy_cpu:
+        raise RuntimeError(
+            f"Aba {unidade} usa estrutura legada de patrimônio (Setor/CPU Nº de Patrimônio/Fabricante CPU). "
+            "Migração estrutural obrigatória antes da sincronização."
+        )
     required_keys = [_header_key(item) for item in COLUNAS]
     actual_keys = [_header_key(item) for item in normalized_header]
     if actual_keys[:len(COLUNAS)] != required_keys:
