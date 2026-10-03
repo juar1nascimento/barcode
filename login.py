@@ -233,6 +233,8 @@ def _limpar_sessao_autenticacao():
     st.session_state.autenticado = False
     st.session_state.pop("usuario_logado", None)
     st.session_state.pop("ultimo_acesso_em", None)
+    st.session_state.pop("login_domain", None)
+    st.session_state.pop("erro_login_msg", None)
 
 
 def _login_bloqueado() -> bool:
