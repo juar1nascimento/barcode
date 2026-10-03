@@ -1,4 +1,4 @@
-name: Inventário GTI SESA - Sync Google Sheets
+name: Inventário GTI SESA - Google Sheets Sync
 
 on:
   workflow_dispatch:
@@ -12,24 +12,105 @@ concurrency:
   group: inventory-gsheets-sync
   cancel-in-progress: false
 
+env:
+  DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
+  GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
+  GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+  SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.GTI_SUPABASE_SERVICE_ROLE_KEY }}
+  OUTBOX_BATCH_SIZE: "20"
+  OUTBOX_MAX_ATTEMPTS: "8"
+  SHEETS_RENEWAL_MAX_ROWS: "5000"
+
 jobs:
-  sync:
+  validate:
+    name: Validate sync configuration
     runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-      GOOGLE_SHEET_ID: 12mNKTWLExRwZ3EKSB78oTScQk6ctGvi6eNKt5QyXEw
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - name: Instalar dependências
+      - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Validar código
-        run: python -m compileall -q .
-      - name: Processar outbox
-        run: python scripts/process_outbox.py
+      - name: Compile synchronization workers
+        run: |
+          python -m py_compile inventario_sheets_outbox_worker.py
+          python -m py_compile sheets_outbox_worker.py
+      - name: Validate required secrets without exposing values
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          required = [
+              "DATABASE_URL",
+              "GOOGLE_SERVICE_ACCOUNT_JSON",
+              "GOOGLE_SPREADSHEET_ID",
+              "SUPABASE_URL",
+              "SUPABASE_SERVICE_ROLE_KEY",
+          ]
+          missing = [name for name in required if not os.getenv(name, "").strip()]
+          if missing:
+              raise SystemExit("Secrets GTI ausentes: " + ", ".join(missing))
+
+          database = os.environ["DATABASE_URL"].strip()
+          parsed = urlparse(database)
+          if parsed.scheme not in ("postgresql", "postgres") or not parsed.netloc:
+              raise SystemExit("GTI_DATABASE_URL inválida: connection string PostgreSQL completa obrigatória.")
+
+          supabase = os.environ["SUPABASE_URL"].strip()
+          if not supabase.startswith(("https://", "http://")):
+              raise SystemExit("GTI_SUPABASE_URL inválida.")
+
+          print("Configuração GTI validada sem exibir valores sensíveis.")
+          PY
+      - name: Validate no hardcoded secret patterns
+        run: |
+          ! grep -RInE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@|AIza[0-9A-Za-z_-]{20,}'             --exclude-dir=.git --exclude='*.lock' .
+
+  sync-patrimonios:
+    name: Sync patrimonies
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Process patrimony outbox
+        run: python inventario_sheets_outbox_worker.py
+
+  sync-fotos:
+    name: Sync photos and renew signed URLs
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Process photo outbox
+        run: python sheets_outbox_worker.py
