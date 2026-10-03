@@ -44,7 +44,7 @@ def _config_supabase() -> dict:
     if not url or not key:
         raise RuntimeError(
             "Configure [supabase].url e [supabase].secret_key "
-            "(ou service_role_key) nos Secrets."
+            "(ou SUPABASE_SECRET_KEY) nos Secrets."
         )
 
     return {"url": url, "key": key}
