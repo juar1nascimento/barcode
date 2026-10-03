@@ -24,7 +24,7 @@ DRIVE_API = "https://www.googleapis.com/drive/v3"
 DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 ROOT_FOLDER_ENV = "GOOGLE_DRIVE_ROOT_FOLDER_ID"
-ROOT_FOLDER_SECRET = "root_folder_id"
+ROOT_FOLDER_SECRET = "drive_root"
 FOLDER_PREFIX = "Fotos - Inventário GTI SESA"
 TIMEOUT = 30
 
