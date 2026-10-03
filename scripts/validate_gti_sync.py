@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from urllib.parse import urlsplit
@@ -15,6 +16,7 @@ REQUIRED = (
     "GOOGLE_SPREADSHEET_ID",
 )
 POOLER_PORT = 6543
+SPREADSHEET_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,200}$")
 
 
 def _safe_error(exc: Exception) -> str:
@@ -58,6 +60,40 @@ def _validate_shape(host: str, user: str, dbname: str) -> str:
     return normalized_host
 
 
+def _validate_google_configuration() -> None:
+    raw_json = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"].strip()
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        raise SystemExit(
+            "GTI_GOOGLE_SERVICE_ACCOUNT_JSON inválido: JSON não pôde ser interpretado."
+        ) from None
+
+    required_fields = ("type", "client_email", "private_key", "token_uri")
+    missing = [field for field in required_fields if not str(data.get(field, "")).strip()]
+    if missing:
+        raise SystemExit(
+            "GTI_GOOGLE_SERVICE_ACCOUNT_JSON inválido: campos obrigatórios ausentes "
+            + ", ".join(missing)
+            + "."
+        )
+    if data.get("type") != "service_account":
+        raise SystemExit(
+            "GTI_GOOGLE_SERVICE_ACCOUNT_JSON inválido: a credencial deve ser de service account."
+        )
+    if not str(data.get("client_email", "")).endswith(".iam.gserviceaccount.com"):
+        raise SystemExit(
+            "GTI_GOOGLE_SERVICE_ACCOUNT_JSON inválido: client_email não corresponde a uma service account."
+        )
+
+    spreadsheet_id = os.environ["GOOGLE_SPREADSHEET_ID"].strip()
+    if not SPREADSHEET_ID_PATTERN.fullmatch(spreadsheet_id):
+        raise SystemExit(
+            "GTI_GOOGLE_SPREADSHEET_ID inválido: informe somente o ID da planilha, "
+            "não a URL completa."
+        )
+
+
 def main():
     missing = [name for name in REQUIRED if not os.getenv(name, "").strip()]
     if missing:
@@ -69,6 +105,7 @@ def main():
     normalized_host = _validate_shape(
         configured_host, configured_user, configured_dbname
     )
+    _validate_google_configuration()
 
     params = {
         "host": normalized_host,
