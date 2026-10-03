@@ -36,3 +36,4 @@ def test_photo_sync_does_not_expose_internal_exception():
 
 # Cobertura de segurança da sincronização mantida como requisito de CI.
 # Disparo controlado para validar o workflow com a configuração atual.
+# Execução real pós-c19138b.
