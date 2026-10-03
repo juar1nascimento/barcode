@@ -37,8 +37,6 @@ def _config_supabase() -> dict:
     url = str(sec.get("url") or os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
     key = str(
         sec.get("secret_key")
-        or sec.get("service_role_key")
-        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         or os.getenv("SUPABASE_SECRET_KEY")
         or ""
     ).strip()
