@@ -17,6 +17,14 @@ REQUIRED = (
 POOLER_PORT = 6543
 
 
+def _safe_error(exc: Exception) -> str:
+    message = str(exc)
+    message = re.sub(r"(?i)(password=)[^ ]+", r"\\1***", message)
+    message = re.sub(r"(?i)(postgres(?:ql)?://)[^ ]+", r"\\1***", message)
+    message = re.sub(r"\\s+", " ", message).strip()
+    return message[:300] or type(exc).__name__
+
+
 def _normalize_pooler_host(value: str) -> str:
     raw = value.strip()
     if "://" in raw:
