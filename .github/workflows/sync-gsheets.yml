@@ -57,52 +57,52 @@ jobs:
               raise SystemExit("Secrets GTI ausentes: " + ", ".join(missing))
 
           database = os.environ["DATABASE_URL"].strip()
-          candidates = [database]
+          from psycopg.conninfo import conninfo_to_dict
           parsed = urlsplit(database)
-          project_ref = ""
           host = parsed.hostname or ""
+          candidates = [("primary", database)]
+          if parsed.scheme not in {"postgres", "postgresql"} or not host:
+              raise SystemExit("GTI_DATABASE_URL possui formato inválido; use uma URI PostgreSQL válida.")
+          project_ref = ""
           if host.startswith("db.") and host.endswith(".supabase.co"):
               project_ref = host[3:-len(".supabase.co")]
-          if project_ref and parsed.scheme in {"postgres", "postgresql"}:
-              username = parsed.username or ""
-              if username == "postgres":
-                  username = f"postgres.{project_ref}"
-              password = parsed.password or ""
-              userinfo = quote(unquote(username), safe="")
-              if password:
-                  userinfo += ":" + quote(unquote(password), safe="")
-              pooler = urlunsplit((
-                  parsed.scheme,
-                  f"{userinfo}@{os.environ['SUPABASE_POOLER_HOST']}:6543",
-                  parsed.path or "/postgres",
-                  parsed.query,
-                  parsed.fragment,
-              ))
-              candidates.append(pooler)
-
-          last_error_type = "desconhecido"
-          for index, candidate in enumerate(candidates):
+          if project_ref:
               try:
-                  with psycopg.connect(candidate, connect_timeout=5) as conn:
-                      with conn.cursor() as cur:
-                          cur.execute("SELECT 1")
-                          cur.fetchone()
-                  if index == 1:
+                  params = conninfo_to_dict(database)
+                  username = params.get("user", "")
+                  if username == "postgres":
+                      username = f"postgres.{project_ref}"
+                  params["host"] = os.environ["SUPABASE_POOLER_HOST"]
+                  params["port"] = 6543
+                  params["user"] = username
+                  candidates.append(("supabase-pooler", params))
+              except Exception as exc:
+                  raise SystemExit("GTI_DATABASE_URL não pôde ser interpretada. Tipo técnico: " + type(exc).__name__ + ".")
+          failures = []
+          for label, candidate in candidates:
+              try:
+                  if isinstance(candidate, dict):
+                      print(f"Teste PostgreSQL [{label}]: host={candidate.get("host")}, port={candidate.get("port",5432)}, database={candidate.get("dbname","postgres")}, user_configured={bool(candidate.get("user"))}.")
+                      with psycopg.connect(**candidate, connect_timeout=8) as conn:
+                          with conn.cursor() as cur:
+                              cur.execute("SELECT 1")
+                              cur.fetchone()
+                  else:
+                      print(f"Teste PostgreSQL [{label}]: host={host}, port={parsed.port or 5432}, database={parsed.path.lstrip("/") or "postgres"}, user_configured={bool(parsed.username)}.")
+                      with psycopg.connect(candidate, connect_timeout=8) as conn:
+                          with conn.cursor() as cur:
+                              cur.execute("SELECT 1")
+                              cur.fetchone()
+                  if label == "supabase-pooler":
                       print("Conexão PostgreSQL validada pelo pooler IPv4 do Supabase.")
-                      print(f"::add-mask::{candidate}")
-                      with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-                          env_file.write(f"DATABASE_URL={candidate}\n")
                   else:
                       print("Conexão PostgreSQL validada sem exibir valores sensíveis.")
                   break
               except Exception as exc:
-                  last_error_type = type(exc).__name__
+                  sqlstate = getattr(exc, "sqlstate", None)
+                  failures.append(f"{label}:{type(exc).__name__}" + (f"/SQLSTATE={sqlstate}" if sqlstate else ""))
           else:
-              raise SystemExit(
-                  "GTI_DATABASE_URL não pôde ser conectada; valide o secret e a conectividade PostgreSQL. "
-                  f"Tipo técnico: {last_error_type}."
-              )
-          PY
+              raise SystemExit("GTI_DATABASE_URL não pôde ser conectada; diagnóstico seguro: " + ", ".join(failures))
       - name: Validate no hardcoded secret patterns
         run: |
           ! git grep -nE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@|AIza[0-9A-Za-z_-]{20,}' -- ':!tests/**' ':!.github/workflows/**'
