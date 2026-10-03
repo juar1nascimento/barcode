@@ -1,5 +1,6 @@
 import os
 import re
+from urllib.parse import urlsplit
 
 import psycopg
 
@@ -16,28 +17,25 @@ REQUIRED = (
 POOLER_PORT = 6543
 
 
-def _safe_error(exc: Exception) -> str:
-    message = str(exc)
-    message = re.sub(r"(?i)(password=)[^ ]+", r"\1***", message)
-    message = re.sub(r"(?i)(postgres(?:ql)?://)[^ ]+", r"\1***", message)
-    message = re.sub(r"\s+", " ", message).strip()
-    return message[:300] or type(exc).__name__
-
-
 def _normalize_pooler_host(value: str) -> str:
-    host = value.strip()
-    if host.endswith(f":{POOLER_PORT}"):
-        host = host[: -(len(str(POOLER_PORT)) + 1)]
-    return host
+    raw = value.strip()
+    if "://" in raw:
+        parsed = urlsplit(raw)
+        host = parsed.hostname or ""
+    else:
+        host = raw.rsplit("@", 1)[-1].split("/", 1)[0]
+        if host.count(":") == 1:
+            host = host.rsplit(":", 1)[0]
+    return host.rstrip(".").lower()
 
 
 def _validate_shape(host: str, user: str, dbname: str) -> str:
     normalized_host = _normalize_pooler_host(host)
     if not re.fullmatch(r"aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com", normalized_host):
         raise SystemExit(
-            "GTI_DB_HOST inválido: use o host do Transaction pooler copiado no "
-            "Connect do Supabase. É aceito o host puro ou o host seguido de :6543; "
-            "não use URL completa nem componha o host manualmente."
+            "GTI_DB_HOST inválido: informe o endpoint do Transaction pooler do "
+            "Connect do Supabase. O validador aceita host puro, host:porta ou "
+            "connection string PostgreSQL, mas não aceita outro endpoint."
         )
     if user != f"postgres.{PROJECT_REF}":
         raise SystemExit(
