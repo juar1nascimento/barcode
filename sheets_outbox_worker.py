@@ -58,14 +58,14 @@ def col_letter(n: int) -> str:
 
 def sheet_url(storage_path: str) -> str:
     base = env("SUPABASE_URL").rstrip("/")
-    key = env("SUPABASE_SERVICE_ROLE_KEY")
+    key = env("SUPABASE_SECRET_KEY")
     path = str(storage_path or "").lstrip("/")
     if not path:
         raise RuntimeError("Caminho da foto vazio.")
     endpoint = f"{base}/storage/v1/object/sign/{quote(BUCKET)}/{quote(path, safe='/')}"
     response = requests.post(
         endpoint,
-        headers={"Authorization": f"Bearer {key}", "apikey": key, "Content-Type": "application/json"},
+        headers={"apikey": key, "Content-Type": "application/json"},
         json={"expiresIn": PHOTO_URL_EXPIRATION_SECONDS},
         timeout=15,
     )
