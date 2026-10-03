@@ -23,7 +23,6 @@ jobs:
       DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
-      SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,7 +49,6 @@ jobs:
               "DATABASE_URL",
               "GOOGLE_SERVICE_ACCOUNT_JSON",
               "GOOGLE_SPREADSHEET_ID",
-              "SUPABASE_URL",
           ]
           missing = [name for name in required if not os.getenv(name, "").strip()]
           if missing:
@@ -60,10 +58,6 @@ jobs:
           parsed = urlparse(database)
           if parsed.scheme not in ("postgresql", "postgres") or not parsed.netloc:
               raise SystemExit("GTI_DATABASE_URL inválida: connection string PostgreSQL completa obrigatória.")
-
-          supabase = os.environ["SUPABASE_URL"].strip()
-          if not supabase.startswith(("https://", "http://")):
-              raise SystemExit("GTI_SUPABASE_URL inválida.")
 
           print("Configuração GTI base validada sem exibir valores sensíveis.")
           PY
@@ -80,6 +74,7 @@ jobs:
       DATABASE_URL: ${{ secrets.GTI_DATABASE_URL }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+      SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
       OUTBOX_BATCH_SIZE: "20"
       OUTBOX_MAX_ATTEMPTS: "8"
     steps:
@@ -121,8 +116,16 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Validate photo sync secret without exposing value
+      - name: Validate photo synchronization secrets without exposing values
         run: |
+          test -n "${SUPABASE_URL}" || {
+            echo "::error::Secret GTI_SUPABASE_URL não configurado; sincronização de fotos permanece bloqueada por segurança."
+            exit 1
+          }
+          case "${SUPABASE_URL}" in
+            https://*|http://*) ;;
+            *) echo "::error::Secret GTI_SUPABASE_URL inválido."; exit 1 ;;
+          esac
           test -n "${SUPABASE_SERVICE_ROLE_KEY}" || {
             echo "::error::Secret GTI_SUPABASE_SERVICE_ROLE_KEY não configurado; sincronização de fotos permanece bloqueada por segurança."
             exit 1
