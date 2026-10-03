@@ -15,7 +15,7 @@ def _jpeg_bytes(size=(2400, 1800), quality=95):
 def test_photo_normalization_produces_jpeg_within_storage_limit():
     data, width, height = storage._normalizar_jpeg(_jpeg_bytes())
 
-    assert data.startswith(b"\\xff\\xd8\\xff")
+    assert data.startswith(b"\xff\xd8\xff")
     assert len(data) <= storage.MAX_STORAGE_BYTES
     assert width > 0 and height > 0
 
