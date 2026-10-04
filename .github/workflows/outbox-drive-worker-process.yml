@@ -40,6 +40,16 @@ jobs:
             *) echo "::error::GTI_SUPABASE_SECRET_KEY não está no formato esperado."; exit 1 ;;
           esac
 
+      - name: Preflight Drive access without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          http_status="$(curl --silent --show-error --request POST --url "${SUPABASE_URL}/functions/v1/outbox-drive-worker" --header "Authorization: Bearer ${SUPABASE_SECRET_KEY}" --header "Content-Type: application/json" --data '{"mode":"validate_drive","limit":1}' --output /tmp/drive-preflight.json --write-out '%{http_code}')"
+          echo "PREFLIGHT_HTTP_STATUS=${http_status}"
+          cat /tmp/drive-preflight.json
+          test "${http_status}" -ge 200 && test "${http_status}" -lt 300
+          jq -e '.ok == true and .mode == "validate_drive" and .external_write == false' /tmp/drive-preflight.json
+
       - name: Invoke worker in controlled process mode
         shell: bash
         run: |
