@@ -241,34 +241,55 @@ def _download_supabase_photo(bucket: str, path: str) -> bytes:
     return data
 
 
-def _find_existing_photo(token: str, folder_id: str, name: str, sha256: str) -> Optional[dict]:
-    escaped = name.replace("'", "\\'")
+def _find_existing_photo(
+    token: str,
+    folder_id: str,
+    name: str,
+    sha256: str,
+    outbox_id: int,
+) -> Optional[dict]:
+    """Localiza somente o arquivo pertencente ao evento de outbox informado.
+
+    O SHA-256 comprova integridade, mas não identifica unicamente um evento:
+    fotos distintas podem ter o mesmo conteúdo. Portanto, nunca reutilizamos
+    um arquivo apenas por nome/SHA; a identidade é o gti_outbox_id.
+    """
+    escaped_outbox_id = str(int(outbox_id)).replace("'", "\\'")
     data = _drive_get(
         token,
         {
             "q": (
                 "trashed=false "
-                f"and name='{escaped}' "
-                f"and '{folder_id}' in parents"
+                f"and '{folder_id}' in parents "
+                "and appProperties has { "
+                f"key='gti_outbox_id' and value='{escaped_outbox_id}' "
+                "}"
             ),
             "pageSize": 10,
-            "fields": "files(id,name,md5Checksum,webViewLink,parents,size,appProperties)",
+            "fields": "files(id,name,webViewLink,parents,size,mimeType,appProperties)",
             "supportsAllDrives": "true",
             "includeItemsFromAllDrives": "true",
         },
     )
     for item in data.get("files") or []:
-        if item.get("md5Checksum"):
-            # O SHA-256 é mantido no metadata do arquivo pelo app; md5 é só
-            # um filtro adicional do Drive e nunca substitui a integridade do banco.
-            if item.get("appProperties", {}).get("inventario_sha256") == sha256:
-                return item
-        elif item.get("name") == name:
+        props = item.get("appProperties") or {}
+        if (
+            str(props.get("gti_outbox_id", "")) == str(outbox_id)
+            and str(props.get("inventario_sha256", "")) == sha256
+            and item.get("name") == name
+        ):
             return item
     return None
 
 
-def _upload_multipart(token: str, folder_id: str, name: str, data: bytes, sha256: str) -> dict:
+def _upload_multipart(
+    token: str,
+    folder_id: str,
+    name: str,
+    data: bytes,
+    sha256: str,
+    outbox_id: int,
+) -> dict:
     metadata = {
         "name": name,
         "parents": [folder_id],
@@ -277,6 +298,7 @@ def _upload_multipart(token: str, folder_id: str, name: str, data: bytes, sha256
         "appProperties": {
             "sistema": "inventario-gti-sesa",
             "inventario_sha256": sha256,
+            "gti_outbox_id": str(outbox_id),
         },
     }
     boundary = "inventario-gti-sesa-boundary"
@@ -333,13 +355,22 @@ def _get_file(token: str, file_id: str) -> dict:
     return response.json()
 
 
-def sincronizar_foto_drive(*, unidade: str, numero: str, ordem: int, bucket: str, path: str, sha256: str) -> dict:
+def sincronizar_foto_drive(
+    *,
+    unidade: str,
+    numero: str,
+    ordem: int,
+    bucket: str,
+    path: str,
+    sha256: str,
+    outbox_id: int,
+) -> dict:
     """Entrega uma foto no Drive de forma idempotente e sem compartilhamento público."""
     token = _token()
     folder_id = pasta_patrimonio(token, unidade, numero)
     name = f"{_safe_name(numero)} - Foto {int(ordem):02d}.jpg"
 
-    existing = _find_existing_photo(token, folder_id, name, sha256)
+    existing = _find_existing_photo(token, folder_id, name, sha256, outbox_id)
     if existing:
         return {
             "id": str(existing["id"]),
@@ -349,7 +380,7 @@ def sincronizar_foto_drive(*, unidade: str, numero: str, ordem: int, bucket: str
         }
 
     data = _download_supabase_photo(bucket, path)
-    uploaded = _upload_multipart(token, folder_id, name, data, sha256)
+    uploaded = _upload_multipart(token, folder_id, name, data, sha256, outbox_id)
     return {
         "id": str(uploaded["id"]),
         "name": str(uploaded.get("name") or name),
