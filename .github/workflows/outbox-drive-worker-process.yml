@@ -44,14 +44,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            --request POST \
-            --url "${SUPABASE_URL}/functions/v1/outbox-drive-worker" \
-            --header "Authorization: Bearer ${SUPABASE_SECRET_KEY}" \
-            --header "Content-Type: application/json" \
-            --data '{"mode":"process","limit":1}' \
-            --output /tmp/worker-response.json
+          http_status="$(curl --silent --show-error             --request POST             --url "${SUPABASE_URL}/functions/v1/outbox-drive-worker"             --header "Authorization: Bearer ${SUPABASE_SECRET_KEY}"             --header "Content-Type: application/json"             --data '{"mode":"process","limit":1}'             --output /tmp/worker-response.json             --write-out '%{http_code}')"
+
+          echo "HTTP_STATUS=${http_status}"
           cat /tmp/worker-response.json
+
+          if [ "${http_status}" -lt 200 ] || [ "${http_status}" -ge 300 ]; then
+            if jq -e '.error == "drive_processing_not_configured"' /tmp/worker-response.json >/dev/null 2>&1; then
+              echo "PROCESS_CONFIG: processing_enabled=$(jq -r '.configuration.processing_enabled // false' /tmp/worker-response.json)"
+              echo "PROCESS_CONFIG: oauth_configured=$(jq -r '.configuration.oauth_configured // false' /tmp/worker-response.json)"
+              echo "PROCESS_CONFIG: destination_configured=$(jq -r '.configuration.destination_configured // false' /tmp/worker-response.json)"
+            fi
+            exit 1
+          fi
+
           jq -e '.ok == true and .mode == "process" and .claimed_changes <= 1 and .synced_changes <= 1' /tmp/worker-response.json
 
       - name: Verify no worker-reported failure
