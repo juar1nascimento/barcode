@@ -34,42 +34,36 @@ TIMEOUT = 30
 
 
 def _google_service_account() -> dict:
-    # Em workers/CI, a variável de ambiente tem prioridade e evita qualquer
-    # dependência de secrets.toml do Streamlit.
+    """Carrega credencial do worker exclusivamente pelo ambiente de execução.
+
+    O worker CI não deve depender de st.secrets/Streamlit. Isso evita que uma
+    execução não interativa tente abrir secrets.toml e falhe por infraestrutura
+    alheia ao Google Drive.
+    """
     raw = os.getenv("GOOGLE_SHEETS_CREDENTIALS", "").strip()
-    if raw:
-        try:
-            sec = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("Credencial Google inválida (JSON malformado).") from exc
-        if sec.get("client_email") and sec.get("private_key"):
-            return sec
-
-    # Fallback somente para execução interativa do aplicativo Streamlit.
+    if not raw:
+        raise RuntimeError(
+            "Credencial Google ausente: configure GOOGLE_SHEETS_CREDENTIALS no worker."
+        )
     try:
-        if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-            sec = dict(st.secrets["connections"]["gsheets"])
-        elif "gcp_service_account" in st.secrets:
-            sec = dict(st.secrets["gcp_service_account"])
-        else:
-            sec = {}
-    except Exception:
-        sec = {}
-
+        sec = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "Credencial Google inválida (JSON malformado)."
+        ) from exc
     if not sec.get("client_email") or not sec.get("private_key"):
-        raise RuntimeError("Credencial Google não configurada para o repositório de fotos.")
+        raise RuntimeError(
+            "Credencial Google inválida: client_email/private_key ausentes."
+        )
     return sec
-
 
 def _root_folder_id() -> str:
     # Em CI/worker, a variável de ambiente tem prioridade.
     value = os.getenv(ROOT_FOLDER_ENV, "").strip()
     if not value:
-        try:
-            sec = dict(st.secrets.get("google_drive") or {})
-        except Exception:
-            sec = {}
-        value = sec.get(ROOT_FOLDER_SECRET) or ""
+        raise RuntimeError(
+            "Pasta raiz do Drive ausente: configure GOOGLE_DRIVE_ROOT_FOLDER_ID no worker."
+        )
     value = str(value).strip()
     if not value:
         raise RuntimeError("Configure a pasta raiz do Drive antes de habilitar a sincronização.")
