@@ -182,7 +182,7 @@ secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
             )
             st.markdown(
                 "Depois de salvar as Secrets, aguarde o aplicativo reiniciar e volte a esta tela. "
-                "O preflight deverá mostrar **5 itens verdes**. Só então faremos o teste de leitura "
+                "O preflight deverá mostrar **6 itens verdes**. Só então faremos o teste de leitura "
                 "do bucket e, depois, o primeiro upload controlado."
             )
 
