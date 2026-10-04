@@ -500,9 +500,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     # Saída/transferência são operações administrativas e o backend também
     # aplica a mesma autorização como defesa em profundidade.
     # ------------------------------------------------------------------
-    admin_email = str(st.secrets.get("email", {}).get("admin_email", "")).strip().casefold()
-    usuario_atual = str(st.session_state.get("usuario_logado", "")).strip().casefold()
-    is_admin = bool(usuario_atual and admin_email and usuario_atual == admin_email)
+    usuario_papel = str(st.session_state.get("usuario_papel", "usuario")).strip().lower()
+    is_admin = usuario_papel == "admin"
 
     if is_admin:
         with st.expander("🔄 Movimentar patrimônio", expanded=False):
@@ -777,9 +776,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
         # Exclusões são operações destrutivas e ficam restritas ao administrador.
         # O cadastro e a consulta continuam disponíveis aos usuários autenticados.
-        admin_email = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
-        usuario_atual = str(st.session_state.get("usuario_logado", "")).strip().lower()
-        is_admin = bool(usuario_atual and admin_email and usuario_atual == admin_email)
+        usuario_papel = str(st.session_state.get("usuario_papel", "usuario")).strip().lower()
+        is_admin = usuario_papel == "admin"
 
         if not is_admin:
             st.info("🔐 O gerenciador de exclusão é restrito ao administrador.")
