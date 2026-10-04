@@ -45,6 +45,63 @@ jobs:
             exit 1
           fi
 
+      - name: Adaptar conexão PostgreSQL para runner IPv4
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+
+          raw = os.environ["DATABASE_URL"].strip()
+          parts = urlsplit(raw)
+          host = (parts.hostname or "").lower()
+          project_ref = "vgabxdprocwmpmhoxrgt"
+          direct_host = f"db.{project_ref}.supabase.co"
+
+          # GitHub Actions pode operar em rede IPv4-only. O endpoint direto
+          # do Supabase é IPv6 por padrão; o Supavisor session pooler é IPv4.
+          if host == direct_host and (parts.username or "") == "postgres":
+              user = quote(f"postgres.{project_ref}", safe="")
+              password = quote(parts.password or "", safe="")
+              query = urlencode(parse_qsl(parts.query, keep_blank_values=True))
+              adapted = urlunsplit((
+                  parts.scheme or "postgresql",
+                  f"{user}:{password}@aws-0-sa-east-1.pooler.supabase.com:5432",
+                  parts.path or "/postgres",
+                  query,
+                  parts.fragment,
+              ))
+              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+                  env.write(f"DATABASE_URL={adapted}\n")
+              print("Conexão PostgreSQL direta detectada; usando Supavisor session mode IPv4.")
+          else:
+              print("Conexão PostgreSQL já está adequada para o runner; nenhuma alteração aplicada.")
+          PY
+
+      - name: Validar conexão PostgreSQL sem expor segredo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+          import psycopg
+
+          url = os.environ["DATABASE_URL"]
+          host = urlsplit(url).hostname or "desconhecido"
+          try:
+              with psycopg.connect(url, connect_timeout=10) as conn:
+                  with conn.cursor() as cur:
+                      cur.execute("select 1")
+                      if cur.fetchone() != (1,):
+                          raise RuntimeError("teste SQL não retornou o valor esperado")
+              print(f"Conexão PostgreSQL validada: {host}")
+          except Exception as exc:
+              print(f"Falha de conectividade PostgreSQL em {host}: {type(exc).__name__}.")
+              raise
+          PY
+
       - name: Validar credencial Google sem expor segredo
         shell: bash
         run: |
