@@ -3,6 +3,7 @@ import re
 from typing import Any
 import streamlit as st
 from supabase import Client, create_client
+from supabase.client import ClientOptions
 
 EMAIL_RE = re.compile(r"^[\w.\-+]+@[\w.\-]+\.\w+$")
 
@@ -18,7 +19,7 @@ def client() -> Client:
     c = st.session_state.get("_supabase_auth_client")
     if c is None:
         url, key = _config()
-        c = create_client(url, key)
+        c = create_client(url, key, options=ClientOptions(flow_type="pkce"))
         st.session_state["_supabase_auth_client"] = c
     return c
 
