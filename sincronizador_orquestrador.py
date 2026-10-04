@@ -17,5 +17,11 @@ def processar_sincronizacao_incremental(limit: int = 25) -> dict:
     return {
         "drive": drive,
         "sheets": sheets,
-        "ok": drive["dead_letter"] == 0 and sheets["falhas"] == 0,
+        # O workflow só pode ficar verde quando não houve falha transitória
+        # nem dead-letter no Drive e nenhuma falha no Sheets.
+        "ok": (
+            drive["falhas"] == 0
+            and drive["dead_letter"] == 0
+            and sheets["falhas"] == 0
+        ),
     }
