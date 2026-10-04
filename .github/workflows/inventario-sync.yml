@@ -58,36 +58,33 @@ jobs:
           pooler_host = "aws-0-sa-east-1.pooler.supabase.com"
           direct_host = f"db.{project_ref}.supabase.co"
 
-          # O segredo pode trazer o hostname do Supavisor entre colchetes.
-          # Se já for pooler, apenas normalizamos a sintaxe e evitamos urlsplit
-          # sobre um hostname DNS entre colchetes.
+          # Se o segredo já usa Supavisor, apenas removemos colchetes do DNS.
           if pooler_host in raw:
               raw = raw.replace(f"[{pooler_host}]", pooler_host)
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
                   env.write(f"DATABASE_URL={raw}\n")
               print("Conexão PostgreSQL já usa Supavisor; hostname normalizado para o runner.")
           else:
-              # Aceita o endpoint direto do Supabase sem alterar IPv6 literal.
+              # Normaliza apenas o hostname DNS direto conhecido; literais IPv6 permanecem intactos.
               raw = raw.replace(f"[{direct_host}]", direct_host)
               parts = urlsplit(raw)
               host = (parts.hostname or "").lower()
 
-              # GitHub Actions pode operar em rede IPv4-only. O endpoint direto
-              # do Supabase é IPv6 por padrão; o Supavisor session pooler é IPv4.
+              # O endpoint direto do Supabase pode ser IPv6; o Supavisor session mode é IPv4.
               if host == direct_host and (parts.username or "") == "postgres":
-              user = quote(f"postgres.{project_ref}", safe="")
-              password = quote(parts.password or "", safe="")
-              query = urlencode(parse_qsl(parts.query, keep_blank_values=True))
-              adapted = urlunsplit((
-                  parts.scheme or "postgresql",
-                  f"{user}:{password}@aws-0-sa-east-1.pooler.supabase.com:5432",
-                  parts.path or "/postgres",
-                  query,
-                  parts.fragment,
-              ))
-              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-                  env.write(f"DATABASE_URL={adapted}\n")
-              print("Conexão PostgreSQL direta detectada; usando Supavisor session mode IPv4.")
+                  user = quote(f"postgres.{project_ref}", safe="")
+                  password = quote(parts.password or "", safe="")
+                  query = urlencode(parse_qsl(parts.query, keep_blank_values=True))
+                  adapted = urlunsplit((
+                      parts.scheme or "postgresql",
+                      f"{user}:{password}@{pooler_host}:5432",
+                      parts.path or "/postgres",
+                      query,
+                      parts.fragment,
+                  ))
+                  with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+                      env.write(f"DATABASE_URL={adapted}\n")
+                  print("Conexão PostgreSQL direta detectada; usando Supavisor session mode IPv4.")
               else:
                   print("Conexão PostgreSQL já está adequada para o runner; nenhuma alteração aplicada.")
           PY
