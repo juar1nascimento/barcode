@@ -54,25 +54,30 @@ jobs:
           from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
           raw = os.environ["DATABASE_URL"].strip()
-          import re
-          raw = re.sub(r"(@)\[([^:\]]+)\]", r"\1\2", raw)
           project_ref = "vgabxdprocwmpmhoxrgt"
           pooler_host = "aws-0-sa-east-1.pooler.supabase.com"
           direct_host = f"db.{project_ref}.supabase.co"
 
-          # Se o segredo já usa Supavisor, apenas removemos colchetes do DNS.
+          # Normaliza hostname DNS entre colchetes sem tocar em senhas ou IPv6.
+          if "@" in raw:
+              prefix, hostpart = raw.rsplit("@", 1)
+              if hostpart.startswith("["):
+                  close = hostpart.find("]")
+                  candidate = hostpart[1:close] if close > 0 else ""
+                  if close > 0 and ":" not in candidate:
+                      raw = prefix + "@" + candidate + hostpart[close + 1:]
+
           if pooler_host in raw:
-              raw = raw.replace(f"[{pooler_host}]", pooler_host)
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
                   env.write(f"DATABASE_URL={raw}\n")
               print("Conexão PostgreSQL já usa Supavisor; hostname normalizado para o runner.")
           else:
-              # Normaliza apenas o hostname DNS direto conhecido; literais IPv6 permanecem intactos.
+              # Normaliza o endpoint direto conhecido; literais IPv6 permanecem intactos.
               raw = raw.replace(f"[{direct_host}]", direct_host)
+              from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
               parts = urlsplit(raw)
               host = (parts.hostname or "").lower()
 
-              # O endpoint direto do Supabase pode ser IPv6; o Supavisor session mode é IPv4.
               if host == direct_host and (parts.username or "") == "postgres":
                   user = quote(f"postgres.{project_ref}", safe="")
                   password = quote(parts.password or "", safe="")
@@ -104,13 +109,10 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import os
-          from urllib.parse import urlsplit
           import psycopg
 
           url = os.environ["DATABASE_URL"]
-          import re
-          url = re.sub(r"(@)\[([^:\]]+)\]", r"\1\2", url)
-          host = urlsplit(url).hostname or "desconhecido"
+          host = "supabase-postgres"
           try:
               with psycopg.connect(url, connect_timeout=10) as conn:
                   with conn.cursor() as cur:
