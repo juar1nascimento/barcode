@@ -57,7 +57,7 @@ jobs:
           # Aceita URLs copiadas do painel que tenham hostname DNS entre colchetes;
           # colchetes são válidos para literais IPv6, mas não para DNS.
           import re
-          raw = re.sub(r"@\[([A-Za-z0-9.-]+)\](?=:[0-9]+(?:/|$))", lambda match: "@" + match.group(1), raw)
+          raw = re.sub(r"\[([A-Za-z][A-Za-z0-9.-]*)\](?=:[0-9]+(?:/|$))", lambda match: match.group(1), raw)
           parts = urlsplit(raw)
           host = (parts.hostname or "").lower()
           project_ref = "vgabxdprocwmpmhoxrgt"
