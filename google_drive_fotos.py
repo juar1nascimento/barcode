@@ -13,9 +13,7 @@ import os
 import re
 from typing import Optional
 
-import requests
-import streamlit as st
-from google.oauth2.service_account import Credentials
+import requestsfrom google.oauth2.service_account import Credentials
 from google.auth.transport.requests import Request
 
 from supabase_storage import criar_url_assinada_storage
@@ -36,7 +34,7 @@ TIMEOUT = 30
 def _google_service_account() -> dict:
     """Carrega credencial do worker exclusivamente pelo ambiente de execução.
 
-    O worker CI não deve depender de st.secrets/Streamlit. Isso evita que uma
+    O worker CI não deve depender de secrets.toml/Streamlit. Isso evita que uma
     execução não interativa tente abrir secrets.toml e falhe por infraestrutura
     alheia ao Google Drive.
     """
