@@ -14,7 +14,8 @@ import re
 from typing import Optional
 
 import requests
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials as OAuthCredentials
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from google.auth.transport.requests import Request
 
 from supabase_storage import criar_url_assinada_storage
@@ -27,7 +28,10 @@ DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
 # somente para o worker dedicado, sem compartilhamento público.
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 ROOT_FOLDER_ENV = "GOOGLE_DRIVE_ROOT_FOLDER_ID"
-ROOT_FOLDER_SECRET = "_".join(("drive", "root"))
+OAUTH_CLIENT_ID_ENV = "GOOGLE_DRIVE_OAUTH_CLIENT_ID"
+OAUTH_CLIENT_SECRET_ENV = "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"
+OAUTH_REFRESH_TOKEN_ENV = "GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN"
+OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token"
 FOLDER_PREFIX = "Fotos - Inventário GTI SESA"
 TIMEOUT = 30
 
@@ -71,6 +75,19 @@ def _root_folder_id() -> str:
     return value
 
 
+def _drive_auth_mode() -> str:
+    values = [
+        os.getenv(OAUTH_CLIENT_ID_ENV, "").strip(),
+        os.getenv(OAUTH_CLIENT_SECRET_ENV, "").strip(),
+        os.getenv(OAUTH_REFRESH_TOKEN_ENV, "").strip(),
+    ]
+    if any(values) and not all(values):
+        raise RuntimeError(
+            "Configuração OAuth incompleta: informe as três credenciais OAuth do Drive."
+        )
+    return "oauth" if all(values) else "service_account"
+
+
 def _validate_root_access(token: str, root_id: str) -> None:
     """Valida a pasta raiz antes de tentar criar qualquer pasta filha.
 
@@ -88,9 +105,10 @@ def _validate_root_access(token: str, root_id: str) -> None:
         timeout=TIMEOUT,
     )
     if response.status_code == 404:
+        actor = "conta institucional OAuth" if _drive_auth_mode() == "oauth" else "conta de serviço"
         raise RuntimeError(
-            "Pasta raiz do Drive não está acessível à conta de serviço "
-            "(HTTP 404: ID inexistente ou pasta não compartilhada com a conta)."
+            f"Pasta raiz do Drive não está acessível à {actor} "
+            "(HTTP 404: ID inexistente ou pasta sem permissão para essa identidade)."
         )
     if not response.ok:
         raise RuntimeError(
@@ -100,23 +118,33 @@ def _validate_root_access(token: str, root_id: str) -> None:
     if data.get("mimeType") != "application/vnd.google-apps.folder":
         raise RuntimeError("O identificador configurado para a raiz do Drive não aponta para uma pasta.")
     capabilities = data.get("capabilities") or {}
-    if not data.get("driveId"):
+    if not data.get("driveId") and _drive_auth_mode() == "service_account":
         raise RuntimeError(
-            "A pasta raiz configurada está no Meu Drive. Contas de serviço não possuem cota de armazenamento para criar arquivos nesse local. "
-            "Use uma pasta dentro de um Drive compartilhado ou altere o worker para OAuth 2.0 em nome de um usuário."
+            "A pasta raiz está no Meu Drive, mas o worker está autenticado por conta de serviço. "
+            "Para Meu Drive, configure o OAuth 2.0 da conta institucional."
         )
     if capabilities.get("canAddChildren") is False:
+        actor = "conta institucional OAuth" if _drive_auth_mode() == "oauth" else "conta de serviço"
         raise RuntimeError(
-            "A conta de serviço acessa o Drive compartilhado, mas não possui permissão para gravar nessa pasta. "
-            "Conceda papel adequado no Drive compartilhado antes de reabrir o gate."
+            f"A {actor} acessa a pasta, mas não possui permissão para criar conteúdo nela."
         )
 
 
 def _token() -> str:
-    credentials = Credentials.from_service_account_info(
-        _google_service_account(),
-        scopes=[DRIVE_SCOPE],
-    )
+    if _drive_auth_mode() == "oauth":
+        credentials = OAuthCredentials(
+            token=None,
+            refresh_token=os.environ[OAUTH_REFRESH_TOKEN_ENV].strip(),
+            token_uri=OAUTH_TOKEN_URI,
+            client_id=os.environ[OAUTH_CLIENT_ID_ENV].strip(),
+            client_secret=os.environ[OAUTH_CLIENT_SECRET_ENV].strip(),
+            scopes=[DRIVE_SCOPE],
+        )
+    else:
+        credentials = ServiceAccountCredentials.from_service_account_info(
+            _google_service_account(),
+            scopes=[DRIVE_SCOPE],
+        )
     credentials.refresh(Request())
     if not credentials.token:
         raise RuntimeError("Google não retornou token de acesso ao Drive.")
