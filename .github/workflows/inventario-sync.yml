@@ -70,19 +70,13 @@ jobs:
           if pooler_host in raw:
               # psycopg/libpq não aceita o parâmetro URI pgbouncer; o modo já é
               # determinado pelo host/porta do Supavisor.
-              from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-              parts = urlsplit(raw)
-              query = urlencode(
-                  [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
-                   if key.lower() != "pgbouncer"]
-              )
-              raw = urlunsplit((
-                  parts.scheme or "postgresql",
-                  parts.netloc,
-                  parts.path or "/postgres",
-                  query,
-                  parts.fragment,
-              ))
+              if "?" in raw:
+                  base, query = raw.split("?", 1)
+                  query_parts = [
+                      item for item in query.split("&")
+                      if not item.lower().startswith("pgbouncer=") and item.lower() != "pgbouncer"
+                  ]
+                  raw = base + (("?" + "&".join(query_parts)) if query_parts else "")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
                   env.write(f"DATABASE_URL={raw}\n")
               print("Conexão PostgreSQL Supavisor normalizada para o runner.")
