@@ -34,32 +34,42 @@ TIMEOUT = 30
 
 
 def _google_service_account() -> dict:
-    sec = {}
+    # Em workers/CI, a variável de ambiente tem prioridade e evita qualquer
+    # dependência de secrets.toml do Streamlit.
+    raw = os.getenv("GOOGLE_SHEETS_CREDENTIALS", "").strip()
+    if raw:
+        try:
+            sec = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Credencial Google inválida (JSON malformado).") from exc
+        if sec.get("client_email") and sec.get("private_key"):
+            return sec
+
+    # Fallback somente para execução interativa do aplicativo Streamlit.
     try:
         if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
             sec = dict(st.secrets["connections"]["gsheets"])
         elif "gcp_service_account" in st.secrets:
             sec = dict(st.secrets["gcp_service_account"])
+        else:
+            sec = {}
     except Exception:
         sec = {}
 
-    if not sec:
-        raw = os.getenv("GOOGLE_SHEETS_CREDENTIALS", "").strip()
-        if raw:
-            sec = json.loads(raw)
-
     if not sec.get("client_email") or not sec.get("private_key"):
         raise RuntimeError("Credencial Google não configurada para o repositório de fotos.")
-
     return sec
 
 
 def _root_folder_id() -> str:
-    try:
-        sec = dict(st.secrets.get("google_drive") or {})
-    except Exception:
-        sec = {}
-    value = sec.get(ROOT_FOLDER_SECRET) or os.getenv(ROOT_FOLDER_ENV) or ""
+    # Em CI/worker, a variável de ambiente tem prioridade.
+    value = os.getenv(ROOT_FOLDER_ENV, "").strip()
+    if not value:
+        try:
+            sec = dict(st.secrets.get("google_drive") or {})
+        except Exception:
+            sec = {}
+        value = sec.get(ROOT_FOLDER_SECRET) or ""
     value = str(value).strip()
     if not value:
         raise RuntimeError("Configure a pasta raiz do Drive antes de habilitar a sincronização.")
