@@ -62,12 +62,16 @@ def _login_bloqueado() -> bool:
     return False
 
 
+APP_URL_PRODUCAO = "https://barcode-prxfe2eu4o34ae9tpejqpc.streamlit.app"
+
+
 def _url_base() -> str:
     cfg = st.secrets.get("supabase", {})
+    email_cfg = st.secrets.get("email", {})
     return str(
         cfg.get("app_url")
-        or st.secrets.get("email", {}).get("app_url")
-        or "http://localhost:8501"
+        or email_cfg.get("app_url")
+        or APP_URL_PRODUCAO
     ).rstrip("/")
 
 
