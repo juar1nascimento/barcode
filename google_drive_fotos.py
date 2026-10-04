@@ -82,7 +82,7 @@ def _validate_root_access(token: str, root_id: str) -> None:
         f"{DRIVE_API}/files/{root_id}",
         headers=_headers(token),
         params={
-            "fields": "id,name,mimeType,driveId,parents",
+            "fields": "id,name,mimeType,driveId,parents,capabilities(canAddChildren,canUploadItem),permissionDetails",
             "supportsAllDrives": "true",
         },
         timeout=TIMEOUT,
@@ -99,6 +99,12 @@ def _validate_root_access(token: str, root_id: str) -> None:
     data = response.json()
     if data.get("mimeType") != "application/vnd.google-apps.folder":
         raise RuntimeError("O identificador configurado para a raiz do Drive não aponta para uma pasta.")
+    capabilities = data.get("capabilities") or {}
+    if capabilities.get("canAddChildren") is False or capabilities.get("canUploadItem") is False:
+        raise RuntimeError(
+            "A conta de serviço consegue acessar a pasta raiz do Drive, mas não possui permissão de gravação/upload nela. "
+            "Conceda permissão de Editor/Colaborador à conta de serviço ou ajuste a pasta/Shared Drive antes de reabrir o gate."
+        )
 
 
 def _token() -> str:
@@ -260,7 +266,18 @@ def _upload_multipart(token: str, folder_id: str, name: str, data: bytes, sha256
         timeout=TIMEOUT,
     )
     if not response.ok:
-        raise RuntimeError(f"Falha no upload da foto ao Drive (HTTP {response.status_code}).")
+        detail = ""
+        try:
+            payload = response.json()
+            errors = payload.get("error", {}).get("errors") or []
+            reasons = [str(item.get("reason")) for item in errors if item.get("reason")]
+            if reasons:
+                detail = f" Motivo: {', '.join(dict.fromkeys(reasons))}."
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"Falha no upload da foto ao Drive (HTTP {response.status_code}).{detail}"
+        )
 
     file_id = response.json().get("id")
     if not file_id:
