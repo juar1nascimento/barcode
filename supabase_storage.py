@@ -32,14 +32,17 @@ JPEG_QUALITY_MIN = 55
 
 def _config_supabase() -> dict:
     import os
-    sec = st.secrets.get("supabase") or {}
 
-    url = str(sec.get("url") or os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
-    key = str(
-        sec.get("secret_key")
-        or os.getenv("SUPABASE_SECRET_KEY")
-        or ""
-    ).strip()
+    # Workers CI/produção devem preferir variáveis de ambiente e não podem
+    # depender de Streamlit Secrets. A interface Streamlit continua suportada
+    # como fallback quando o módulo é executado dentro do aplicativo.
+    url = str(os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+    key = str(os.getenv("SUPABASE_SECRET_KEY") or "").strip()
+
+    if not url or not key:
+        sec = st.secrets.get("supabase") or {}
+        url = str(sec.get("url") or url).strip().rstrip("/")
+        key = str(sec.get("secret_key") or key).strip()
 
     if not url or not key:
         raise RuntimeError(
