@@ -13,7 +13,8 @@ import os
 import re
 from typing import Optional
 
-import requestsfrom google.oauth2.service_account import Credentials
+import requests
+from google.oauth2.service_account import Credentials
 from google.auth.transport.requests import Request
 
 from supabase_storage import criar_url_assinada_storage
