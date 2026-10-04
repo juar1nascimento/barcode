@@ -20,13 +20,15 @@ def verificar_secrets_supabase() -> dict[str, bool]:
         }
 
     url = str(sec.get("url") or "").strip().rstrip("/")
-    key = str(sec.get("secret_key") or sec.get("service_role_key") or "").strip()
+    public_key = str(sec.get("publishable_key") or sec.get("anon_key") or "").strip()
+    server_key = str(sec.get("secret_key") or sec.get("service_role_key") or "").strip()
 
     return {
         "bloco_supabase": True,
         "url": bool(url),
-        "chave": bool(key),
-        "configuracao_pronta": bool(url and key),
+        "chave_publica_auth": bool(public_key),
+        "chave_servidor_storage": bool(server_key),
+        "configuracao_pronta": bool(url and public_key and server_key),
     }
 
 
