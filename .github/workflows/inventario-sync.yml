@@ -100,21 +100,15 @@ jobs:
               parts = urlsplit(raw)
               host = (parts.hostname or "").lower()
 
-              if host == direct_host and (parts.username or "") == "postgres":
-                  user = quote(f"postgres.{project_ref}", safe="")
-                  password = quote(parts.password or "", safe="")
-                  query = urlencode(parse_qsl(parts.query, keep_blank_values=True))
-                  adapted = urlunsplit((
-                      parts.scheme or "postgresql",
-                      f"{user}:{password}@{pooler_host}:5432",
-                      parts.path or "/postgres",
-                      query,
-                      parts.fragment,
-                  ))
+              if host == direct_host:
+                  # Não inventa o host/índice do Supavisor. Mantém o endpoint fornecido
+                  # e deixa a validação de conectividade decidir se ele é utilizável.
                   with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-                      env.write(f"DATABASE_URL_SYNC={adapted}\n")
-                  print("Conexão PostgreSQL direta detectada; usando Supavisor session mode IPv4.")
+                      env.write(f"DATABASE_URL_SYNC={raw}\n")
+                  print("Endpoint PostgreSQL direto preservado; nenhuma alteração de host aplicada.")
               else:
+                  with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+                      env.write(f"DATABASE_URL_SYNC={raw}\n")
                   print("Conexão PostgreSQL já está adequada para o runner; nenhuma alteração aplicada.")
           PY
 
