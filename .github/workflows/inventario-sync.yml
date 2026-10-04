@@ -89,6 +89,13 @@ jobs:
                   print("Conexão PostgreSQL já está adequada para o runner; nenhuma alteração aplicada.")
           PY
 
+      - name: Instalar dependências
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+
       - name: Validar conexão PostgreSQL sem expor segredo
         shell: bash
         run: |
@@ -131,12 +138,6 @@ jobs:
                   raise SystemExit(f"Credencial Google inválida: campo obrigatório ausente ({field}).")
           print("Credencial Google validada estruturalmente; conteúdo secreto não será exibido.")
           PY
-
-      - name: Instalar dependências
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
 
       - name: Executar sincronização incremental
         shell: bash
