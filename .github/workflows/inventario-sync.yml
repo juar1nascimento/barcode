@@ -130,11 +130,15 @@ jobs:
           python - <<'PY'
           import os
           import psycopg
-          from psycopg.conninfo import make_conninfo
+          from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
           url = os.environ["DATABASE_URL_SYNC"]
           project_ref = "vgabxdprocwmpmhoxrgt"
-          url = make_conninfo(url, user="postgres." + project_ref, port=5432)
+          params = conninfo_to_dict(url)
+          params["user"] = "postgres." + project_ref
+          params["port"] = 5432
+          params.pop("pgbouncer", None)
+          url = make_conninfo(**params)
           host = "supabase-postgres"
           try:
               with psycopg.connect(url, connect_timeout=10) as conn:
@@ -176,9 +180,13 @@ jobs:
           import json
           import os
           project_ref = "vgabxdprocwmpmhoxrgt"
-          from psycopg.conninfo import make_conninfo
+          from psycopg.conninfo import conninfo_to_dict, make_conninfo
           url = os.environ["DATABASE_URL_SYNC"]
-          os.environ["DATABASE_URL"] = make_conninfo(url, user="postgres." + project_ref, port=5432)
+          params = conninfo_to_dict(url)
+          params["user"] = "postgres." + project_ref
+          params["port"] = 5432
+          params.pop("pgbouncer", None)
+          os.environ["DATABASE_URL"] = make_conninfo(**params)
           from sincronizador_orquestrador import processar_sincronizacao_incremental
 
           resultado = processar_sincronizacao_incremental(limit=25)
