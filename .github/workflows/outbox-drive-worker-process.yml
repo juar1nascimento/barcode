@@ -1,0 +1,61 @@
+name: Inventário GTI SESA - Drive Worker Process
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gti-drive-worker-process
+  cancel-in-progress: false
+
+jobs:
+  process:
+    name: Process one Drive outbox item
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.GTI_SUPABASE_SECRET_KEY }}
+    steps:
+      - name: Validate required secrets without exposing values
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_URL}" || {
+            echo "::error::GTI_SUPABASE_URL não configurado."
+            exit 1
+          }
+          case "${SUPABASE_URL}" in
+            https://*.supabase.co) ;;
+            *) echo "::error::GTI_SUPABASE_URL inválido."; exit 1 ;;
+          esac
+          test -n "${SUPABASE_SECRET_KEY}" || {
+            echo "::error::GTI_SUPABASE_SECRET_KEY não configurado."
+            exit 1
+          }
+          case "${SUPABASE_SECRET_KEY}" in
+            sb_secret_*) ;;
+            *) echo "::error::GTI_SUPABASE_SECRET_KEY não está no formato esperado."; exit 1 ;;
+          esac
+
+      - name: Invoke worker in controlled process mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "${SUPABASE_URL}/functions/v1/outbox-drive-worker" \
+            --header "Authorization: Bearer ${SUPABASE_SECRET_KEY}" \
+            --header "Content-Type: application/json" \
+            --data '{"mode":"process","limit":1}' \
+            --output /tmp/worker-response.json
+          cat /tmp/worker-response.json
+          jq -e '.ok == true and .mode == "process" and .claimed_changes <= 1 and .synced_changes <= 1' /tmp/worker-response.json
+
+      - name: Verify no worker-reported failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '([.results[]? | select(.status == "failed")] | length) == 0' /tmp/worker-response.json
