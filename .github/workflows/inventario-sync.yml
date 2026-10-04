@@ -54,6 +54,8 @@ jobs:
           from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
           raw = os.environ["DATABASE_URL"].strip()
+          import re
+          raw = re.sub(r"(@)\[([^:\]]+)\]", r"\1\2", raw)
           project_ref = "vgabxdprocwmpmhoxrgt"
           pooler_host = "aws-0-sa-east-1.pooler.supabase.com"
           direct_host = f"db.{project_ref}.supabase.co"
@@ -105,7 +107,9 @@ jobs:
           from urllib.parse import urlsplit
           import psycopg
 
-          url = os.environ["DATABASE_URL"].replace("[aws-0-sa-east-1.pooler.supabase.com]", "aws-0-sa-east-1.pooler.supabase.com").replace("[db.vgabxdprocwmpmhoxrgt.supabase.co]", "db.vgabxdprocwmpmhoxrgt.supabase.co")
+          url = os.environ["DATABASE_URL"]
+          import re
+          url = re.sub(r"(@)\[([^:\]]+)\]", r"\1\2", url)
           host = urlsplit(url).hostname or "desconhecido"
           try:
               with psycopg.connect(url, connect_timeout=10) as conn:
