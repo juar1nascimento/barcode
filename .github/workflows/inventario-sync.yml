@@ -87,7 +87,7 @@ jobs:
                   ]
                   raw = base + (("?" + "&".join(query_parts)) if query_parts else "")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-                  env.write(f"DATABASE_URL={raw}\n")
+                  env.write(f"DATABASE_URL_SYNC={raw}\n")
               print("Conexão PostgreSQL Supavisor normalizada para session mode IPv4.")
           else:
               # Normaliza o endpoint direto conhecido; literais IPv6 permanecem intactos.
@@ -108,7 +108,7 @@ jobs:
                       parts.fragment,
                   ))
                   with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-                      env.write(f"DATABASE_URL={adapted}\n")
+                      env.write(f"DATABASE_URL_SYNC={adapted}\n")
                   print("Conexão PostgreSQL direta detectada; usando Supavisor session mode IPv4.")
               else:
                   print("Conexão PostgreSQL já está adequada para o runner; nenhuma alteração aplicada.")
@@ -129,7 +129,7 @@ jobs:
           import os
           import psycopg
 
-          url = os.environ["DATABASE_URL"]
+          url = os.environ["DATABASE_URL_SYNC"]
           host = "supabase-postgres"
           try:
               with psycopg.connect(url, connect_timeout=10) as conn:
@@ -167,6 +167,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export DATABASE_URL="${DATABASE_URL_SYNC}"
           python - <<'PY'
           import json
           from sincronizador_orquestrador import processar_sincronizacao_incremental
