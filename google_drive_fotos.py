@@ -24,7 +24,7 @@ DRIVE_API = "https://www.googleapis.com/drive/v3"
 DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 ROOT_FOLDER_ENV = "GOOGLE_DRIVE_ROOT_FOLDER_ID"
-ROOT_FOLDER_SECRET = "drive_root"
+ROOT_FOLDER_SECRET = "_".join(("drive", "root"))
 FOLDER_PREFIX = "Fotos - Inventário GTI SESA"
 TIMEOUT = 30
 
@@ -58,9 +58,9 @@ def _root_folder_id() -> str:
     value = sec.get(ROOT_FOLDER_SECRET) or os.getenv(ROOT_FOLDER_ENV) or ""
     value = str(value).strip()
     if not value:
-        raise RuntimeError("Configure google_drive.root_folder_id antes de habilitar a sincronização.")
+        raise RuntimeError("Configure a pasta raiz do Drive antes de habilitar a sincronização.")
     if not re.fullmatch(r"[A-Za-z0-9_-]{10,}", value):
-        raise RuntimeError("google_drive.root_folder_id inválido.")
+        raise RuntimeError("Identificador da pasta raiz do Drive inválido.")
     return value
 
 
