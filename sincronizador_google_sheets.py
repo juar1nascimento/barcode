@@ -241,6 +241,37 @@ def _nome_foto_drive(foto: dict) -> str:
     return nome or f"{foto['numero']} - Foto {int(foto['ordem']):02d}.jpg"
 
 
+def _separador_formula_sheets(planilha) -> str:
+    """Retorna o separador de argumentos conforme a localidade da planilha."""
+    try:
+        metadata = planilha.fetch_sheet_metadata()
+        locale = str((metadata.get("properties") or {}).get("locale") or "").lower()
+        return ";" if locale.startswith(("pt", "es", "de", "fr", "it", "nl")) else ","
+    except Exception:
+        # A planilha atual é corporativa em português; falhar fechado para o
+        # formato compatível com pt-BR evita o erro de análise de fórmula.
+        return ";"
+
+
+def _normalizar_cabecalhos_fotos(aba) -> list[str]:
+    """Migra cabeçalhos legados 'Foto 1' para o padrão 'Foto 01' sem duplicar colunas."""
+    headers = [str(v).strip() for v in (aba.row_values(1) or [])]
+    alterados = False
+    for indice, header in enumerate(headers):
+        match = re.fullmatch(r"Foto (\\d+)", header, flags=re.IGNORECASE)
+        if not match:
+            continue
+        ordem = int(match.group(1))
+        if 1 <= ordem <= FOTO_MAX_COLUNAS:
+            novo = f"{FOTO_PREFIXO_COLUNA}{ordem:02d}"
+            if novo != header:
+                headers[indice] = novo
+                alterados = True
+    if alterados:
+        aba.update(values=[headers], range_name=f"A1:{_coluna(len(headers))}1", value_input_option="RAW")
+    return headers
+
+
 def _espelhar_foto(item: dict) -> None:
     foto = _buscar_foto(item["foto_id"])
     patrimonio = _buscar_patrimonio(foto["patrimonio_id"])
@@ -258,7 +289,7 @@ def _espelhar_foto(item: dict) -> None:
         raise RuntimeError("Cabeçalho da aba não corresponde ao schema canônico do inventário.")
 
     _garantir_colunas_fotos(aba, foto["ordem"])
-    headers = [str(v).strip() for v in (aba.row_values(1) or [])]
+    headers = _normalizar_cabecalhos_fotos(aba)
     if foto["ordem"] > FOTO_MAX_COLUNAS:
         raise RuntimeError("Limite de fotos por patrimônio excedido para o modelo tabular do Sheets.")
     coluna_nome = f"{FOTO_PREFIXO_COLUNA}{foto['ordem']:02d}"
@@ -292,7 +323,8 @@ def _espelhar_foto(item: dict) -> None:
 
     nome = _nome_foto_drive(foto).replace(chr(34), chr(34) + chr(34))
     url_planilha = drive_url.replace(chr(34), chr(34) + chr(34))
-    formula = f'=HYPERLINK("{url_planilha}","{nome}")'
+    separador = _separador_formula_sheets(planilha)
+    formula = f'=HYPERLINK("{url_planilha}"{separador}"{nome}")'
     aba.update_cell(linha_planilha, coluna, formula, value_input_option="USER_ENTERED")
 
 
