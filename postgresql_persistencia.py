@@ -17,20 +17,20 @@ TIPOS_PATRIMONIO = (
 
 
 def _conexao_configurada() -> bool:
-    """Aceita Streamlit Secrets no app e variáveis de ambiente no worker CI."""
+    """Aceita a URL de ambiente como autoridade no worker CI e Streamlit Secrets no app."""
+    import os
+    if os.getenv("DATABASE_URL", "").strip():
+        return True
     try:
-        import os
         sec = st.secrets.get("postgresql")
         if sec and sec.get("url"):
             return True
         if sec:
             obrigatorios = ("host", "dbname", "user", "password")
-            if all(sec.get(k) for k in obrigatorios):
-                return True
-        return bool(os.getenv("DATABASE_URL"))
+            return all(sec.get(k) for k in obrigatorios)
     except Exception:
-        import os
-        return bool(os.getenv("DATABASE_URL"))
+        pass
+    return False
 
 def persistencia_postgresql_configurada() -> bool:
     """Indica se o PostgreSQL está configurado sem abrir uma conexão."""
@@ -56,8 +56,15 @@ def conectar() -> Optional[object]:
     try:
         import os
         import psycopg
+
+        # No CI/worker, DATABASE_URL é a conexão já validada pelo workflow.
+        # Ela deve prevalecer sobre qualquer st.secrets residual do ambiente.
+        env_url = os.getenv("DATABASE_URL", "").strip()
+        if env_url:
+            return psycopg.connect(env_url)
+
         sec = st.secrets.get("postgresql") or {}
-        url = str(sec.get("url") or os.getenv("DATABASE_URL") or "").strip()
+        url = str(sec.get("url") or "").strip()
         if url:
             return psycopg.connect(url)
 
@@ -67,7 +74,10 @@ def conectar() -> Optional[object]:
             return None
         return psycopg.connect(**cfg)
     except Exception:
-        st.warning("PostgreSQL indisponível. Verifique a Secret [postgresql].")
+        try:
+            st.warning("PostgreSQL indisponível. Verifique a Secret [postgresql].")
+        except Exception:
+            pass
         return None
 
 
