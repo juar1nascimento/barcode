@@ -68,6 +68,36 @@ def _root_folder_id() -> str:
     return value
 
 
+def _validate_root_access(token: str, root_id: str) -> None:
+    """Valida a pasta raiz antes de tentar criar qualquer pasta filha.
+
+    HTTP 404 no Drive pode significar tanto ID inexistente quanto recurso não
+    compartilhado com a conta de serviço. Não prossegue com criação de filhos
+    nesses casos, evitando tentativas repetidas e deixando a causa explícita.
+    """
+    response = requests.get(
+        f"{DRIVE_API}/files/{root_id}",
+        headers=_headers(token),
+        params={
+            "fields": "id,name,mimeType,driveId,parents",
+            "supportsAllDrives": "true",
+        },
+        timeout=TIMEOUT,
+    )
+    if response.status_code == 404:
+        raise RuntimeError(
+            "Pasta raiz do Drive não está acessível à conta de serviço "
+            "(HTTP 404: ID inexistente ou pasta não compartilhada com a conta)."
+        )
+    if not response.ok:
+        raise RuntimeError(
+            f"Não foi possível validar a pasta raiz do Drive (HTTP {response.status_code})."
+        )
+    data = response.json()
+    if data.get("mimeType") != "application/vnd.google-apps.folder":
+        raise RuntimeError("O identificador configurado para a raiz do Drive não aponta para uma pasta.")
+
+
 def _token() -> str:
     credentials = Credentials.from_service_account_info(
         _google_service_account(),
@@ -146,6 +176,7 @@ def _ensure_folder(token: str, parent_id: str, name: str) -> str:
 
 def pasta_patrimonio(token: str, unidade: str, numero: str) -> str:
     root = _root_folder_id()
+    _validate_root_access(token, root)
     fotos_root = _ensure_folder(token, root, FOLDER_PREFIX)
     unidade_folder = _ensure_folder(token, fotos_root, _safe_name(unidade))
     return _ensure_folder(token, unidade_folder, f"Patrimônio {numero}")
