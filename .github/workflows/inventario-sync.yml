@@ -19,11 +19,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-      GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-      GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+      DATABASE_URL: ${{ secrets.GTI_DATABASE_URL || secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL || secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.GTI_SUPABASE_SECRET_KEY || secrets.SUPABASE_SECRET_KEY }}
+      GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON || secrets.GOOGLE_SHEETS_CREDENTIALS }}
+      GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GTI_GOOGLE_DRIVE_ROOT_FOLDER_ID || secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+      GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID || secrets.GOOGLE_SPREADSHEET_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for name in DATABASE_URL SUPABASE_URL SUPABASE_SECRET_KEY GOOGLE_SHEETS_CREDENTIALS GOOGLE_DRIVE_ROOT_FOLDER_ID; do
+          for name in DATABASE_URL SUPABASE_URL SUPABASE_SECRET_KEY GOOGLE_SHEETS_CREDENTIALS GOOGLE_DRIVE_ROOT_FOLDER_ID GOOGLE_SPREADSHEET_ID; do
             if [ -z "${!name:-}" ]; then
               echo "::warning::Secret ${name} não configurada; sincronização não executada."
               missing=1
