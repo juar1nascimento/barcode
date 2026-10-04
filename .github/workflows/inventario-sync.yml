@@ -89,7 +89,8 @@ jobs:
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
                   env.write(f"DATABASE_URL_SYNC={raw}\n")
               safe_user = raw.split("://", 1)[1].split(":", 1)[0] if "://" in raw else "desconhecido"
-              print(f"Supavisor URI normalizada; tenant_user_ok={safe_user == f\"postgres.{project_ref}\"}.")
+              tenant_user_ok = safe_user == ("postgres." + project_ref)
+              print(f"Supavisor URI normalizada; tenant_user_ok={tenant_user_ok}.")
           else:
               # Normaliza o endpoint direto conhecido; literais IPv6 permanecem intactos.
               raw = raw.replace(f"[{direct_host}]", direct_host)
