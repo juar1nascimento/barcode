@@ -70,15 +70,8 @@ jobs:
           if pooler_host in raw:
               # Supavisor usa postgres.[PROJECT-REF] e, para este job,
               # session mode em 5432 evita limitações de transaction pooling.
+              raw = raw.replace("://postgres:", f"://postgres.{project_ref}:", 1)
               prefix, hostpart = raw.rsplit("@", 1)
-              scheme_sep = prefix.find("://")
-              userinfo = prefix[scheme_sep + 3:] if scheme_sep >= 0 else prefix
-              if ":" in userinfo:
-                  # A URL de pooler legada pode trazer apenas "postgres"; o
-                  # Supavisor compartilhado exige o tenant no usuário.
-                  if userinfo.startswith("postgres:"):
-                      userinfo = f"postgres.{project_ref}:" + userinfo.split(":", 1)[1]
-                      prefix = prefix[:scheme_sep + 3] + userinfo
               if ":" in hostpart:
                   host, remainder = hostpart.split(":", 1)
                   port = remainder.split("/", 1)[0]
