@@ -82,7 +82,7 @@ def _validate_root_access(token: str, root_id: str) -> None:
         f"{DRIVE_API}/files/{root_id}",
         headers=_headers(token),
         params={
-            "fields": "id,name,mimeType,driveId,parents,capabilities(canAddChildren,canUploadItem),permissionDetails",
+            "fields": "id,name,mimeType,driveId,parents,capabilities(canAddChildren,canModifyContent)",
             "supportsAllDrives": "true",
         },
         timeout=TIMEOUT,
@@ -100,7 +100,7 @@ def _validate_root_access(token: str, root_id: str) -> None:
     if data.get("mimeType") != "application/vnd.google-apps.folder":
         raise RuntimeError("O identificador configurado para a raiz do Drive não aponta para uma pasta.")
     capabilities = data.get("capabilities") or {}
-    if capabilities.get("canAddChildren") is False or capabilities.get("canUploadItem") is False:
+    if capabilities.get("canAddChildren") is False:
         raise RuntimeError(
             "A conta de serviço consegue acessar a pasta raiz do Drive, mas não possui permissão de gravação/upload nela. "
             "Conceda permissão de Editor/Colaborador à conta de serviço ou ajuste a pasta/Shared Drive antes de reabrir o gate."
