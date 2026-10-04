@@ -40,7 +40,8 @@ jobs:
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "CONFIGURACAO_INCOMPLETA=1" >> "$GITHUB_ENV"
+            echo "::error::Configuração incompleta: a sincronização incremental não pode ser considerada bem-sucedida."
+            exit 1
           fi
 
       - name: Instalar dependências
