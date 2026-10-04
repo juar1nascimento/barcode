@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from google_drive_fotos import sincronizar_foto_drive
+from google_drive_fotos import _root_folder_id, _token, _validate_root_access, sincronizar_foto_drive
 from postgresql_persistencia import conectar
 
 MAX_TENTATIVAS = 5
@@ -117,8 +117,23 @@ def _registrar_falha(evento_id: int, status: str, tentativas: int, erro: str) ->
         conn.close()
 
 
+def _preflight_drive() -> None:
+    """Valida credencial e acesso à raiz antes de consumir tentativas da fila."""
+    token = _token()
+    root_id = _root_folder_id()
+    _validate_root_access(token, root_id)
+
+
 def processar_fila_google_drive(limit: int = 25) -> dict:
     resultado = {"processados": 0, "sucesso": 0, "falhas": 0, "dead_letter": 0}
+    try:
+        _preflight_drive()
+    except Exception as exc:
+        # Falha de infraestrutura/configuração não deve consumir tentativas
+        # nem levar itens válidos a dead-letter.
+        resultado["falhas"] = 1
+        resultado["erro_preflight"] = str(exc)[:1000]
+        return resultado
     for item in _claim(limit):
         resultado["processados"] += 1
         try:
