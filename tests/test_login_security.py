@@ -1,32 +1,18 @@
 import ast
 from pathlib import Path
 
+import auth_supabase
 import login
 
 
-def test_existing_account_cannot_be_overwritten():
-    existing = {
-        "admin@example.com": {
-            "senha": login.hash_senha("Abc12345"),
-            "aprovado": True,
-        }
-    }
-    original_hash = existing["admin@example.com"]["senha"]
-
-    assert login.registrar_novo_usuario(existing, "admin@example.com", "Xyz98765") is False
-    assert existing["admin@example.com"]["senha"] == original_hash
-    assert existing["admin@example.com"]["aprovado"] is True
+def test_password_policy_requires_strong_password():
+    assert auth_supabase.senha_forte("Abc12345")[0] is False
+    assert auth_supabase.senha_forte("Abcdefgh1234!")[0] is True
 
 
-def test_new_account_is_created_pending_approval():
-    users = {}
-
-    assert login.registrar_novo_usuario(users, "novo@example.com", "Abc12345") is True
-    assert users["novo@example.com"]["aprovado"] is False
-
-    valido, migrar = login.verificar_senha("Abc12345", users["novo@example.com"]["senha"])
-    assert valido is True
-    assert migrar is False
+def test_email_validation_is_strict_enough_for_login():
+    assert auth_supabase.validar_email("usuario@serra.es.gov.br") is True
+    assert auth_supabase.validar_email("usuario-sem-dominio") is False
 
 
 def test_session_timeout_is_enforced_in_login_flow():
@@ -41,20 +27,19 @@ def test_session_timeout_is_enforced_in_login_flow():
 
     assert "SESSAO_INATIVA_SEGUNDOS" in function_source
     assert "_limpar_sessao_autenticacao()" in function_source
-    assert "time.time() - ultimo_acesso" in function_source
+    assert "time.time() - ultimo" in function_source
 
 
-def test_approval_token_digest_is_one_way_and_deterministic():
-    token = "nonce.payload.signature"
-    digest_a = login._digest_token_aprovacao(token)
-    digest_b = login._digest_token_aprovacao(token)
-    assert digest_a == digest_b
-    assert digest_a != token
-    assert len(digest_a) == 64
-
-
-def test_approval_flow_consumes_persisted_token_digest():
+def test_login_does_not_store_plaintext_password():
     source = Path("login.py").read_text(encoding="utf-8")
-    assert "_digest_token_aprovacao(str(token))" in source
-    assert 'db[user].get("approval_token_digests", {})' in source
-    assert 'db[user].pop("approval_token_digests", None)' in source
+    assert "st.session_state[\"login_pass\"]" in source
+    assert "hash_senha" not in source
+    assert "registrar_novo_usuario" not in source
+    assert "verificar_senha" not in source
+
+
+def test_auth_module_uses_supabase_auth_for_credentials():
+    source = Path("auth_supabase.py").read_text(encoding="utf-8")
+    assert "sign_in_with_password" in source
+    assert "reset_password_for_email" in source
+    assert "update_user" in source
