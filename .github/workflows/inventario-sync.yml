@@ -74,9 +74,10 @@ jobs:
               scheme_sep = prefix.find("://")
               userinfo = prefix[scheme_sep + 3:] if scheme_sep >= 0 else prefix
               if ":" in userinfo:
-                  user, password = userinfo.split(":", 1)
-                  if user == "postgres":
-                      userinfo = f"postgres.{project_ref}:{password}"
+                  # A URL de pooler legada pode trazer apenas "postgres"; o
+                  # Supavisor compartilhado exige o tenant no usuário.
+                  if userinfo.startswith("postgres:"):
+                      userinfo = f"postgres.{project_ref}:" + userinfo.split(":", 1)[1]
                       prefix = prefix[:scheme_sep + 3] + userinfo
               if ":" in hostpart:
                   host, remainder = hostpart.split(":", 1)
