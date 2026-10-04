@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "7/5 * * * *"
+    - cron: "*/5 * * * *"
 
 concurrency:
   group: inventario-gti-sesa-sync
@@ -45,15 +45,36 @@ jobs:
             exit 1
           fi
 
-      - name: Instalar dependências
-        if: env.CONFIGURACAO_INCOMPLETA != '1'
+      - name: Validar credencial Google sem expor segredo
+        shell: bash
         run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+
+          raw = os.environ["GOOGLE_SHEETS_CREDENTIALS"]
+          try:
+              data = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"Credencial Google inválida: JSON malformado ({exc.msg}).")
+
+          for field in ("client_email", "private_key"):
+              if not str(data.get(field, "")).strip():
+                  raise SystemExit(f"Credencial Google inválida: campo obrigatório ausente ({field}).")
+          print("Credencial Google validada estruturalmente; conteúdo secreto não será exibido.")
+          PY
+
+      - name: Instalar dependências
+        run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Executar sincronização incremental
-        if: env.CONFIGURACAO_INCOMPLETA != '1'
+        shell: bash
         run: |
+          set -euo pipefail
           python - <<'PY'
           import json
           from sincronizador_orquestrador import processar_sincronizacao_incremental
