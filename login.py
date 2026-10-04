@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import html
+import logging
 import time
 from pathlib import Path
 
@@ -23,6 +24,8 @@ LOGO_FILE = Path(__file__).resolve().parent / "assets" / "logo_serra_login.jpg"
 SESSAO_INATIVA_SEGUNDOS = 30 * 60
 LOGIN_MAX_TENTATIVAS = 5
 LOGIN_BLOQUEIO_SEGUNDOS = 15 * 60
+
+logger = logging.getLogger(__name__)
 
 
 def _logo_uri() -> str:
@@ -129,9 +132,10 @@ def _renderizar_recuperacao() -> None:
             else:
                 try:
                     request_password_reset(email.strip().lower(), _url_base())
-                except Exception:
-                    # Não revelar se a conta existe.
-                    pass
+                    logger.info("[AUTH_RECOVERY] request accepted by Supabase client")
+                except Exception as exc:
+                    # Não revelar se a conta existe e nunca registrar e-mail, senha, token ou URL.
+                    logger.warning("[AUTH_RECOVERY] request failed: %s", type(exc).__name__)
                 st.success("Se existir uma conta para este e-mail, enviaremos as instruções de recuperação.")
     if st.button("← Voltar ao Login", use_container_width=True, key="voltar_login_recovery"):
         st.session_state["tela_atual"] = "login"
