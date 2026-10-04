@@ -75,6 +75,7 @@ def _claim(tabela: str, limit: int) -> list[dict]:
         raise RuntimeError("PostgreSQL indisponível.")
     try:
         with conn.cursor() as cur:
+            foto_coluna = sql.SQL("o.foto_id") if tabela == "patrimonio_fotos_sheets_outbox" else sql.SQL("NULL::bigint")
             consulta = sql.SQL(
                 """
                 WITH candidatos AS (
@@ -102,9 +103,9 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                        atualizado_em=now()
                   FROM candidatos c
                  WHERE o.id=c.id
-             RETURNING o.id, o.patrimonio_id, o.foto_id, o.tentativas
+             RETURNING o.id, o.patrimonio_id, {foto_coluna}, o.tentativas
                 """
-            ).format(tabela=sql.Identifier(tabela))
+            ).format(tabela=sql.Identifier(tabela), foto_coluna=foto_coluna)
             cur.execute(
                 consulta,
                 (MAX_TENTATIVAS, STALE_MINUTES, max(1, min(limit, 100))),
