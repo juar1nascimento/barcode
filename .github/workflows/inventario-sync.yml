@@ -130,10 +130,11 @@ jobs:
           python - <<'PY'
           import os
           import psycopg
+          from psycopg.conninfo import make_conninfo
 
           url = os.environ["DATABASE_URL_SYNC"]
           project_ref = "vgabxdprocwmpmhoxrgt"
-          url = url.replace("://postgres:", f"://postgres.{project_ref}:", 1).replace(":6543/", ":5432/")
+          url = make_conninfo(url, user="postgres." + project_ref, port=5432)
           host = "supabase-postgres"
           try:
               with psycopg.connect(url, connect_timeout=10) as conn:
@@ -175,8 +176,9 @@ jobs:
           import json
           import os
           project_ref = "vgabxdprocwmpmhoxrgt"
+          from psycopg.conninfo import make_conninfo
           url = os.environ["DATABASE_URL_SYNC"]
-          os.environ["DATABASE_URL"] = url.replace("://postgres:", f"://postgres.{project_ref}:", 1).replace(":6543/", ":5432/")
+          os.environ["DATABASE_URL"] = make_conninfo(url, user="postgres." + project_ref, port=5432)
           from sincronizador_orquestrador import processar_sincronizacao_incremental
 
           resultado = processar_sincronizacao_incremental(limit=25)
