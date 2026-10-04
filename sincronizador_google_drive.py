@@ -21,7 +21,7 @@ def _claim(limit: int = 25) -> list[dict]:
                     SELECT id
                       FROM public.patrimonio_fotos_drive_outbox
                      WHERE (
-                         status='pending'
+                         status IN ('pending','failed')
                          AND proxima_tentativa_em <= now()
                          AND tentativas < %s
                      ) OR (
