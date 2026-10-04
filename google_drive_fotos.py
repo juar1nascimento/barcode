@@ -100,10 +100,15 @@ def _validate_root_access(token: str, root_id: str) -> None:
     if data.get("mimeType") != "application/vnd.google-apps.folder":
         raise RuntimeError("O identificador configurado para a raiz do Drive não aponta para uma pasta.")
     capabilities = data.get("capabilities") or {}
+    if not data.get("driveId"):
+        raise RuntimeError(
+            "A pasta raiz configurada está no Meu Drive. Contas de serviço não possuem cota de armazenamento para criar arquivos nesse local. "
+            "Use uma pasta dentro de um Drive compartilhado ou altere o worker para OAuth 2.0 em nome de um usuário."
+        )
     if capabilities.get("canAddChildren") is False:
         raise RuntimeError(
-            "A conta de serviço consegue acessar a pasta raiz do Drive, mas não possui permissão de gravação/upload nela. "
-            "Conceda permissão de Editor/Colaborador à conta de serviço ou ajuste a pasta/Shared Drive antes de reabrir o gate."
+            "A conta de serviço acessa o Drive compartilhado, mas não possui permissão para gravar nessa pasta. "
+            "Conceda papel adequado no Drive compartilhado antes de reabrir o gate."
         )
 
 
