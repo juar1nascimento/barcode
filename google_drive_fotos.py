@@ -22,7 +22,11 @@ from supabase_storage import criar_url_assinada_storage
 
 DRIVE_API = "https://www.googleapis.com/drive/v3"
 DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
-DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+# A integração cria/consulta pastas e arquivos dentro da pasta raiz corporativa
+# informada. drive.file pode não permitir localizar uma pasta existente que foi
+# compartilhada com a conta de serviço; o escopo amplo é deliberadamente usado
+# somente para o worker dedicado, sem compartilhamento público.
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 ROOT_FOLDER_ENV = "GOOGLE_DRIVE_ROOT_FOLDER_ID"
 ROOT_FOLDER_SECRET = "_".join(("drive", "root"))
 FOLDER_PREFIX = "Fotos - Inventário GTI SESA"
