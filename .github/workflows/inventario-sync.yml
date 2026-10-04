@@ -68,8 +68,23 @@ jobs:
                       raw = prefix + "@" + candidate + hostpart[close + 1:]
 
           if pooler_host in raw:
-              # psycopg/libpq não aceita o parâmetro URI pgbouncer; o modo já é
-              # determinado pelo host/porta do Supavisor.
+              # Supavisor usa postgres.[PROJECT-REF] e, para este job,
+              # session mode em 5432 evita limitações de transaction pooling.
+              prefix, hostpart = raw.rsplit("@", 1)
+              scheme_sep = prefix.find("://")
+              userinfo = prefix[scheme_sep + 3:] if scheme_sep >= 0 else prefix
+              if ":" in userinfo:
+                  user, password = userinfo.split(":", 1)
+                  if user == "postgres":
+                      userinfo = f"postgres.{project_ref}:{password}"
+                      prefix = prefix[:scheme_sep + 3] + userinfo
+              if ":" in hostpart:
+                  host, remainder = hostpart.split(":", 1)
+                  port = remainder.split("/", 1)[0]
+                  suffix = remainder[len(port):]
+                  if port == "6543":
+                      hostpart = host + ":5432" + suffix
+              raw = prefix + "@" + hostpart
               if "?" in raw:
                   base, query = raw.split("?", 1)
                   query_parts = [
@@ -79,7 +94,7 @@ jobs:
                   raw = base + (("?" + "&".join(query_parts)) if query_parts else "")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
                   env.write(f"DATABASE_URL={raw}\n")
-              print("Conexão PostgreSQL Supavisor normalizada para o runner.")
+              print("Conexão PostgreSQL Supavisor normalizada para session mode IPv4.")
           else:
               # Normaliza o endpoint direto conhecido; literais IPv6 permanecem intactos.
               raw = raw.replace(f"[{direct_host}]", direct_host)
