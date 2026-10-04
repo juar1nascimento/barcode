@@ -1,0 +1,101 @@
+name: Inventário GTI SESA - Google Drive Validation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gti-drive-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate OAuth and Drive destination without writes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GOOGLE_DRIVE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_ID }}
+      GOOGLE_DRIVE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_SECRET }}
+      GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+    steps:
+      - name: Validate secret presence without exposing values
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in GOOGLE_DRIVE_OAUTH_CLIENT_ID GOOGLE_DRIVE_OAUTH_CLIENT_SECRET GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN GOOGLE_DRIVE_FOLDER_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Secret ${name} não configurado."
+              exit 1
+            fi
+          done
+
+      - name: Obtain OAuth access token
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error             --request POST             --url "https://oauth2.googleapis.com/token"             --header "Content-Type: application/x-www-form-urlencoded"             --data-urlencode "client_id=${GOOGLE_DRIVE_OAUTH_CLIENT_ID}"             --data-urlencode "client_secret=${GOOGLE_DRIVE_OAUTH_CLIENT_SECRET}"             --data-urlencode "refresh_token=${GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN}"             --data-urlencode "grant_type=refresh_token")"
+          access_token="$(printf '%s' "${response}" | jq -r '.access_token // empty')"
+          test -n "${access_token}" || {
+            echo "::error::OAuth não retornou access token válido."
+            exit 1
+          }
+          printf '%s' "${access_token}" > "${RUNNER_TEMP}/gti_drive_token"
+          chmod 600 "${RUNNER_TEMP}/gti_drive_token"
+
+      - name: Validate destination folder read/write capability without upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "${RUNNER_TEMP}/gti_drive_token")"
+          response="$(curl --fail-with-body --silent --show-error             --request GET             --url "https://www.googleapis.com/drive/v3/files/${GOOGLE_DRIVE_FOLDER_ID}?supportsAllDrives=true&fields=id,mimeType,driveId,capabilities(canAddChildren,canModifyContent)"             --header "Authorization: Bearer ${token}")"
+
+          mime="$(printf '%s' "${response}" | jq -r '.mimeType // empty')"
+          folder_id="$(printf '%s' "${response}" | jq -r '.id // empty')"
+          can_add="$(printf '%s' "${response}" | jq -r '.capabilities.canAddChildren // false')"
+          can_modify="$(printf '%s' "${response}" | jq -r '.capabilities.canModifyContent // false')"
+          drive_id="$(printf '%s' "${response}" | jq -r '.driveId // empty')"
+
+          test "${folder_id}" = "${GOOGLE_DRIVE_FOLDER_ID}" || {
+            echo "::error::Pasta destino não encontrada ou ID inconsistente."
+            exit 1
+          }
+          test "${mime}" = "application/vnd.google-apps.folder" || {
+            echo "::error::GOOGLE_DRIVE_FOLDER_ID não aponta para uma pasta."
+            exit 1
+          }
+          test "${can_add}" = "true" || {
+            echo "::error::Identidade OAuth não possui capacidade de adicionar arquivos nesta pasta."
+            exit 1
+          }
+          test "${can_modify}" = "true" || {
+            echo "::error::Identidade OAuth não possui capacidade de modificar conteúdo nesta pasta."
+            exit 1
+          }
+
+          if [ -n "${drive_id}" ]; then
+            drive_response="$(curl --fail-with-body --silent --show-error               --request GET               --url "https://www.googleapis.com/drive/v3/drives/${drive_id}?fields=id,capabilities(canAddChildren,canModifyContent)"               --header "Authorization: Bearer ${token}")"
+            drive_add="$(printf '%s' "${drive_response}" | jq -r '.capabilities.canAddChildren // false')"
+            drive_modify="$(printf '%s' "${drive_response}" | jq -r '.capabilities.canModifyContent // false')"
+            test "${drive_add}" = "true" || {
+              echo "::error::Shared Drive sem permissão de adicionar arquivos."
+              exit 1
+            }
+            test "${drive_modify}" = "true" || {
+              echo "::error::Shared Drive sem permissão de modificar conteúdo."
+              exit 1
+            }
+            echo "VALIDATION_OK: OAuth e pasta destino acessíveis; Shared Drive compatível; nenhuma escrita realizada."
+          else
+            echo "VALIDATION_OK: OAuth e pasta destino acessíveis; pasta em My Drive; nenhuma escrita realizada."
+          fi
+
+      - name: Remove temporary OAuth token
+        if: always()
+        shell: bash
+        run: |
+          rm -f "${RUNNER_TEMP}/gti_drive_token"
