@@ -140,7 +140,7 @@ def _validation_rule(values: list[str], *, strict: bool, message: str) -> dict:
     }
 
 
-def _apply_structure(spreadsheet, worksheet, column_count: int) -> None:
+def _structure_requests(worksheet, column_count: int) -> list[dict]:
     sheet_id = int(worksheet.id)
     end_col = max(column_count, len(CANONICAL_COLUMNS))
     requests = [
@@ -204,7 +204,7 @@ def _apply_structure(spreadsheet, worksheet, column_count: int) -> None:
             }
         },
     ]
-    spreadsheet.batch_update({"requests": requests})
+    return requests
 
 
 def auditar_e_padronizar_abas_inventario(spreadsheet, *, aplicar: bool = True) -> dict:
@@ -224,6 +224,8 @@ def auditar_e_padronizar_abas_inventario(spreadsheet, *, aplicar: bool = True) -
     }
 
     conhecidos = set(UNIDADES_INVENTARIO)
+    structure_requests: list[dict] = []
+
     for worksheet in spreadsheet.worksheets():
         nome = str(worksheet.title).strip()
         if nome not in conhecidos:
@@ -259,11 +261,18 @@ def auditar_e_padronizar_abas_inventario(spreadsheet, *, aplicar: bool = True) -
             elif not info["changed"]:
                 relatorio["abas_ok"] += 1
 
-            _apply_structure(spreadsheet, worksheet, len(normalized[0]))
+            structure_requests.extend(_structure_requests(worksheet, len(normalized[0])))
             detalhe["status"] = "corrigida" if info["changed"] and aplicar else "ok"
             relatorio["detalhes"].append(detalhe)
         except Exception as exc:
             relatorio["erros"].append(f"{nome}: {str(exc)[:500]}")
+            relatorio["abas_bloqueadas"] += 1
+
+    if not relatorio["erros"] and structure_requests:
+        try:
+            spreadsheet.batch_update({"requests": structure_requests})
+        except Exception as exc:
+            relatorio["erros"].append(f"estrutura das abas: {str(exc)[:500]}")
             relatorio["abas_bloqueadas"] += 1
 
     if relatorio["erros"]:
