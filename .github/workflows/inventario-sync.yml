@@ -55,7 +55,6 @@ jobs:
 
           raw = os.environ["DATABASE_URL"].strip()
           project_ref = "vgabxdprocwmpmhoxrgt"
-          pooler_host = "aws-0-sa-east-1.pooler.supabase.com"
           direct_host = f"db.{project_ref}.supabase.co"
 
           # Normaliza hostname DNS entre colchetes sem tocar em senhas ou IPv6.
@@ -67,30 +66,33 @@ jobs:
                   if close > 0 and ":" not in candidate:
                       raw = prefix + "@" + candidate + hostpart[close + 1:]
 
-          if pooler_host in raw:
-              # Supavisor usa postgres.[PROJECT-REF] e, para este job,
-              # session mode em 5432 evita limitações de transaction pooling.
-              raw = raw.replace("://postgres:", f"://postgres.{project_ref}:", 1)
-              prefix, hostpart = raw.rsplit("@", 1)
-              if ":" in hostpart:
-                  host, remainder = hostpart.split(":", 1)
-                  port = remainder.split("/", 1)[0]
-                  suffix = remainder[len(port):]
-                  if port == "6543":
-                      hostpart = host + ":5432" + suffix
-              raw = prefix + "@" + hostpart
-              if "?" in raw:
-                  base, query = raw.split("?", 1)
-                  query_parts = [
-                      item for item in query.split("&")
-                      if not item.lower().startswith("pgbouncer=") and item.lower() != "pgbouncer"
+          parts = urlsplit(raw)
+          host = (parts.hostname or "").lower()
+          port = parts.port
+
+          if host.endswith(".pooler.supabase.com"):
+              # Preserva integralmente o host fornecido pelo Connect do Supabase.
+              # O índice do pooler não pode ser inferido a partir da região.
+              user = quote(f"postgres.{project_ref}", safe="")
+              password = quote(parts.password or "", safe="")
+              target_port = 5432 if port in (None, 5432, 6543) else port
+              query = urlencode(
+                  [
+                      (key, value)
+                      for key, value in parse_qsl(parts.query, keep_blank_values=True)
+                      if key.lower() != "pgbouncer"
                   ]
-                  raw = base + (("?" + "&".join(query_parts)) if query_parts else "")
+              )
+              adapted = urlunsplit((
+                  parts.scheme or "postgresql",
+                  f"{user}:{password}@{parts.hostname}:{target_port}",
+                  parts.path or "/postgres",
+                  query,
+                  parts.fragment,
+              ))
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-                  env.write(f"DATABASE_URL_SYNC={raw}\n")
-              safe_user = raw.split("://", 1)[1].split(":", 1)[0] if "://" in raw else "desconhecido"
-              tenant_user_ok = safe_user == ("postgres." + project_ref)
-              print(f"Supavisor URI normalizada; tenant_user_ok={tenant_user_ok}.")
+                  env.write(f"DATABASE_URL_SYNC={adapted}\n")
+              print(f"Supavisor detectado; host preservado e modo sessão em {target_port}.")
           else:
               # Normaliza o endpoint direto conhecido; literais IPv6 permanecem intactos.
               raw = raw.replace(f"[{direct_host}]", direct_host)
