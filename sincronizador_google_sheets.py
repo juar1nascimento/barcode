@@ -24,6 +24,7 @@ from Tabela_de_dados_Inventario_7_2 import (
     _chave_texto,
     conectar_google_sheets,
 )
+from google_sheets_schema import auditar_e_padronizar_abas_inventario
 
 MAX_TENTATIVAS = 5
 STALE_MINUTES = 15
@@ -360,8 +361,23 @@ def _processar_evento(tabela: str, item: dict) -> None:
 
 
 def processar_fila_google_sheets(limit: int = 25) -> dict:
-    """Processa uma pequena janela das duas filas e retorna métricas."""
-    resultado = {"processados": 0, "sucesso": 0, "falhas": 0}
+    """Audita/padroniza a estrutura do Sheets antes de consumir o outbox."""
+    planilha_preflight = conectar_google_sheets()
+    if not planilha_preflight:
+        raise RuntimeError(
+            st.session_state.get(
+                "sheets_sync_ultimo_erro",
+                "Google Sheets indisponível para preflight estrutural.",
+            )
+        )
+    auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=True)
+
+    resultado = {
+        "processados": 0,
+        "sucesso": 0,
+        "falhas": 0,
+        "auditoria_estrutura": auditoria,
+    }
     for tabela in ("patrimonios_sheets_outbox", "patrimonio_fotos_sheets_outbox"):
         itens = _claim(tabela, limit)
         for item in itens:
