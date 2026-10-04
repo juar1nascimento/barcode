@@ -22,7 +22,7 @@ from Tabela_de_dados_Inventario_7_2 import (
 )
 
 ID_COLUMN = "ID Patrimônio"
-PHOTO_COLUMNS = [f"Foto {i:02d}" for i in range(1, 11)]
+PHOTO_COLUMNS = [f"Foto {i:02d}" for i in range(1, 13)]
 CANONICAL_COLUMNS = [*COLUNAS_INVENTARIO, ID_COLUMN, *PHOTO_COLUMNS]
 
 UNIDADES_INVENTARIO = tuple(
