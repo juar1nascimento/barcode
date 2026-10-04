@@ -8,6 +8,7 @@ as mesmas opções fechadas usadas pelos menus do site.
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
 from typing import Any
 
@@ -269,11 +270,25 @@ def auditar_e_padronizar_abas_inventario(spreadsheet, *, aplicar: bool = True) -
             relatorio["abas_bloqueadas"] += 1
 
     if not relatorio["erros"] and structure_requests:
-        try:
-            spreadsheet.batch_update({"requests": structure_requests})
-        except Exception as exc:
-            relatorio["erros"].append(f"estrutura das abas: {str(exc)[:500]}")
-            relatorio["abas_bloqueadas"] += 1
+        # Uma única batch_update reduz drasticamente a quantidade de escritas,
+        # mas o Google Sheets pode devolver 429 quando a janela de quota ainda
+        # está saturada por execuções anteriores. Nesse caso, aguarda-se uma
+        # janela crescente antes de falhar o gate; não há repetição de escrita
+        # concorrente nem alteração dos dados durante o backoff.
+        for tentativa, espera in enumerate((0, 20, 40, 60), start=1):
+            if espera:
+                time.sleep(espera)
+            try:
+                spreadsheet.batch_update({"requests": structure_requests})
+                break
+            except Exception as exc:
+                erro = str(exc)
+                eh_rate_limit = "429" in erro or "RATE_LIMIT_EXCEEDED" in erro or "RESOURCE_EXHAUSTED" in erro
+                if eh_rate_limit and tentativa < 4:
+                    continue
+                relatorio["erros"].append(f"estrutura das abas: {erro[:500]}")
+                relatorio["abas_bloqueadas"] += 1
+                break
 
     if relatorio["erros"]:
         raise RuntimeError(
