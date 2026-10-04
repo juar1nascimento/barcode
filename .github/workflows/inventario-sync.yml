@@ -88,7 +88,8 @@ jobs:
                   raw = base + (("?" + "&".join(query_parts)) if query_parts else "")
               with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
                   env.write(f"DATABASE_URL_SYNC={raw}\n")
-              print("Conexão PostgreSQL Supavisor normalizada para session mode IPv4.")
+              safe_user = raw.split("://", 1)[1].split(":", 1)[0] if "://" in raw else "desconhecido"
+              print(f"Conexão PostgreSQL Supavisor normalizada para session mode IPv4; usuário={safe_user}.")
           else:
               # Normaliza o endpoint direto conhecido; literais IPv6 permanecem intactos.
               raw = raw.replace(f"[{direct_host}]", direct_host)
