@@ -29,9 +29,9 @@ DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 ROOT_FOLDER_ENV = "GOOGLE_DRIVE_ROOT_FOLDER_ID"
 OAUTH_CLIENT_ID_ENV = "GOOGLE_DRIVE_OAUTH_CLIENT_ID"
-OAUTH_CLIENT_SECRET_ENV = "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"
-OAUTH_REFRESH_TOKEN_ENV = "GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN"
-OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token"
+OAUTH_CLIENT_SECRET_ENV = "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"  # noqa: B105 - nome de variável de ambiente, não segredo
+OAUTH_REFRESH_TOKEN_ENV = "GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN"  # noqa: B105 - nome de variável de ambiente, não token
+OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token"  # noqa: B105 - endpoint público do OAuth
 FOLDER_PREFIX = "Fotos - Inventário GTI SESA"
 TIMEOUT = 30
 
