@@ -145,6 +145,7 @@ def processar_fila_google_drive(limit: int = 25) -> dict:
                 bucket=foto["bucket"],
                 path=foto["path"],
                 sha256=foto["sha256"],
+                outbox_id=item["id"],
             )
 
             conn = conectar()
