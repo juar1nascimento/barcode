@@ -10,11 +10,10 @@ Ele não é importado pelo app e não altera o fluxo de produção.
 """
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
-import urllib.request
 from urllib.parse import urlparse
+
+import requests
 
 TIMEOUT_SECONDS = 8
 REQUIRED_FIELDS = ("issuer", "authorization_endpoint", "token_endpoint", "jwks_uri")
@@ -41,36 +40,45 @@ def main() -> int:
     if any(item in lowered for item in placeholders):
         return fail("O endpoint informado ainda parece ser um placeholder.")
 
-    request = urllib.request.Request(
-        url,
-        headers={"Accept": "application/json", "User-Agent": "gti-sesa-keycloak-preflight/1"},
-        method="GET",
-    )
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-            if response.status != 200:
-                return fail(f"Discovery respondeu HTTP {response.status}.")
-            raw = response.read()
-    except urllib.error.HTTPError as exc:
-        return fail(f"Discovery respondeu HTTP {exc.code}.")
-    except (urllib.error.URLError, TimeoutError) as exc:
-        return fail(f"Não foi possível acessar o discovery: {exc.reason if hasattr(exc, 'reason') else exc}.")
+        response = requests.get(
+            url,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "gti-sesa-keycloak-preflight/1",
+            },
+            timeout=TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        if response.status_code != 200:
+            return fail(f"Discovery respondeu HTTP {response.status_code}.")
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "desconhecido"
+        return fail(f"Discovery respondeu HTTP {status}.")
+    except requests.RequestException as exc:
+        return fail(f"Não foi possível acessar o discovery: {type(exc).__name__}.")
     except Exception as exc:
         return fail(f"Erro inesperado ao acessar o discovery: {type(exc).__name__}.")
 
     try:
-        metadata = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        metadata = response.json()
+    except ValueError:
         return fail("A resposta do discovery não é JSON válido.")
 
-    missing = [field for field in REQUIRED_FIELDS if not isinstance(metadata.get(field), str) or not metadata[field].strip()]
+    if not isinstance(metadata, dict):
+        return fail("A resposta do discovery não é um objeto JSON.")
+
+    missing = [
+        field
+        for field in REQUIRED_FIELDS
+        if not isinstance(metadata.get(field), str) or not metadata[field].strip()
+    ]
     if missing:
         return fail("Metadados obrigatórios ausentes: " + ", ".join(missing))
 
     issuer = metadata["issuer"].strip()
     issuer_parsed = urlparse(issuer)
-    issuer_host = issuer_parsed.hostname
-    if issuer_parsed.scheme != "https" or not issuer_host:
+    if issuer_parsed.scheme != "https" or not issuer_parsed.hostname:
         return fail("O issuer informado pelo Keycloak não é HTTPS ou não possui hostname válido.")
 
     for field in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
