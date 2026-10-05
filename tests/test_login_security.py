@@ -134,9 +134,18 @@ def test_recovery_after_database_restoration_replaces_stale_local_cache(monkeypa
     assert refreshed == [persistent]
 
 
-def test_persistent_save_reconciles_removed_users_and_never_deletes_on_empty_db():
+def test_persistent_save_is_non_destructive_by_default():
     source = Path("login.py").read_text(encoding="utf-8")
-    assert "delete from public.gti_auth_usuarios" in source
-    assert "where not (usuario = any(%s))" in source
-    assert 'if not db:' in source
-    assert "return False" in source
+    save_block = source[source.index("def _salvar_usuarios_persistentes"):source.index("def hash_senha")]
+    assert "delete from public.gti_auth_usuarios" not in save_block
+    assert "if not db:" in save_block
+    assert "def reconciliar_usuarios_persistentes" in source
+
+
+def test_destructive_reconciliation_requires_non_empty_explicit_snapshot():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def reconciliar_usuarios_persistentes")
+    end = source.index("def hash_senha", start)
+    block = source[start:end]
+    assert "if not db:" in block
+    assert "where not (usuario = any(%s))" in block
