@@ -317,3 +317,23 @@ def test_full_snapshot_path_normalizes_each_user_identifier():
     block = source[start:end]
     assert "str(usuario).strip().lower()" in block
     assert "if not db:" in block
+
+
+def test_targeted_persistence_helper_is_atomic_and_single_user():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuario_persistente")
+    end = source.index("def _salvar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert "connect_timeout=AUTH_DB_CONNECT_TIMEOUT_SECONDS" in block
+    assert "on conflict (usuario) do update" in block
+    assert "conn.commit()" in block
+    assert "delete from public.gti_auth_usuarios" not in block.lower()
+
+
+def test_targeted_persistence_helper_rejects_empty_or_invalid_user():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuario_persistente")
+    end = source.index("def _salvar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert 'if not usuario_normalizado or not isinstance(dados, dict):' in block
+    assert "return False" in block
