@@ -84,6 +84,41 @@ def _carregar_usuarios_persistentes() -> dict | None:
         return None
 
 
+def _salvar_usuario_persistente(usuario: str, dados: dict) -> bool:
+    """Persiste somente um usuário, sem reconciliar ou apagar outras contas."""
+    usuario_normalizado = str(usuario or "").strip().lower()
+    if not usuario_normalizado or not isinstance(dados, dict):
+        return False
+    url = _auth_database_url()
+    if not url:
+        return False
+    try:
+        with psycopg.connect(url, connect_timeout=AUTH_DB_CONNECT_TIMEOUT_SECONDS) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into public.gti_auth_usuarios
+                        (usuario, senha, aprovado, approval_token_digests, updated_at)
+                    values (%s, %s, %s, %s::jsonb, now())
+                    on conflict (usuario) do update set
+                        senha = excluded.senha,
+                        aprovado = excluded.aprovado,
+                        approval_token_digests = excluded.approval_token_digests,
+                        updated_at = now()
+                    """,
+                    (
+                        usuario_normalizado,
+                        str(dados.get("senha", "")),
+                        bool(dados.get("aprovado", False)),
+                        json.dumps(dados.get("approval_token_digests", {})),
+                    ),
+                )
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
 def _salvar_usuarios_persistentes(db: dict) -> bool:
     url = _auth_database_url()
     if not url:
