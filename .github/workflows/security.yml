@@ -1,3 +1,4 @@
+# Gate de homologação GTI-SESA: manter execução manual disponível para validação controlada do PR.
 name: Inventário GTI SESA - Security
 
 on:
@@ -6,6 +7,7 @@ on:
     branches: [main]
   schedule:
     - cron: "17 3 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,7 +34,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Initialize CodeQL
@@ -48,7 +50,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Reject credential material

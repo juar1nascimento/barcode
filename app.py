@@ -2,6 +2,7 @@ import streamlit as st
 
 # Importações dos módulos independentes
 from login import renderizar_login, _limpar_sessao_autenticacao
+from auth_oidc import iniciar_login_oidc, encerrar_login_oidc, usuario_oidc, oidc_configurado, renderizar_login_oidc
 from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
 from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso_storage
@@ -43,47 +44,74 @@ st.markdown("""
 # ==========================================
 # AUTENTICAÇÃO DE LOGIN
 # ==========================================
-if not renderizar_login():
-    st.stop()
+# Produção permanece no login local. OIDC só é ativado explicitamente em
+# homologação quando [auth].homologacao=true estiver configurado.
+oidc_homologacao = str(st.secrets.get("auth", {}).get("homologacao", "")).strip().lower() in {"1", "true", "yes", "sim"}
 
 if "pagina_atual" not in st.session_state:
     st.session_state.pagina_atual = "portal"
 
-usuario_logado = str(st.session_state.get("usuario_logado", "")).strip().lower()
-admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
-is_admin = bool(usuario_logado and admin_configurado and usuario_logado == admin_configurado)
+if oidc_homologacao:
+    if not oidc_configurado():
+        st.error("OIDC de homologação está ativado, mas a configuração [auth] está incompleta.")
+        st.stop()
+
+    if not bool(getattr(st.user, "is_logged_in", False)):
+        if not renderizar_login_oidc():
+            st.stop()
+
+    dados_oidc = usuario_oidc()
+    if not dados_oidc:
+        st.error("Sessão OIDC inválida ou sem identificador de usuário.")
+        encerrar_login_oidc()
+        st.stop()
+
+    usuario_logado = dados_oidc["email"] or dados_oidc["preferred_username"]
+    is_admin = bool(dados_oidc.get("is_admin", False))
+
+    if st.button("🚪 Sair do Sistema"):
+        encerrar_login_oidc()
+        st.rerun()
+else:
+    if not renderizar_login():
+        st.stop()
+
+    usuario_logado = str(st.session_state.get("usuario_logado", "")).strip().lower()
+    admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
+    is_admin = bool(usuario_logado and admin_configurado and usuario_logado == admin_configurado)
 
 # ==========================================
 # BARRA LATERAL (MENU E LOGOUT)
 # ==========================================
-with st.sidebar:
-    st.markdown("### 👤 Usuário Autenticado")
+if not oidc_homologacao:
+    with st.sidebar:
+        st.markdown("### 👤 Usuário Autenticado")
 
-    if st.session_state.pagina_atual != "portal":
-        if st.button("🏠 Voltar ao Portal"):
+        if st.session_state.pagina_atual != "portal":
+            if st.button("🏠 Voltar ao Portal"):
+                st.session_state.pagina_atual = "portal"
+                st.rerun()
+
+        if is_admin:
+            st.divider()
+            st.markdown("### 🔐 Administração")
+            if st.button("🔎 Auditoria pré-migração"):
+                st.session_state.pagina_atual = "auditoria_pre_migracao"
+                st.rerun()
+            if st.button("🔐 Preflight Supabase"):
+                st.session_state.pagina_atual = "preflight_supabase"
+                st.rerun()
+            if st.button("🧪 Teste upload de foto"):
+                st.session_state.pagina_atual = "teste_upload_foto"
+                st.rerun()
+            if st.button("🩺 Saúde da sincronização"):
+                st.session_state.pagina_atual = "saude_integracao"
+                st.rerun()
+
+        if st.button("🚪 Sair do Sistema"):
+            _limpar_sessao_autenticacao()
             st.session_state.pagina_atual = "portal"
             st.rerun()
-
-    if is_admin:
-        st.divider()
-        st.markdown("### 🔐 Administração")
-        if st.button("🔎 Auditoria pré-migração"):
-            st.session_state.pagina_atual = "auditoria_pre_migracao"
-            st.rerun()
-        if st.button("🔐 Preflight Supabase"):
-            st.session_state.pagina_atual = "preflight_supabase"
-            st.rerun()
-        if st.button("🧪 Teste upload de foto"):
-            st.session_state.pagina_atual = "teste_upload_foto"
-            st.rerun()
-        if st.button("🩺 Saúde da sincronização"):
-            st.session_state.pagina_atual = "saude_integracao"
-            st.rerun()
-
-    if st.button("🚪 Sair do Sistema"):
-        _limpar_sessao_autenticacao()
-        st.session_state.pagina_atual = "portal"
-        st.rerun()
 
 # ==========================================
 # ROTEAMENTO DAS PÁGINAS
@@ -99,12 +127,12 @@ lista_almoxarifado = [
 ]
 
 lista_ubs = [
-    "Selecione uma UBS...", "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa",
-    "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus",
-    "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado",
-    "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha",
-    "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I",
-    "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)",
+    "Selecione uma UBS...", "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona",
+    "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande",
+    "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina",
+    "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos",
+    "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II",
+    "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)",
     "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos",
     "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra",
     "UBS Itinerante (atendimento na área rural)"
