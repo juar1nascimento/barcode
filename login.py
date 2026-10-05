@@ -257,7 +257,7 @@ def _validar_token_aprovacao(token: str) -> tuple[str, str] | None:
             return None
 
         acao, usuario, expira = partes
-        if acao not in {"aprovar", "recusar"}:
+        if acao not in {"aprovar", "recusar", "redefinir"}:
             return None
 
         try:
@@ -323,6 +323,13 @@ def processar_acao_via_url():
     esperado = str(digests.get(acao, ""))
     if not esperado or not hmac.compare_digest(token_digest, esperado):
         st.error("Link de autorização já utilizado ou inválido.")
+        return
+
+    if acao == "redefinir":
+        st.session_state.email_solicitante = user
+        st.session_state.tela_atual = "redefinicao_criar"
+        st.session_state.reset_autorizado = True
+        st.success("Solicitação de redefinição validada. Defina uma nova senha.")
         return
 
     db[user]["aprovado"] = acao == "aprovar"
@@ -397,12 +404,33 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                 st.write("**Informe seu e-mail de acesso**")
                 email_req = st.text_input("E-mail", placeholder="seuemail@serra.es.gov.br", label_visibility="collapsed", key="email_req")
                 if st.form_submit_button("Avançar", use_container_width=True):
-                    if validar_email(email_req):
-                        st.session_state.email_solicitante = email_req.strip().lower()
-                        st.session_state.tela_atual = "redefinicao_criar"
-                        st.rerun()
-                    else:
+                    email_alvo = email_req.strip().lower()
+                    if not validar_email(email_alvo):
                         st.error("Por favor, informe um e-mail com formato válido.")
+                    else:
+                        db = carregar_usuarios()
+                        if email_alvo not in db or not bool(db[email_alvo].get("aprovado", False)):
+                            st.success("Se o e-mail estiver cadastrado e aprovado, as instruções de recuperação serão enviadas.")
+                        else:
+                            try:
+                                token = _criar_token_aprovacao("redefinir", email_alvo)
+                                db[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}
+                                salvar_usuarios(db)
+                                base = str(st.secrets.get("email", {}).get("app_url", "http://localhost:8501")).rstrip("/")
+                                link = base + "/?" + urllib.parse.urlencode({"token": token})
+                                body = (
+                                    "<h3>Prefeitura Municipal da Serra</h3>"
+                                    "<p>Foi solicitada a recuperação de acesso para seu cadastro.</p>"
+                                    f'<p><a href="{html.escape(link, quote=True)}">Redefinir minha senha</a></p>'
+                                    "<p>O link expira em 15 minutos e pode ser usado uma única vez.</p>"
+                                )
+                                enviado, mensagem = enviar_email(email_alvo, "Recuperação de acesso - Prefeitura da Serra", body)
+                                if enviado:
+                                    st.success("Se o e-mail estiver cadastrado e aprovado, as instruções de recuperação serão enviadas.")
+                                else:
+                                    st.error(mensagem)
+                            except RuntimeError:
+                                st.error("Não foi possível iniciar a recuperação. Verifique a configuração do ambiente.")
             if st.button("← Voltar ao Login", use_container_width=True, key="btn_voltar_solicitar"):
                 st.session_state.tela_atual = "login"
                 st.rerun()
@@ -415,7 +443,8 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                 nova = st.text_input("Nova Senha", type="password", placeholder="Nova senha", label_visibility="collapsed", key="nova_pass")
                 st.write("**Confirme a Nova Senha**")
                 confirma = st.text_input("Confirmar Senha", type="password", placeholder="Repita a senha", label_visibility="collapsed", key="confirma_pass")
-                if st.form_submit_button("Cadastrar e Solicitar Autorização", use_container_width=True):
+                rotulo_botao = "Redefinir Senha" if st.session_state.get("reset_autorizado") else "Cadastrar e Solicitar Autorização"
+                if st.form_submit_button(rotulo_botao, use_container_width=True):
                     user = novo.strip().lower()
                     if not validar_email(user):
                         st.error("O nome de usuário deve ser obrigatoriamente um e-mail válido.")
@@ -427,7 +456,18 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                             st.error(msg)
                         else:
                             db = carregar_usuarios()
-                            if not registrar_novo_usuario(db, user, nova):
+                            if st.session_state.get("reset_autorizado"):
+                                if user not in db or not bool(db[user].get("aprovado", False)):
+                                    st.error("Cadastro não encontrado ou não aprovado.")
+                                else:
+                                    db[user]["senha"] = hash_senha(nova)
+                                    db[user].pop("approval_token_digests", None)
+                                    salvar_usuarios(db)
+                                    st.session_state.reset_autorizado = False
+                                    st.session_state.tela_atual = "login"
+                                    st.success("Senha redefinida com sucesso. Agora você pode entrar com a nova senha.")
+                                    return False
+                            elif not registrar_novo_usuario(db, user, nova):
                                 st.error(
                                     "Este e-mail já possui cadastro. "
                                     "Para redefinir uma conta existente, utilize o fluxo "
