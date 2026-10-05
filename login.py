@@ -572,7 +572,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                     "credenciais ou aprovação existentes."
                                 )
                                 return False
-                            if not _salvar_usuarios_persistentes(db):
+                            if not _salvar_usuario_persistente(user, db[user]):
                                 st.error("Não foi possível concluir o cadastro com segurança. Tente novamente em instantes.")
                                 return False
                             _salvar_usuarios_local(db)
