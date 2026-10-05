@@ -88,16 +88,10 @@ def _salvar_usuarios_persistentes(db: dict) -> bool:
     url = _auth_database_url()
     if not url:
         return False
-    # Um cadastro vazio não é tratado como fonte autorizadora: evita que uma
-    # falha de sincronização transforme uma leitura vazia em remoção em massa.
+    # Um cadastro vazio não é tratado como fonte autorizadora.
     if not db:
         return False
     try:
-        usuarios = {
-            str(usuario).strip().lower()
-            for usuario in db
-            if str(usuario).strip()
-        }
         with psycopg.connect(url, connect_timeout=AUTH_DB_CONNECT_TIMEOUT_SECONDS) as conn:
             with conn.cursor() as cur:
                 for usuario, dados in db.items():
@@ -119,11 +113,31 @@ def _salvar_usuarios_persistentes(db: dict) -> bool:
                             json.dumps(dados.get("approval_token_digests", {})),
                         ),
                     )
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+def reconciliar_usuarios_persistentes(db: dict) -> bool:
+    """Reconcile somente um snapshot explicitamente autoritativo e não vazio."""
+    if not db:
+        return False
+    url = _auth_database_url()
+    if not url:
+        return False
+    try:
+        usuarios = {
+            str(usuario).strip().lower()
+            for usuario in db
+            if str(usuario).strip()
+        }
+        if not usuarios:
+            return False
+        with psycopg.connect(url, connect_timeout=AUTH_DB_CONNECT_TIMEOUT_SECONDS) as conn:
+            with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    delete from public.gti_auth_usuarios
-                    where not (usuario = any(%s))
-                    """,
+                    "delete from public.gti_auth_usuarios where not (usuario = any(%s))",
                     (list(usuarios),),
                 )
             conn.commit()
