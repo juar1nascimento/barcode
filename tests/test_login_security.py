@@ -184,11 +184,11 @@ def test_recovery_token_creation_requires_durable_persistence_before_email():
 
 def test_new_registration_requires_durable_persistence_before_email_flow():
     source = Path("login.py").read_text(encoding="utf-8")
-    marker = "if not _salvar_usuarios_persistentes(db):"
-    start = source.index(marker, source.index("registrar_novo_usuario"))
+    marker = "if not _salvar_usuario_persistente(user, db[user]):"
+    start = source.index(marker)
     end = source.index('cfg = st.secrets.get("email", {})', start)
     block = source[start:end]
-    assert "if not _salvar_usuarios_persistentes(db):" in block
+    assert "if not _salvar_usuario_persistente(user, db[user]):" in block
     assert "_salvar_usuarios_local(db)" in block
     assert "return False" in block
 
@@ -366,8 +366,9 @@ def test_recovery_token_creation_uses_targeted_persistence():
 
 def test_registration_uses_targeted_persistence():
     source = Path("login.py").read_text(encoding="utf-8")
-    start = source.index('elif st.session_state.tela_atual == "criar_usuario":')
-    end = source.index('else:\n            with st.form("glpi_login_form"', start)
+    marker = "if not _salvar_usuario_persistente(user, db[user]):"
+    start = source.index(marker)
+    end = source.index('cfg = st.secrets.get("email", {})', start)
     block = source[start:end]
     assert "if not _salvar_usuario_persistente(user, db[user]):" in block
     assert "if not _salvar_usuarios_persistentes(db):" not in block
