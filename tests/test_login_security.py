@@ -269,3 +269,31 @@ def test_sensitive_paths_pass_a_single_candidate_snapshot_to_persistence():
         block = source[start:end if end != -1 else len(source)]
         assert "_salvar_usuarios_persistentes(candidato)" in block
 
+
+
+def test_persistent_save_rolls_back_when_a_snapshot_write_fails(monkeypatch):
+    import login
+    events = []
+    class FakeCursor:
+        def __init__(self): self.calls = 0
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb):
+            events.append(("cursor_exit", exc_type is not None)); return False
+        def execute(self, *args, **kwargs):
+            self.calls += 1; events.append(("execute", self.calls))
+            if self.calls == 2: raise RuntimeError("simulated write failure")
+    class FakeConnection:
+        def __init__(self): self.cursor_obj = FakeCursor(); self.committed = False
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb):
+            events.append(("connection_exit", exc_type is not None)); return False
+        def cursor(self): return self.cursor_obj
+        def commit(self): self.committed = True; events.append(("commit",))
+    conn = FakeConnection()
+    monkeypatch.setattr(login, "_auth_database_url", lambda: "test-db")
+    monkeypatch.setattr(login.psycopg, "connect", lambda *args, **kwargs: conn)
+    db = {"a@example.com": {"senha": "hash-a", "aprovado": True}, "b@example.com": {"senha": "hash-b", "aprovado": False}}
+    assert login._salvar_usuarios_persistentes(db) is False
+    assert conn.committed is False
+    assert ("cursor_exit", True) in events
+    assert ("connection_exit", True) in events
