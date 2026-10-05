@@ -94,3 +94,41 @@ def test_auth_database_timeout_is_bounded_to_avoid_long_login_stalls():
     import login
 
     assert 0 < login.AUTH_DB_CONNECT_TIMEOUT_SECONDS <= 5
+
+
+def test_persistent_auth_connection_failure_degrades_to_contingency(monkeypatch):
+    import login
+
+    def fail_connect(*args, **kwargs):
+        raise OSError("database unavailable")
+
+    monkeypatch.setattr(login.psycopg, "connect", fail_connect)
+    monkeypatch.setattr(login, "_auth_database_url", lambda: "postgresql://test.invalid/db")
+
+    assert login._carregar_usuarios_persistentes() is None
+
+
+def test_save_keeps_local_cache_when_persistent_store_fails(monkeypatch):
+    import login
+
+    cache = {"usuario@example.com": {"senha": "hash", "aprovado": True}}
+    saved_local = []
+    monkeypatch.setattr(login, "_salvar_usuarios_local", lambda db: saved_local.append(db))
+    monkeypatch.setattr(login, "_salvar_usuarios_persistentes", lambda db: False)
+
+    login.salvar_usuarios(cache)
+
+    assert saved_local == [cache]
+
+
+def test_recovery_after_database_restoration_replaces_stale_local_cache(monkeypatch):
+    import login
+
+    stale_local = {"revogado@example.com": {"senha": "old", "aprovado": False}}
+    persistent = {"usuario@example.com": {"senha": "new", "aprovado": True}}
+    refreshed = []
+    monkeypatch.setattr(login, "_carregar_usuarios_persistentes", lambda: persistent)
+    monkeypatch.setattr(login, "_salvar_usuarios_local", lambda db: refreshed.append(db))
+
+    assert login.carregar_usuarios() == persistent
+    assert refreshed == [persistent]
