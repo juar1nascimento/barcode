@@ -264,7 +264,7 @@ def conectar_google_sheets():
         client = gspread.authorize(creds)
 
         sheet_url = sec.get("spreadsheet") or os.getenv("GOOGLE_SHEET_URL") or st.secrets.get("spreadsheet_url")
-        sheet_id = sec.get("spreadsheet_id") or os.getenv("GOOGLE_SHEET_ID") or st.secrets.get("spreadsheet_id")
+        sheet_id = (sec.get("spreadsheet_id") or os.getenv("GOOGLE_SPREADSHEET_ID") or os.getenv("GOOGLE_SHEET_ID") or st.secrets.get("spreadsheet_id"))
         if not sheet_id and sheet_url:
             match = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", str(sheet_url))
             if match:
