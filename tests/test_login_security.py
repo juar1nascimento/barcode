@@ -132,3 +132,48 @@ def test_recovery_after_database_restoration_replaces_stale_local_cache(monkeypa
 
     assert login.carregar_usuarios() == persistent
     assert refreshed == [persistent]
+
+
+def test_targeted_user_persistence_does_not_reconcile_other_accounts(monkeypatch):
+    import login
+
+    calls = []
+
+    class Cursor:
+        def execute(self, sql, params):
+            calls.append((sql, params))
+
+    class Conn:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def cursor(self):
+            class CursorContext:
+                def __enter__(self):
+                    return Cursor()
+                def __exit__(self, *args):
+                    return False
+            return CursorContext()
+        def commit(self):
+            calls.append(("commit", None))
+
+    monkeypatch.setattr(login, "_auth_database_url", lambda: "postgresql://test.invalid/db")
+    monkeypatch.setattr(login.psycopg, "connect", lambda *args, **kwargs: Conn())
+
+    assert login._salvar_usuario_persistente(
+        "Usuario@Example.com",
+        {"senha": "hash", "aprovado": True, "approval_token_digests": {}},
+    )
+    assert any("on conflict (usuario) do update" in item[0].lower() for item in calls if isinstance(item[0], str))
+    assert not any("delete from" in item[0].lower() for item in calls if isinstance(item[0], str))
+
+
+def test_targeted_user_persistence_fails_closed_without_database(monkeypatch):
+    import login
+
+    monkeypatch.setattr(login, "_auth_database_url", lambda: "")
+    assert login._salvar_usuario_persistente(
+        "usuario@example.com",
+        {"senha": "hash", "aprovado": True},
+    ) is False
