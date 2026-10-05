@@ -151,7 +151,7 @@ def test_password_reset_consumption_fails_closed_when_persistence_is_unavailable
 
 def test_sensitive_approval_actions_require_durable_persistence():
     source = Path("login.py").read_text(encoding="utf-8")
-    marker = 'candidato[user]["aprovado"] = acao == "aprovar"'
+    marker = 'candidato = dict(db)'
     start = source.index(marker)
     end = source.index('corpo = f"', start)
     block = source[start:end]
