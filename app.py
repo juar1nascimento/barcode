@@ -45,8 +45,11 @@ st.markdown("""
 # AUTENTICAÇÃO DE LOGIN
 # ==========================================
 # Produção permanece no login local. OIDC só é ativado explicitamente em
-# homologação quando GTI_OIDC_HOMOLOGACAO=true estiver configurado.
+# homologação quando [auth].homologacao=true estiver configurado.
 oidc_homologacao = str(st.secrets.get("auth", {}).get("homologacao", "")).strip().lower() in {"1", "true", "yes", "sim"}
+
+if "pagina_atual" not in st.session_state:
+    st.session_state.pagina_atual = "portal"
 
 if oidc_homologacao:
     if not oidc_configurado():
@@ -75,9 +78,6 @@ if oidc_homologacao:
 else:
     if not renderizar_login():
         st.stop()
-
-    if "pagina_atual" not in st.session_state:
-        st.session_state.pagina_atual = "portal"
 
     usuario_logado = str(st.session_state.get("usuario_logado", "")).strip().lower()
     admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
@@ -130,12 +130,12 @@ lista_almoxarifado = [
 ]
 
 lista_ubs = [
-    "Selecione uma UBS...", "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa",
-    "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus",
-    "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado",
-    "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha",
-    "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I",
-    "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)",
+    "Selecione uma UBS...", "UBS André Carloni", "UBS Feu Rosa", "UBS Barcelona",
+    "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande",
+    "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina",
+    "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos",
+    "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II",
+    "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)",
     "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos",
     "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra",
     "UBS Itinerante (atendimento na área rural)"
