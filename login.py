@@ -521,10 +521,10 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                     candidato[user].pop("approval_token_digests", None)
                                     if not _salvar_usuarios_persistentes(candidato):
                                         st.error("Não foi possível concluir a redefinição com segurança. Tente novamente em instantes.")
-                                    else:
-                                        _salvar_usuarios_local(candidato)
-                                        db = candidato
-                                        st.session_state.reset_autorizado = False
+                                        return False
+                                    _salvar_usuarios_local(candidato)
+                                    db = candidato
+                                    st.session_state.reset_autorizado = False
                                     st.session_state.tela_atual = "login"
                                     st.success("Senha redefinida com sucesso. Agora você pode entrar com a nova senha.")
                                     return False
@@ -536,7 +536,10 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                     "credenciais ou aprovação existentes."
                                 )
                                 return False
-                            salvar_usuarios(db)
+                            if not _salvar_usuarios_persistentes(db):
+                                st.error("Não foi possível concluir o cadastro com segurança. Tente novamente em instantes.")
+                                return False
+                            _salvar_usuarios_local(db)
                             cfg = st.secrets.get("email", {})
                             admin = cfg.get("admin_email", "")
                             base = cfg.get("app_url", "http://localhost:8501").rstrip("/")
@@ -547,11 +550,17 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 if user not in db:
                                     st.error("Não foi possível localizar o cadastro recém-criado.")
                                     return False
-                                db[user]["approval_token_digests"] = {
+                                candidato = dict(db)
+                                candidato[user] = dict(db[user])
+                                candidato[user]["approval_token_digests"] = {
                                     "aprovar": _digest_token_aprovacao(token_aprovar),
                                     "recusar": _digest_token_aprovacao(token_recusar),
                                 }
-                                salvar_usuarios(db)
+                                if not _salvar_usuarios_persistentes(candidato):
+                                    st.error("Não foi possível concluir a autorização com segurança. Tente novamente em instantes.")
+                                    return False
+                                _salvar_usuarios_local(candidato)
+                                db = candidato
                                 link_aprovar = base + "/?" + urllib.parse.urlencode({"token": token_aprovar})
                                 link_recusar = base + "/?" + urllib.parse.urlencode({"token": token_recusar})
                                 body = f'<p>Solicitação de cadastro: <b>{html.escape(user)}</b></p><p><a href="{html.escape(link_aprovar, quote=True)}">Autorizar</a> | <a href="{html.escape(link_recusar, quote=True)}">Recusar</a></p>'
@@ -614,8 +623,12 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 st.session_state.erro_login_msg = "Usuário ou senha inválidos."
                         else:
                             if migrar:
-                                db[user]["senha"] = hash_senha(senha)
-                                salvar_usuarios(db)
+                                candidato = dict(db)
+                                candidato[user] = dict(db[user])
+                                candidato[user]["senha"] = hash_senha(senha)
+                                if _salvar_usuarios_persistentes(candidato):
+                                    _salvar_usuarios_local(candidato)
+                                    db = candidato
                             st.session_state.autenticado = True
                             st.session_state.usuario_logado = user
                             st.session_state.ultimo_acesso_em = time.time()
