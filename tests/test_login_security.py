@@ -226,3 +226,13 @@ def test_legacy_password_migration_updates_local_cache_only_after_persistence():
     assert "if _salvar_usuarios_persistentes(candidato):" in block
     assert "_salvar_usuarios_local(candidato)" in block
 
+
+
+def test_generic_save_is_explicitly_non_destructive():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def salvar_usuarios")
+    end = source.index("def registrar_novo_usuario", start)
+    block = source[start:end]
+    assert "_salvar_usuarios_local(db)" in block
+    assert "_salvar_usuarios_persistentes(db)" in block
+    assert "reconciliar_usuarios_persistentes" not in block
