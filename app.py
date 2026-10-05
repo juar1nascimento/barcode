@@ -130,7 +130,7 @@ lista_almoxarifado = [
 ]
 
 lista_ubs = [
-    "Selecione uma UBS...", "UBS André Carloni", "UBS Feu Rosa", "UBS Barcelona",
+    "Selecione uma UBS...", "UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona",
     "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande",
     "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina",
     "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos",
