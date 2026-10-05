@@ -156,7 +156,7 @@ def test_sensitive_approval_actions_require_durable_persistence():
     end = source.index('corpo = f"', start)
     block = source[start:end]
     assert "candidato = dict(db)" in block
-    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "if not _salvar_usuario_persistente(user, candidato[user]):" in block
     assert "_salvar_usuarios_local(candidato)" in block
     assert "salvar_usuarios(db)" not in block
 
@@ -260,7 +260,7 @@ def test_persistent_save_does_not_reconcile_or_delete_unlisted_users():
 def test_sensitive_paths_use_expected_persistence_scope():
     source = Path("login.py").read_text(encoding="utf-8")
     checks = (
-        ('candidato[user]["aprovado"] = acao == "aprovar"', "_salvar_usuarios_persistentes(candidato)"),
+        ('candidato[user]["aprovado"] = acao == "aprovar"', "_salvar_usuario_persistente(user, candidato[user])"),
         ('candidato[user]["senha"] = hash_senha(nova)', "_salvar_usuario_persistente(user, candidato[user])"),
         ('candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}', "_salvar_usuarios_persistentes(candidato)"),
     )
