@@ -33,6 +33,41 @@ FOTO_THUMBNAIL_SIZE = 96
 FOTO_MAX_COLUNAS = 12
 
 
+def _remover_validacoes_menu_suspenso(planilha) -> dict:
+    """Remove validações de dados de todas as abas, eliminando menus suspensos.
+
+    A operação preserva valores, fórmulas e formatação. O Sheets API permite
+    limpar data validation enviando SetDataValidationRequest sem rule.
+    """
+    metadata = planilha.fetch_sheet_metadata()
+    requests = []
+    abas = []
+    for properties in metadata.get("sheets", []):
+        props = properties.get("properties") or {}
+        sheet_id = props.get("sheetId")
+        grid = props.get("gridProperties") or {}
+        row_count = int(grid.get("rowCount") or 0)
+        column_count = int(grid.get("columnCount") or 0)
+        if sheet_id is None or row_count <= 0 or column_count <= 0:
+            continue
+        requests.append({
+            "setDataValidation": {
+                "range": {
+                    "sheetId": int(sheet_id),
+                    "startRowIndex": 0,
+                    "endRowIndex": row_count,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": column_count,
+                }
+            }
+        })
+        abas.append(str(props.get("title") or sheet_id))
+
+    if requests:
+        planilha.batch_update({"requests": requests})
+    return {"abas_processadas": abas, "validacoes_removidas": len(requests)}
+
+
 def _public_photo_url(bucket: str, path: str) -> str:
     """Retorna URL temporária de objeto privado para o espelho do Sheets."""
     try:
@@ -370,6 +405,7 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
                 "Google Sheets indisponível para preflight estrutural.",
             )
         )
+    limpeza_validacoes = _remover_validacoes_menu_suspenso(planilha_preflight)
     auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=True)
 
     resultado = {
@@ -377,6 +413,7 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
         "sucesso": 0,
         "falhas": 0,
         "auditoria_estrutura": auditoria,
+        "limpeza_validacoes": limpeza_validacoes,
     }
     for tabela in ("patrimonios_sheets_outbox", "patrimonio_fotos_sheets_outbox"):
         itens = _claim(tabela, limit)
