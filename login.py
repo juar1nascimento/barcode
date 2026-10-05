@@ -12,6 +12,8 @@ import urllib.parse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+
+import psycopg
 import streamlit as st
 
 ADMIN_EMAIL_DEFAULT = ""
@@ -22,6 +24,96 @@ APPROVAL_TOKEN_TTL_SECONDS = 15 * 60
 LOGIN_MAX_TENTATIVAS = 5
 LOGIN_BLOQUEIO_SEGUNDOS = 15 * 60
 SESSAO_INATIVA_SEGUNDOS = 30 * 60
+AUTH_DB_CONNECT_TIMEOUT_SECONDS = 5
+
+
+def _auth_database_url() -> str:
+    """Obtém a conexão persistente do cadastro sem usar Supabase Auth."""
+    try:
+        valor = st.secrets.get("GTI_DATABASE_URL", "")
+        if valor:
+            return str(valor).strip()
+    except Exception:
+        pass
+    return str(os.environ.get("GTI_DATABASE_URL", "")).strip()
+
+
+def _carregar_usuarios_local() -> dict:
+    if not os.path.exists(DB_FILE):
+        return {}
+    try:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            dados = json.load(f)
+        return dados if isinstance(dados, dict) else {}
+    except Exception:
+        return {}
+
+
+def _salvar_usuarios_local(db: dict):
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(db, f, indent=4, ensure_ascii=False)
+    except OSError:
+        # O cache local é apenas uma camada de contingência; a persistência
+        # principal fica no PostgreSQL.
+        pass
+
+
+def _carregar_usuarios_persistentes() -> dict | None:
+    url = _auth_database_url()
+    if not url:
+        return None
+    try:
+        with psycopg.connect(url, connect_timeout=AUTH_DB_CONNECT_TIMEOUT_SECONDS) as conn:
+            rows = conn.execute(
+                """
+                select usuario, senha, aprovado, approval_token_digests
+                from public.gti_auth_usuarios
+                order by usuario
+                """
+            ).fetchall()
+        return {
+            str(usuario).strip().lower(): {
+                "senha": str(senha or ""),
+                "aprovado": bool(aprovado),
+                "approval_token_digests": digests if isinstance(digests, dict) else {},
+            }
+            for usuario, senha, aprovado, digests in rows
+        }
+    except Exception:
+        return None
+
+
+def _salvar_usuarios_persistentes(db: dict) -> bool:
+    url = _auth_database_url()
+    if not url:
+        return False
+    try:
+        with psycopg.connect(url, connect_timeout=AUTH_DB_CONNECT_TIMEOUT_SECONDS) as conn:
+            with conn.cursor() as cur:
+                for usuario, dados in db.items():
+                    cur.execute(
+                        """
+                        insert into public.gti_auth_usuarios
+                            (usuario, senha, aprovado, approval_token_digests, updated_at)
+                        values (%s, %s, %s, %s::jsonb, now())
+                        on conflict (usuario) do update set
+                            senha = excluded.senha,
+                            aprovado = excluded.aprovado,
+                            approval_token_digests = excluded.approval_token_digests,
+                            updated_at = now()
+                        """,
+                        (
+                            str(usuario).strip().lower(),
+                            str(dados.get("senha", "")),
+                            bool(dados.get("aprovado", False)),
+                            json.dumps(dados.get("approval_token_digests", {})),
+                        ),
+                    )
+            conn.commit()
+        return True
+    except Exception:
+        return False
 
 
 def hash_senha(senha: str) -> str:
@@ -55,26 +147,45 @@ def verificar_senha(senha: str, armazenada: str) -> tuple[bool, bool]:
 
 
 def carregar_usuarios() -> dict:
-    if not os.path.exists(DB_FILE):
-        admin = st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT).strip().lower()
+    """Carrega contas de forma persistente, mantendo o login fora do Supabase Auth."""
+    persistente = _carregar_usuarios_persistentes()
+    if persistente is not None:
+        if persistente:
+            _salvar_usuarios_local(persistente)
+            return persistente
+
+        # Primeira execução após a evolução: migra o cadastro local existente
+        # antes de criar qualquer conta nova.
+        local = _carregar_usuarios_local()
+        if local:
+            if _salvar_usuarios_persistentes(local):
+                return local
+
+        # Bootstrap seguro do administrador a partir das Secrets já existentes.
+        admin = str(st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)).strip().lower()
         admin_hash = str(st.secrets.get("email", {}).get("admin_password_hash", "")).strip()
-        db = (
-            {admin: {"senha": admin_hash, "aprovado": True}}
-            if admin and admin_hash
-            else {}
-        )
-        salvar_usuarios(db)
+        db = {admin: {"senha": admin_hash, "aprovado": True}} if admin and admin_hash else {}
+        if db:
+            _salvar_usuarios_persistentes(db)
+            _salvar_usuarios_local(db)
         return db
-    try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+
+    # Contingência: mantém o comportamento anterior se o PostgreSQL estiver
+    # temporariamente indisponível, sem apagar ou substituir credenciais.
+    local = _carregar_usuarios_local()
+    if local:
+        return local
+
+    admin = str(st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)).strip().lower()
+    admin_hash = str(st.secrets.get("email", {}).get("admin_password_hash", "")).strip()
+    db = {admin: {"senha": admin_hash, "aprovado": True}} if admin and admin_hash else {}
+    _salvar_usuarios_local(db)
+    return db
 
 
 def salvar_usuarios(db: dict):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(db, f, indent=4, ensure_ascii=False)
+    _salvar_usuarios_local(db)
+    _salvar_usuarios_persistentes(db)
 
 
 def registrar_novo_usuario(db: dict, usuario: str, senha: str) -> bool:
