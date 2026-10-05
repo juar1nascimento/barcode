@@ -260,7 +260,7 @@ def test_persistent_save_does_not_reconcile_or_delete_unlisted_users():
 def test_sensitive_paths_use_expected_persistence_scope():
     source = Path("login.py").read_text(encoding="utf-8")
     checks = (
-        ('candidato[user]["aprovado"] = acao == "aprovar"', "_salvar_usuario_persistente(user, candidato[user])"),
+        ('candidato[user]["aprovado"] = acao == "aprovar"', "_salvar_usuarios_persistentes(candidato)"),
         ('candidato[user]["senha"] = hash_senha(nova)', "_salvar_usuario_persistente(user, candidato[user])"),
         ('candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}', "_salvar_usuarios_persistentes(candidato)"),
     )
