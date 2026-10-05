@@ -151,3 +151,15 @@ def test_destructive_reconciliation_requires_non_empty_explicit_snapshot():
     block = source[start:end]
     assert "if not db:" in block
     assert "where not (usuario = any(%s))" in block
+
+
+def test_password_reset_consumption_fails_closed_when_persistence_is_unavailable():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'if acao == "redefinir":'
+    start = source.index(marker)
+    end = source.index('st.session_state.email_solicitante', start)
+    block = source[start:end]
+    assert "candidato = dict(db)" in block
+    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "st.error(" in block
+    assert "st.session_state.reset_autorizado" not in block
