@@ -47,9 +47,9 @@ def test_password_reset_token_is_consumed_durably_before_reset_screen():
     end = source.index('st.session_state.email_solicitante', start)
     block = source[start:end]
     assert 'pop("redefinir", None)' in block
-    assert "_salvar_usuarios_persistentes(candidato)" in block
+    assert "_salvar_usuario_persistente(user, candidato[user])" in block
     assert "_salvar_usuarios_local(candidato)" in block
-    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "if not _salvar_usuario_persistente(user, candidato[user]):" in block
 
 
 def test_auth_uses_local_cache_when_persistent_store_is_unavailable(monkeypatch):
