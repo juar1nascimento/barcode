@@ -355,11 +355,20 @@ def processar_acao_via_url():
         return
 
     if acao == "redefinir":
-        # Consome o token antes de abrir a tela de troca de senha.
-        # Isso torna a autorização estritamente de uso único, inclusive
-        # antes de o usuário concluir a nova senha.
-        db[user].setdefault("approval_token_digests", {}).pop("redefinir", None)
-        salvar_usuarios(db)
+        # A consumação do token de recuperação precisa ser durável antes de
+        # autorizar a troca. Se o PostgreSQL estiver indisponível, falhamos
+        # fechado para evitar replay quando a persistência for restaurada.
+        candidato = dict(db)
+        candidato[user] = dict(db[user])
+        candidato[user]["approval_token_digests"] = dict(
+            candidato[user].get("approval_token_digests", {})
+        )
+        candidato[user]["approval_token_digests"].pop("redefinir", None)
+        if not _salvar_usuarios_persistentes(candidato):
+            st.error("Não foi possível validar a recuperação com segurança. Tente novamente em instantes.")
+            return
+        _salvar_usuarios_local(candidato)
+        db = candidato
         st.session_state.email_solicitante = user
         st.session_state.tela_atual = "redefinicao_criar"
         st.session_state.reset_autorizado = True
