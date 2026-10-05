@@ -208,7 +208,7 @@ def test_password_reset_reports_success_only_after_durable_persistence():
     source = Path("login.py").read_text(encoding="utf-8")
     marker = 'if not _salvar_usuarios_persistentes(candidato):'
     start = source.index(marker, source.index('candidato[user]["senha"] = hash_senha(nova)'))
-    end = source.index("return False", start)
+    end = source.index('st.session_state.tela_atual = "login"', start)
     block = source[start:end]
     assert "return False" in block
     assert 'st.success("Senha redefinida com sucesso.' not in block
