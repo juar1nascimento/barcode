@@ -50,8 +50,8 @@ if "pagina_atual" not in st.session_state:
     st.session_state.pagina_atual = "portal"
 
 usuario_logado = str(st.session_state.get("usuario_logado", "")).strip().lower()
-usuario_papel = str(st.session_state.get("usuario_papel", "usuario")).strip().lower()
-is_admin = usuario_papel == "admin"
+admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
+is_admin = bool(usuario_logado and admin_configurado and usuario_logado == admin_configurado)
 
 # ==========================================
 # BARRA LATERAL (MENU E LOGOUT)
