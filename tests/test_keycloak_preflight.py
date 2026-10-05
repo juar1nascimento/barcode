@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-from io import BytesIO
-from pathlib import Path
 from urllib.error import URLError
 
 import scripts.keycloak_preflight as preflight
@@ -42,8 +40,6 @@ def test_preflight_accepts_valid_https_discovery(monkeypatch):
 
 
 def test_preflight_rejects_non_https():
-    import os
-
     old = os.environ.get("KEYCLOAK_SERVER_METADATA_URL")
     os.environ["KEYCLOAK_SERVER_METADATA_URL"] = "http://id.example.test/realms/gti-sesa/.well-known/openid-configuration"
     try:
