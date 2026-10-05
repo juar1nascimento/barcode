@@ -181,3 +181,48 @@ def test_recovery_token_creation_requires_durable_persistence_before_email():
     assert "if not _salvar_usuarios_persistentes(candidato):" in block
     assert "_salvar_usuarios_local(candidato)" in block
     assert "salvar_usuarios(db)" not in block
+
+def test_new_registration_requires_durable_persistence_before_email_flow():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = "if not _salvar_usuarios_persistentes(db):"
+    start = source.index(marker, source.index("registrar_novo_usuario"))
+    end = source.index('cfg = st.secrets.get("email", {})', start)
+    block = source[start:end]
+    assert "if not _salvar_usuarios_persistentes(db):" in block
+    assert "_salvar_usuarios_local(db)" in block
+    assert "return False" in block
+
+
+def test_approval_digest_creation_requires_durable_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'candidato[user]["approval_token_digests"] = {'
+    start = source.index(marker)
+    end = source.index("link_aprovar =", start)
+    block = source[start:end]
+    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+    assert "salvar_usuarios(db)" not in block
+
+
+def test_password_reset_reports_success_only_after_durable_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'if not _salvar_usuarios_persistentes(candidato):'
+    start = source.index(marker, source.index('candidato[user]["senha"] = hash_senha(nova)'))
+    end = source.index("return False", start)
+    block = source[start:end]
+    assert "return False" in block
+    assert 'st.success("Senha redefinida com sucesso.' not in block
+    success_pos = source.index('st.success("Senha redefinida com sucesso.')
+    persist_pos = source.index("_salvar_usuarios_persistentes(candidato)", start)
+    assert persist_pos < success_pos
+
+
+def test_legacy_password_migration_updates_local_cache_only_after_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'candidato[user]["senha"] = hash_senha(senha)'
+    start = source.index(marker)
+    end = source.index('st.session_state.autenticado = True', start)
+    block = source[start:end]
+    assert "if _salvar_usuarios_persistentes(candidato):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+
