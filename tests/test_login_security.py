@@ -236,3 +236,36 @@ def test_generic_save_is_explicitly_non_destructive():
     assert "_salvar_usuarios_local(db)" in block
     assert "_salvar_usuarios_persistentes(db)" in block
     assert "reconciliar_usuarios_persistentes" not in block
+
+def test_persistent_save_uses_atomic_transaction_for_full_snapshot():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert "with psycopg.connect(" in block
+    assert "conn.commit()" in block
+    assert "except Exception:" in block
+    assert "return False" in block
+
+
+def test_persistent_save_does_not_reconcile_or_delete_unlisted_users():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert "delete from public.gti_auth_usuarios" not in block.lower()
+    assert "reconciliar_usuarios_persistentes" not in block
+
+
+def test_sensitive_paths_pass_a_single_candidate_snapshot_to_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    for marker in (
+        'candidato[user]["aprovado"] = acao == "aprovar"',
+        'candidato[user]["senha"] = hash_senha(nova)',
+        'candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}',
+    ):
+        start = source.index(marker)
+        end = source.find("return", start)
+        block = source[start:end if end != -1 else len(source)]
+        assert "_salvar_usuarios_persistentes(candidato)" in block
+
