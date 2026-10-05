@@ -147,3 +147,37 @@ def test_password_reset_consumption_fails_closed_when_persistence_is_unavailable
     assert "if not _salvar_usuarios_persistentes(candidato):" in block
     assert "st.error(" in block
     assert "st.session_state.reset_autorizado" not in block
+
+
+def test_sensitive_approval_actions_require_durable_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'db[user]["aprovado"] = acao == "aprovar"'
+    start = source.index(marker)
+    end = source.index('corpo = f"', start)
+    block = source[start:end]
+    assert "candidato = dict(db)" in block
+    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+    assert "salvar_usuarios(db)" not in block
+
+
+def test_password_reset_requires_durable_password_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'candidato[user]["senha"] = hash_senha(nova)'
+    start = source.index(marker)
+    end = source.index('st.session_state.reset_autorizado = False', start)
+    block = source[start:end]
+    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+    assert "salvar_usuarios(db)" not in block
+
+
+def test_recovery_token_creation_requires_durable_persistence_before_email():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'candidato[email_alvo]["approval_token_digests"]'
+    start = source.index(marker)
+    end = source.index('base =', start)
+    block = source[start:end]
+    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+    assert "salvar_usuarios(db)" not in block
