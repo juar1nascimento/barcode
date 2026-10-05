@@ -375,9 +375,15 @@ def processar_acao_via_url():
         st.success("Solicitação de redefinição validada. Defina uma nova senha.")
         return
 
-    db[user]["aprovado"] = acao == "aprovar"
-    db[user].pop("approval_token_digests", None)
-    salvar_usuarios(db)
+    candidato = dict(db)
+    candidato[user] = dict(db[user])
+    candidato[user]["aprovado"] = acao == "aprovar"
+    candidato[user].pop("approval_token_digests", None)
+    if not _salvar_usuarios_persistentes(candidato):
+        st.error("Não foi possível concluir a autorização com segurança. Tente novamente em instantes.")
+        return
+    _salvar_usuarios_local(candidato)
+    db = candidato
     corpo = f"<h3>Prefeitura Municipal da Serra</h3><p>Sua solicitação para <b>{html.escape(user)}</b> foi <b>{'ACEITA' if acao == 'aprovar' else 'RECUSADA'}</b>.</p>"
     enviar_email(user, "Atualização do cadastro - Prefeitura da Serra", corpo)
     (st.success if acao == "aprovar" else st.error)(f"Solicitação do usuário {user} foi {'APROVADA' if acao == 'aprovar' else 'RECUSADA'}.")
@@ -457,8 +463,14 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                         else:
                             try:
                                 token = _criar_token_aprovacao("redefinir", email_alvo)
-                                db[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}
-                                salvar_usuarios(db)
+                                candidato = dict(db)
+                                candidato[email_alvo] = dict(db[email_alvo])
+                                candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}
+                                if not _salvar_usuarios_persistentes(candidato):
+                                    st.error("Não foi possível iniciar a recuperação com segurança. Tente novamente em instantes.")
+                                    return
+                                _salvar_usuarios_local(candidato)
+                                db = candidato
                                 base = str(st.secrets.get("email", {}).get("app_url", "http://localhost:8501")).rstrip("/")
                                 link = base + "/?" + urllib.parse.urlencode({"token": token})
                                 body = (
@@ -503,10 +515,16 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 if user not in db or not bool(db[user].get("aprovado", False)):
                                     st.error("Cadastro não encontrado ou não aprovado.")
                                 else:
-                                    db[user]["senha"] = hash_senha(nova)
-                                    db[user].pop("approval_token_digests", None)
-                                    salvar_usuarios(db)
-                                    st.session_state.reset_autorizado = False
+                                    candidato = dict(db)
+                                    candidato[user] = dict(db[user])
+                                    candidato[user]["senha"] = hash_senha(nova)
+                                    candidato[user].pop("approval_token_digests", None)
+                                    if not _salvar_usuarios_persistentes(candidato):
+                                        st.error("Não foi possível concluir a redefinição com segurança. Tente novamente em instantes.")
+                                    else:
+                                        _salvar_usuarios_local(candidato)
+                                        db = candidato
+                                        st.session_state.reset_autorizado = False
                                     st.session_state.tela_atual = "login"
                                     st.success("Senha redefinida com sucesso. Agora você pode entrar com a nova senha.")
                                     return False
