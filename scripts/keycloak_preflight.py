@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Pré-flight isolado do discovery OIDC do Keycloak.
+
+Uso:
+  KEYCLOAK_SERVER_METADATA_URL="https://host/realms/gti-sesa/.well-known/openid-configuration" \
+    python scripts/keycloak_preflight.py
+
+Este script não lê nem imprime client_secret, cookie_secret ou tokens.
+Ele não é importado pelo app e não altera o fluxo de produção.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from urllib.parse import urlparse
+
+TIMEOUT_SECONDS = 8
+REQUIRED_FIELDS = ("issuer", "authorization_endpoint", "token_endpoint", "jwks_uri")
+
+
+def fail(message: str) -> int:
+    print(f"FAIL: {message}")
+    return 1
+
+
+def main() -> int:
+    url = os.environ.get("KEYCLOAK_SERVER_METADATA_URL", "").strip()
+    if not url:
+        return fail("KEYCLOAK_SERVER_METADATA_URL não foi informado.")
+
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return fail("O endpoint OIDC deve usar HTTPS.")
+    if not parsed.hostname:
+        return fail("O endpoint OIDC não possui hostname válido.")
+
+    lowered = url.lower()
+    placeholders = ("seu-keycloak", "seu-endereco", "example.com", "localhost")
+    if any(item in lowered for item in placeholders):
+        return fail("O endpoint informado ainda parece ser um placeholder.")
+
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": "gti-sesa-keycloak-preflight/1"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            if response.status != 200:
+                return fail(f"Discovery respondeu HTTP {response.status}.")
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        return fail(f"Discovery respondeu HTTP {exc.code}.")
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return fail(f"Não foi possível acessar o discovery: {exc.reason if hasattr(exc, 'reason') else exc}.")
+    except Exception as exc:
+        return fail(f"Erro inesperado ao acessar o discovery: {type(exc).__name__}.")
+
+    try:
+        metadata = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return fail("A resposta do discovery não é JSON válido.")
+
+    missing = [field for field in REQUIRED_FIELDS if not isinstance(metadata.get(field), str) or not metadata[field].strip()]
+    if missing:
+        return fail("Metadados obrigatórios ausentes: " + ", ".join(missing))
+
+    issuer = metadata["issuer"].strip()
+    issuer_host = urlparse(issuer).hostname
+    if urlparse(issuer).scheme != "https" or not issuer_host:
+        return fail("O issuer informado pelo Keycloak não é HTTPS ou não possui hostname válido.")
+
+    print("OK: discovery OIDC do Keycloak está acessível e contém os endpoints obrigatórios.")
+    print(f"Issuer: {issuer}")
+    print("Endpoints: authorization_endpoint, token_endpoint e jwks_uri presentes.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
