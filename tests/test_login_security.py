@@ -132,3 +132,11 @@ def test_recovery_after_database_restoration_replaces_stale_local_cache(monkeypa
 
     assert login.carregar_usuarios() == persistent
     assert refreshed == [persistent]
+
+
+def test_persistent_save_reconciles_removed_users_and_never_deletes_on_empty_db():
+    source = Path("login.py").read_text(encoding="utf-8")
+    assert "delete from public.gti_auth_usuarios" in source
+    assert "where not (usuario = any(%s))" in source
+    assert 'if not db:' in source
+    assert "return False" in source
