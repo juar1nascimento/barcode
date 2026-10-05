@@ -2,7 +2,7 @@ import streamlit as st
 
 # Importações dos módulos independentes
 from login import renderizar_login, _limpar_sessao_autenticacao
-from auth_oidc import iniciar_login_oidc, encerrar_login_oidc, usuario_oidc, oidc_configurado
+from auth_oidc import iniciar_login_oidc, encerrar_login_oidc, usuario_oidc, oidc_configurado, renderizar_login_oidc
 from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
 from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso_storage
@@ -57,10 +57,8 @@ if oidc_homologacao:
         st.stop()
 
     if not bool(getattr(st.user, "is_logged_in", False)):
-        st.info("Homologação OIDC ativa. Faça login pelo provedor de identidade.")
-        if st.button("Entrar com OIDC"):
-            iniciar_login_oidc()
-        st.stop()
+        if not renderizar_login_oidc():
+            st.stop()
 
     dados_oidc = usuario_oidc()
     if not dados_oidc:
