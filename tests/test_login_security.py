@@ -320,6 +320,40 @@ def test_full_snapshot_path_normalizes_each_user_identifier():
     assert "if not db:" in block
 
 
+def test_targeted_persistence_concurrent_users_remain_isolated(monkeypatch):
+    import login
+
+    executions = []
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def execute(self, query, params):
+            executions.append((query.lower(), params))
+
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def cursor(self): return Cursor()
+        def commit(self): pass
+
+    monkeypatch.setattr(login, "_auth_database_url", lambda: "test-db")
+    monkeypatch.setattr(login.psycopg, "connect", lambda *args, **kwargs: Connection())
+
+    assert login._salvar_usuario_persistente(
+        "a@example.com", {"senha": "hash-a", "aprovado": True}
+    ) is True
+    assert login._salvar_usuario_persistente(
+        "b@example.com", {"senha": "hash-b", "aprovado": False}
+    ) is True
+
+    assert len(executions) == 2
+    assert executions[0][1][0] == "a@example.com"
+    assert executions[1][1][0] == "b@example.com"
+    assert all("delete from public.gti_auth_usuarios" not in query for query, _ in executions)
+    assert all("where not" not in query for query, _ in executions)
+
+
 def test_targeted_persistence_helper_is_atomic_and_single_user():
     source = Path("login.py").read_text(encoding="utf-8")
     start = source.index("def _salvar_usuario_persistente")
