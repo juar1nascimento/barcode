@@ -167,7 +167,7 @@ def test_password_reset_requires_durable_password_persistence():
     start = source.index(marker)
     end = source.index('st.session_state.reset_autorizado = False', start)
     block = source[start:end]
-    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "if not _salvar_usuario_persistente(user, candidato[user]):" in block
     assert "_salvar_usuarios_local(candidato)" in block
     assert "salvar_usuarios(db)" not in block
 
