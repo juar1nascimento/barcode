@@ -555,7 +555,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                     candidato[user] = dict(db[user])
                                     candidato[user]["senha"] = hash_senha(nova)
                                     candidato[user].pop("approval_token_digests", None)
-                                    if not _salvar_usuarios_persistentes(candidato):
+                                    if not _salvar_usuario_persistente(user, candidato[user]):
                                         st.error("Não foi possível concluir a redefinição com segurança. Tente novamente em instantes.")
                                         return False
                                     _salvar_usuarios_local(candidato)
