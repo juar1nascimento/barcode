@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
@@ -69,9 +68,16 @@ def main() -> int:
         return fail("Metadados obrigatórios ausentes: " + ", ".join(missing))
 
     issuer = metadata["issuer"].strip()
-    issuer_host = urlparse(issuer).hostname
-    if urlparse(issuer).scheme != "https" or not issuer_host:
+    issuer_parsed = urlparse(issuer)
+    issuer_host = issuer_parsed.hostname
+    if issuer_parsed.scheme != "https" or not issuer_host:
         return fail("O issuer informado pelo Keycloak não é HTTPS ou não possui hostname válido.")
+
+    for field in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
+        endpoint = str(metadata[field]).strip()
+        endpoint_parsed = urlparse(endpoint)
+        if endpoint_parsed.scheme != "https" or not endpoint_parsed.hostname:
+            return fail(f"{field} não é um endpoint HTTPS válido.")
 
     print("OK: discovery OIDC do Keycloak está acessível e contém os endpoints obrigatórios.")
     print(f"Issuer: {issuer}")
