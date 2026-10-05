@@ -18,7 +18,13 @@ def oidc_configurado() -> bool:
     except Exception:
         return False
 
-    required = ("redirect_uri", "cookie_secret", "client_id", "client_secret", "server_metadata_url")
+    required = (
+        "redirect_uri",
+        "cookie_secret",
+        "client_id",
+        "client_secret",
+        "server_metadata_url",
+    )
     return all(str(cfg.get(item, "")).strip() for item in required)
 
 
@@ -34,7 +40,7 @@ def _claim(nome: str, padrao: Any = None) -> Any:
 
 
 def _normalizar_roles(valor: Any) -> set[str]:
-    """Normaliza roles vindos de diferentes mapeamentos OIDC."""
+    """Normaliza roles vindas de diferentes mapeamentos OIDC."""
     if isinstance(valor, str):
         valores = [valor]
     elif isinstance(valor, (list, tuple, set)):
@@ -50,11 +56,16 @@ def _normalizar_roles(valor: Any) -> set[str]:
 
 
 def usuario_oidc() -> dict[str, Any] | None:
-    """Extrai identidade e roles explícitas da sessão OIDC."""
+    """Extrai somente identidade mínima e roles explícitas da sessão OIDC."""
     if not oidc_configurado():
         return None
 
     if not bool(_claim("is_logged_in", False)):
+        return None
+
+    # O sub é o identificador técnico estável do IdP e é obrigatório.
+    subject = str(_claim("sub", "") or "").strip()
+    if not subject:
         return None
 
     email = str(_claim("email", "") or "").strip().lower()
@@ -72,6 +83,7 @@ def usuario_oidc() -> dict[str, Any] | None:
         roles.update(_normalizar_roles(realm_access.get("roles", [])))
 
     return {
+        "sub": subject,
         "email": email,
         "preferred_username": username,
         "name": name,
