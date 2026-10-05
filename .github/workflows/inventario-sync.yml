@@ -24,6 +24,7 @@ jobs:
       SUPABASE_SECRET_KEY: ${{ secrets.GTI_SUPABASE_SECRET_KEY || secrets.SUPABASE_SECRET_KEY }}
       GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON || secrets.GOOGLE_SHEETS_CREDENTIALS }}
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID || secrets.GOOGLE_SPREADSHEET_ID }}
+      SHEETS_REMOVE_VALIDATIONS: "true"
     steps:
       - name: Checkout
         # Pin de commit imutável; v4.4.0
@@ -207,7 +208,7 @@ jobs:
           os.environ["DATABASE_URL"] = make_conninfo(**params)
           from sincronizador_orquestrador import processar_sincronizacao_incremental
 
-          resultado = processar_sincronizacao_incremental(limit=25)
+          resultado = processar_sincronizacao_incremental(limit=10)
           print(json.dumps(resultado, ensure_ascii=False))
           if not resultado.get("ok"):
               raise SystemExit(2)
