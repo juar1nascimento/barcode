@@ -326,6 +326,11 @@ def processar_acao_via_url():
         return
 
     if acao == "redefinir":
+        # Consome o token antes de abrir a tela de troca de senha.
+        # Isso torna a autorização estritamente de uso único, inclusive
+        # antes de o usuário concluir a nova senha.
+        db[user].setdefault("approval_token_digests", {}).pop("redefinir", None)
+        salvar_usuarios(db)
         st.session_state.email_solicitante = user
         st.session_state.tela_atual = "redefinicao_criar"
         st.session_state.reset_autorizado = True
