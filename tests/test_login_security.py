@@ -48,3 +48,49 @@ def test_password_reset_token_is_consumed_before_reset_screen():
     block = source[start:end]
     assert 'pop("redefinir", None)' in block
     assert "salvar_usuarios(db)" in block
+
+
+def test_auth_uses_local_cache_when_persistent_store_is_unavailable(monkeypatch):
+    import login
+
+    cache = {"usuario@example.com": {"senha": "hash", "aprovado": True}}
+    monkeypatch.setattr(login, "_carregar_usuarios_persistentes", lambda: None)
+    monkeypatch.setattr(login, "_carregar_usuarios_local", lambda: cache)
+
+    assert login.carregar_usuarios() == cache
+
+
+def test_auth_prefers_persistent_store_and_refreshes_local_cache(monkeypatch):
+    import login
+
+    persistent = {"usuario@example.com": {"senha": "hash", "aprovado": True}}
+    refreshed = []
+    monkeypatch.setattr(login, "_carregar_usuarios_persistentes", lambda: persistent)
+    monkeypatch.setattr(login, "_salvar_usuarios_local", lambda db: refreshed.append(db))
+
+    assert login.carregar_usuarios() == persistent
+    assert refreshed == [persistent]
+
+
+def test_fresh_container_bootstraps_only_configured_admin_when_persistence_is_empty(monkeypatch):
+    import login
+
+    saved_local = []
+    saved_persistent = []
+    monkeypatch.setattr(login, "_carregar_usuarios_persistentes", lambda: {})
+    monkeypatch.setattr(login, "_carregar_usuarios_local", lambda: {})
+    monkeypatch.setattr(login, "_salvar_usuarios_local", lambda db: saved_local.append(db))
+    monkeypatch.setattr(login, "_salvar_usuarios_persistentes", lambda db: saved_persistent.append(db) or True)
+    monkeypatch.setattr(login, "st", type("SecretsStub", (), {"secrets": {"email": {"admin_email": "admin@example.com", "admin_password_hash": "adminhash"}}})())
+
+    assert login.carregar_usuarios() == {
+        "admin@example.com": {"senha": "adminhash", "aprovado": True}
+    }
+    assert saved_persistent
+    assert saved_local
+
+
+def test_auth_database_timeout_is_bounded_to_avoid_long_login_stalls():
+    import login
+
+    assert 0 < login.AUTH_DB_CONNECT_TIMEOUT_SECONDS <= 5
