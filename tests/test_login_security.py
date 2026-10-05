@@ -40,41 +40,38 @@ def test_password_recovery_is_local_and_signed():
     assert 'st.session_state.reset_autorizado = True' in source
 
 
-def test_password_reset_token_is_consumed_before_reset_screen():
+def test_password_reset_token_is_consumed_durably_before_reset_screen():
     source = Path("login.py").read_text(encoding="utf-8")
     marker = 'if acao == "redefinir":'
     start = source.index(marker)
     end = source.index('st.session_state.email_solicitante', start)
     block = source[start:end]
     assert 'pop("redefinir", None)' in block
-    assert "salvar_usuarios(db)" in block
+    assert "_salvar_usuario_persistente(user, candidato[user])" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+    assert "if not _salvar_usuario_persistente(user, candidato[user]):" in block
 
 
 def test_auth_uses_local_cache_when_persistent_store_is_unavailable(monkeypatch):
     import login
-
     cache = {"usuario@example.com": {"senha": "hash", "aprovado": True}}
     monkeypatch.setattr(login, "_carregar_usuarios_persistentes", lambda: None)
     monkeypatch.setattr(login, "_carregar_usuarios_local", lambda: cache)
-
     assert login.carregar_usuarios() == cache
 
 
 def test_auth_prefers_persistent_store_and_refreshes_local_cache(monkeypatch):
     import login
-
     persistent = {"usuario@example.com": {"senha": "hash", "aprovado": True}}
     refreshed = []
     monkeypatch.setattr(login, "_carregar_usuarios_persistentes", lambda: persistent)
     monkeypatch.setattr(login, "_salvar_usuarios_local", lambda db: refreshed.append(db))
-
     assert login.carregar_usuarios() == persistent
     assert refreshed == [persistent]
 
 
 def test_fresh_container_bootstraps_only_configured_admin_when_persistence_is_empty(monkeypatch):
     import login
-
     saved_local = []
     saved_persistent = []
     monkeypatch.setattr(login, "_carregar_usuarios_persistentes", lambda: {})
@@ -82,53 +79,316 @@ def test_fresh_container_bootstraps_only_configured_admin_when_persistence_is_em
     monkeypatch.setattr(login, "_salvar_usuarios_local", lambda db: saved_local.append(db))
     monkeypatch.setattr(login, "_salvar_usuarios_persistentes", lambda db: saved_persistent.append(db) or True)
     monkeypatch.setattr(login, "st", type("SecretsStub", (), {"secrets": {"email": {"admin_email": "admin@example.com", "admin_password_hash": "adminhash"}}})())
-
-    assert login.carregar_usuarios() == {
-        "admin@example.com": {"senha": "adminhash", "aprovado": True}
-    }
+    assert login.carregar_usuarios() == {"admin@example.com": {"senha": "adminhash", "aprovado": True}}
     assert saved_persistent
     assert saved_local
 
 
 def test_auth_database_timeout_is_bounded_to_avoid_long_login_stalls():
     import login
-
     assert 0 < login.AUTH_DB_CONNECT_TIMEOUT_SECONDS <= 5
 
 
 def test_persistent_auth_connection_failure_degrades_to_contingency(monkeypatch):
     import login
-
     def fail_connect(*args, **kwargs):
         raise OSError("database unavailable")
-
     monkeypatch.setattr(login.psycopg, "connect", fail_connect)
     monkeypatch.setattr(login, "_auth_database_url", lambda: "postgresql://test.invalid/db")
-
     assert login._carregar_usuarios_persistentes() is None
 
 
 def test_save_keeps_local_cache_when_persistent_store_fails(monkeypatch):
     import login
-
     cache = {"usuario@example.com": {"senha": "hash", "aprovado": True}}
     saved_local = []
     monkeypatch.setattr(login, "_salvar_usuarios_local", lambda db: saved_local.append(db))
     monkeypatch.setattr(login, "_salvar_usuarios_persistentes", lambda db: False)
-
     login.salvar_usuarios(cache)
-
     assert saved_local == [cache]
 
 
 def test_recovery_after_database_restoration_replaces_stale_local_cache(monkeypatch):
     import login
-
-    stale_local = {"revogado@example.com": {"senha": "old", "aprovado": False}}
     persistent = {"usuario@example.com": {"senha": "new", "aprovado": True}}
     refreshed = []
     monkeypatch.setattr(login, "_carregar_usuarios_persistentes", lambda: persistent)
     monkeypatch.setattr(login, "_salvar_usuarios_local", lambda db: refreshed.append(db))
-
     assert login.carregar_usuarios() == persistent
     assert refreshed == [persistent]
+
+
+def test_persistent_save_is_non_destructive_by_default():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
+    save_block = source[start:end]
+    assert "delete from public.gti_auth_usuarios" not in save_block
+    assert "if not db:" in save_block
+    assert "def reconciliar_usuarios_persistentes" in source
+
+
+def test_destructive_reconciliation_requires_non_empty_explicit_snapshot():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def reconciliar_usuarios_persistentes")
+    end = source.index("def hash_senha", start)
+    block = source[start:end]
+    assert "if not db:" in block
+    assert "where not (usuario = any(%s))" in block
+
+
+def test_password_reset_consumption_fails_closed_when_persistence_is_unavailable():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'if acao == "redefinir":'
+    start = source.index(marker)
+    end = source.index('st.session_state.email_solicitante', start)
+    block = source[start:end]
+    assert "candidato = dict(db)" in block
+    assert "if not _salvar_usuario_persistente(user, candidato[user]):" in block
+    assert "st.error(" in block
+    assert "st.session_state.reset_autorizado" not in block
+
+
+def test_sensitive_approval_actions_require_durable_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'candidato = dict(db)'
+    start = source.index(marker)
+    end = source.index('corpo = f"', start)
+    block = source[start:end]
+    assert "candidato = dict(db)" in block
+    assert "if not _salvar_usuario_persistente(user, candidato[user]):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+    assert "salvar_usuarios(db)" not in block
+
+
+def test_password_reset_requires_durable_password_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'candidato[user]["senha"] = hash_senha(nova)'
+    start = source.index(marker)
+    end = source.index('st.session_state.reset_autorizado = False', start)
+    block = source[start:end]
+    assert "if not _salvar_usuario_persistente(user, candidato[user]):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+    assert "salvar_usuarios(db)" not in block
+
+
+def test_recovery_token_creation_requires_durable_persistence_before_email():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'candidato[email_alvo]["approval_token_digests"]'
+    start = source.index(marker)
+    end = source.index('base =', start)
+    block = source[start:end]
+    assert "if not _salvar_usuario_persistente(email_alvo, candidato[email_alvo]):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+    assert "salvar_usuarios(db)" not in block
+
+def test_new_registration_requires_durable_persistence_before_email_flow():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = "if not _salvar_usuario_persistente(user, db[user]):"
+    start = source.index(marker)
+    end = source.index('cfg = st.secrets.get("email", {})', start)
+    block = source[start:end]
+    assert "if not _salvar_usuario_persistente(user, db[user]):" in block
+    assert "_salvar_usuarios_local(db)" in block
+    assert "return False" in block
+
+
+def test_approval_digest_creation_requires_durable_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'candidato[user]["approval_token_digests"] = {'
+    start = source.index(marker)
+    end = source.index("link_aprovar =", start)
+    block = source[start:end]
+    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+    assert "salvar_usuarios(db)" not in block
+
+
+def test_password_reset_reports_success_only_after_durable_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'if not _salvar_usuario_persistente(user, candidato[user]):'
+    start = source.index(marker, source.index('candidato[user]["senha"] = hash_senha(nova)'))
+    end = source.index('st.session_state.tela_atual = "login"', start)
+    block = source[start:end]
+    assert "return False" in block
+    assert 'st.success("Senha redefinida com sucesso.' not in block
+    success_pos = source.index('st.success("Senha redefinida com sucesso.')
+    persist_pos = source.index("_salvar_usuario_persistente(user, candidato[user])", start)
+    assert persist_pos < success_pos
+
+
+def test_legacy_password_migration_updates_local_cache_only_after_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = 'candidato[user]["senha"] = hash_senha(senha)'
+    start = source.index(marker)
+    end = source.index('st.session_state.autenticado = True', start)
+    block = source[start:end]
+    assert "if _salvar_usuarios_persistentes(candidato):" in block
+    assert "_salvar_usuarios_local(candidato)" in block
+
+
+
+def test_generic_save_is_explicitly_non_destructive():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def salvar_usuarios")
+    end = source.index("def registrar_novo_usuario", start)
+    block = source[start:end]
+    assert "_salvar_usuarios_local(db)" in block
+    assert "_salvar_usuarios_persistentes(db)" in block
+    assert "reconciliar_usuarios_persistentes" not in block
+
+def test_persistent_save_uses_atomic_transaction_for_full_snapshot():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert "with psycopg.connect(" in block
+    assert "conn.commit()" in block
+    assert "except Exception:" in block
+    assert "return False" in block
+
+
+def test_persistent_save_does_not_reconcile_or_delete_unlisted_users():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert "delete from public.gti_auth_usuarios" not in block.lower()
+    assert "reconciliar_usuarios_persistentes" not in block
+
+
+def test_sensitive_paths_use_expected_persistence_scope():
+    source = Path("login.py").read_text(encoding="utf-8")
+    checks = (
+        ('candidato[user]["aprovado"] = acao == "aprovar"', "_salvar_usuario_persistente(user, candidato[user])"),
+        ('candidato[user]["senha"] = hash_senha(nova)', "_salvar_usuario_persistente(user, candidato[user])"),
+        ('candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}', "_salvar_usuario_persistente(email_alvo, candidato[email_alvo])"),
+    )
+    for marker, persistence_call in checks:
+        start = source.index(marker)
+        end = source.find("return", start)
+        block = source[start:end if end != -1 else len(source)]
+        assert persistence_call in block
+
+
+
+def test_persistent_save_rolls_back_when_a_snapshot_write_fails(monkeypatch):
+    import login
+    events = []
+    class FakeCursor:
+        def __init__(self): self.calls = 0
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb):
+            events.append(("cursor_exit", exc_type is not None)); return False
+        def execute(self, *args, **kwargs):
+            self.calls += 1; events.append(("execute", self.calls))
+            if self.calls == 2: raise RuntimeError("simulated write failure")
+    class FakeConnection:
+        def __init__(self): self.cursor_obj = FakeCursor(); self.committed = False
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb):
+            events.append(("connection_exit", exc_type is not None)); return False
+        def cursor(self): return self.cursor_obj
+        def commit(self): self.committed = True; events.append(("commit",))
+    conn = FakeConnection()
+    monkeypatch.setattr(login, "_auth_database_url", lambda: "test-db")
+    monkeypatch.setattr(login.psycopg, "connect", lambda *args, **kwargs: conn)
+    db = {"a@example.com": {"senha": "hash-a", "aprovado": True}, "b@example.com": {"senha": "hash-b", "aprovado": False}}
+    assert login._salvar_usuarios_persistentes(db) is False
+    assert conn.committed is False
+    assert ("cursor_exit", True) in events
+    assert ("connection_exit", True) in events
+
+
+def test_targeted_persistence_gate_is_explicitly_deferred_until_helper_exists():
+    source = Path("login.py").read_text(encoding="utf-8")
+    assert "def _salvar_usuarios_persistentes" in source
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert "insert into public.gti_auth_usuarios" in block
+    assert "on conflict (usuario) do update" in block
+    assert "delete from public.gti_auth_usuarios" not in block.lower()
+
+
+def test_full_snapshot_path_normalizes_each_user_identifier():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert "str(usuario).strip().lower()" in block
+    assert "if not db:" in block
+
+
+def test_targeted_persistence_concurrent_users_remain_isolated(monkeypatch):
+    import login
+
+    executions = []
+
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def execute(self, query, params):
+            executions.append((query.lower(), params))
+
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+        def cursor(self): return Cursor()
+        def commit(self): pass
+
+    monkeypatch.setattr(login, "_auth_database_url", lambda: "test-db")
+    monkeypatch.setattr(login.psycopg, "connect", lambda *args, **kwargs: Connection())
+
+    assert login._salvar_usuario_persistente(
+        "a@example.com", {"senha": "hash-a", "aprovado": True}
+    ) is True
+    assert login._salvar_usuario_persistente(
+        "b@example.com", {"senha": "hash-b", "aprovado": False}
+    ) is True
+
+    assert len(executions) == 2
+    assert executions[0][1][0] == "a@example.com"
+    assert executions[1][1][0] == "b@example.com"
+    assert all("delete from public.gti_auth_usuarios" not in query for query, _ in executions)
+    assert all("where not" not in query for query, _ in executions)
+
+
+def test_recovery_token_creation_uses_targeted_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index('if st.session_state.tela_atual == "redefinicao_solicitar":')
+    end = source.index('elif st.session_state.tela_atual == "redefinicao_criar":', start)
+    block = source[start:end]
+    assert "if not _salvar_usuario_persistente(email_alvo, candidato[email_alvo]):" in block
+    assert "if not _salvar_usuarios_persistentes(candidato):" not in block
+    assert "_salvar_usuarios_local(candidato)" in block
+
+
+def test_registration_uses_targeted_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    marker = "if not _salvar_usuario_persistente(user, db[user]):"
+    start = source.index(marker)
+    end = source.index('cfg = st.secrets.get("email", {})', start)
+    block = source[start:end]
+    assert "if not _salvar_usuario_persistente(user, db[user]):" in block
+    assert "if not _salvar_usuarios_persistentes(db):" not in block
+
+
+def test_targeted_persistence_helper_is_atomic_and_single_user():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuario_persistente")
+    end = source.index("def _salvar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert "connect_timeout=AUTH_DB_CONNECT_TIMEOUT_SECONDS" in block
+    assert "on conflict (usuario) do update" in block
+    assert "conn.commit()" in block
+    assert "delete from public.gti_auth_usuarios" not in block.lower()
+
+
+def test_targeted_persistence_helper_rejects_empty_or_invalid_user():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index("def _salvar_usuario_persistente")
+    end = source.index("def _salvar_usuarios_persistentes", start)
+    block = source[start:end]
+    assert 'if not usuario_normalizado or not isinstance(dados, dict):' in block
+    assert "return False" in block
