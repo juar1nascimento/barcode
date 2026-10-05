@@ -206,14 +206,14 @@ def test_approval_digest_creation_requires_durable_persistence():
 
 def test_password_reset_reports_success_only_after_durable_persistence():
     source = Path("login.py").read_text(encoding="utf-8")
-    marker = 'if not _salvar_usuarios_persistentes(candidato):'
+    marker = 'if not _salvar_usuario_persistente(user, candidato[user]):'
     start = source.index(marker, source.index('candidato[user]["senha"] = hash_senha(nova)'))
     end = source.index('st.session_state.tela_atual = "login"', start)
     block = source[start:end]
     assert "return False" in block
     assert 'st.success("Senha redefinida com sucesso.' not in block
     success_pos = source.index('st.success("Senha redefinida com sucesso.')
-    persist_pos = source.index("_salvar_usuarios_persistentes(candidato)", start)
+    persist_pos = source.index("_salvar_usuario_persistente(user, candidato[user])", start)
     assert persist_pos < success_pos
 
 
@@ -257,17 +257,18 @@ def test_persistent_save_does_not_reconcile_or_delete_unlisted_users():
     assert "reconciliar_usuarios_persistentes" not in block
 
 
-def test_sensitive_paths_pass_a_single_candidate_snapshot_to_persistence():
+def test_sensitive_paths_use_expected_persistence_scope():
     source = Path("login.py").read_text(encoding="utf-8")
-    for marker in (
-        'candidato[user]["aprovado"] = acao == "aprovar"',
-        'candidato[user]["senha"] = hash_senha(nova)',
-        'candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}',
-    ):
+    checks = (
+        ('candidato[user]["aprovado"] = acao == "aprovar"', "_salvar_usuarios_persistentes(candidato)"),
+        ('candidato[user]["senha"] = hash_senha(nova)', "_salvar_usuario_persistente(user, candidato[user])"),
+        ('candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}', "_salvar_usuarios_persistentes(candidato)"),
+    )
+    for marker, persistence_call in checks:
         start = source.index(marker)
         end = source.find("return", start)
         block = source[start:end if end != -1 else len(source)]
-        assert "_salvar_usuarios_persistentes(candidato)" in block
+        assert persistence_call in block
 
 
 
