@@ -269,7 +269,7 @@ div[data-testid="stForm"]{width:912px!important;max-width:912px!important;box-si
 .login-title{text-align:center;font-size:20px;line-height:1.25;font-weight:600;color:#24292e;margin:0 0 0;white-space:nowrap}
 .login-divider{width:100%;height:1px;background:#e1e4e8;margin:25px 0 34px 0;display:block}
 .login-divider-after-button{width:100%;height:1px;background:#e1e4e8;margin:32px 0 0 0;display:block}
-button[kind="tertiary"]{display:flex!important;justify-content:flex-end!important;width:100%!important;font-size:12px!important;color:#24292e!important;text-decoration:underline!important;margin:-10px 0 15px!important;padding:0!important;height:auto!important;background:transparent!important;border:none!important}
+button[kind="tertiary"]{font-size:12px!important;color:#24292e!important;text-decoration:underline!important;background:transparent!important;border:none!important}
 div[data-baseweb="input"]{background:#f4f6f8!important;border:1px solid #d1d5da!important;border-radius:4px!important}div[data-baseweb="select"]>div{background:#fff!important;border:1px solid #d1d5da!important;border-radius:4px!important}
 div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="stForm"] button[kind="primaryFormSubmit"]{background:#555!important;color:#fff!important;border:none!important;border-radius:4px!important;height:42px!important;font-size:14px!important;font-weight:600!important;margin-top:15px!important}
 .error-box{background:#fff;border:1px solid #e1e4e8;border-left:4px solid #e02424;color:#374151;padding:12px 16px;border-radius:3px;font-size:13px;margin:30px 0 0;box-sizing:border-box;width:100%}
@@ -361,19 +361,6 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                 usuario = st.text_input("Usuário", placeholder="seuemail@serra.es.gov.br", label_visibility="collapsed", key="login_user")
                 st.write("**Senha**")
                 senha = st.text_input("Senha", type="password", label_visibility="collapsed", key="login_pass")
-                if st.form_submit_button("Esqueceu sua senha?", type="tertiary"):
-                    st.session_state.tela_atual = "redefinicao_solicitar"
-                    st.rerun()
-                st.write("**Origem de login**")
-                # A origem é fixa neste sistema. Não usamos st.selectbox aqui:
-                # isso mantém a tela de login independente de qualquer contexto
-                # específico do módulo de inventário.
-                st.session_state["login_domain"] = "SERRA.LOCAL"
-                st.markdown(
-                    '<div style="background:#fff;border:1px solid #d1d5da;border-radius:4px;'
-                    'padding:9px 12px;color:#24292e;min-height:20px;">SERRA.LOCAL</div>',
-                    unsafe_allow_html=True,
-                )
                 if st.form_submit_button("Entrar", use_container_width=True):
                     if _login_bloqueado():
                         st.session_state.erro_login_msg = "Acesso temporariamente bloqueado. Aguarde 15 minutos antes de tentar novamente."
@@ -411,6 +398,11 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                             st.session_state.erro_login_msg = None
                             st.rerun()
                 st.markdown('<div class="login-divider-after-button"></div>', unsafe_allow_html=True)
+            col_rec, _ = st.columns([1, 1])
+            with col_rec:
+                if st.button("Esqueci minha senha", use_container_width=True, key="btn_recuperar_login"):
+                    st.session_state.tela_atual = "redefinicao_solicitar"
+                    st.rerun()
             if st.session_state.get("erro_login_msg"):
                 st.markdown(f'<div class="error-box">{html.escape(str(st.session_state.erro_login_msg))}</div>', unsafe_allow_html=True)
     return False
