@@ -400,7 +400,7 @@ def processar_acao_via_url():
             candidato[user].get("approval_token_digests", {})
         )
         candidato[user]["approval_token_digests"].pop("redefinir", None)
-        if not _salvar_usuarios_persistentes(candidato):
+        if not _salvar_usuario_persistente(user, candidato[user]):
             st.error("Não foi possível validar a recuperação com segurança. Tente novamente em instantes.")
             return
         _salvar_usuarios_local(candidato)
