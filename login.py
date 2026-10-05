@@ -502,7 +502,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 candidato = dict(db)
                                 candidato[email_alvo] = dict(db[email_alvo])
                                 candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}
-                                if not _salvar_usuarios_persistentes(candidato):
+                                if not _salvar_usuario_persistente(email_alvo, candidato[email_alvo]):
                                     st.error("Não foi possível iniciar a recuperação com segurança. Tente novamente em instantes.")
                                     return
                                 _salvar_usuarios_local(candidato)
