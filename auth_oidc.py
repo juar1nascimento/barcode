@@ -22,30 +22,61 @@ def oidc_configurado() -> bool:
     return all(str(cfg.get(item, "")).strip() for item in required)
 
 
+def _claim(nome: str, padrao: Any = None) -> Any:
+    """Lê claim sem assumir que st.user é dict ou objeto."""
+    try:
+        user = st.user
+        if isinstance(user, dict):
+            return user.get(nome, padrao)
+        return getattr(user, nome, padrao)
+    except Exception:
+        return padrao
+
+
+def _normalizar_roles(valor: Any) -> set[str]:
+    """Normaliza roles vindos de diferentes mapeamentos OIDC."""
+    if isinstance(valor, str):
+        valores = [valor]
+    elif isinstance(valor, (list, tuple, set)):
+        valores = valor
+    else:
+        valores = []
+
+    return {
+        str(item).strip().lower()
+        for item in valores
+        if str(item).strip()
+    }
+
+
 def usuario_oidc() -> dict[str, Any] | None:
-    """Extrai apenas claims não sensíveis da sessão OIDC."""
+    """Extrai identidade e roles explícitas da sessão OIDC."""
     if not oidc_configurado():
         return None
 
-    try:
-        user = st.user
-    except Exception:
+    if not bool(_claim("is_logged_in", False)):
         return None
 
-    if not getattr(user, "is_logged_in", False):
-        return None
-
-    email = str(getattr(user, "email", "") or "").strip().lower()
-    username = str(getattr(user, "preferred_username", "") or "").strip().lower()
-    name = str(getattr(user, "name", "") or "").strip()
+    email = str(_claim("email", "") or "").strip().lower()
+    username = str(_claim("preferred_username", "") or "").strip().lower()
+    name = str(_claim("name", "") or "").strip()
 
     if not email and not username:
         return None
+
+    roles = _normalizar_roles(_claim("roles", []))
+
+    # Compatibilidade com um mapper Keycloak que entregue realm_access.roles.
+    realm_access = _claim("realm_access", {})
+    if isinstance(realm_access, dict):
+        roles.update(_normalizar_roles(realm_access.get("roles", [])))
 
     return {
         "email": email,
         "preferred_username": username,
         "name": name,
+        "roles": roles,
+        "is_admin": "admin" in roles,
     }
 
 
