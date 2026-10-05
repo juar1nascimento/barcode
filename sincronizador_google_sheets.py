@@ -6,7 +6,10 @@ eventos confirmados para o Sheets e registra o resultado no outbox.
 
 from __future__ import annotations
 
+import os
+import random
 import re
+import time
 from datetime import timedelta
 from urllib.parse import quote
 
@@ -31,6 +34,24 @@ STALE_MINUTES = 15
 FOTO_PREFIXO_COLUNA = "Foto "
 FOTO_THUMBNAIL_SIZE = 96
 FOTO_MAX_COLUNAS = 12
+SHEETS_RETRY_ATTEMPTS = 5
+
+
+def _sheets_call(label: str, operation):
+    """Executa uma chamada Sheets com retry apenas para falhas transitórias/quota."""
+    for tentativa in range(SHEETS_RETRY_ATTEMPTS):
+        try:
+            return operation()
+        except Exception as exc:
+            mensagem = str(exc).lower()
+            transitoria = any(token in mensagem for token in (
+                "429", "500", "502", "503", "504", "rate limit", "quota", "timed out", "timeout",
+            ))
+            if not transitoria or tentativa >= SHEETS_RETRY_ATTEMPTS - 1:
+                raise
+            atraso = min(32.0, 2.0 ** tentativa) + random.random()
+            time.sleep(atraso)
+    raise RuntimeError(f"Falha transitória no Google Sheets: {label}")
 
 
 def _remover_validacoes_menu_suspenso(planilha) -> dict:
@@ -39,7 +60,7 @@ def _remover_validacoes_menu_suspenso(planilha) -> dict:
     A operação preserva valores, fórmulas e formatação. O Sheets API permite
     limpar data validation enviando SetDataValidationRequest sem rule.
     """
-    metadata = planilha.fetch_sheet_metadata()
+    metadata = _sheets_call("fetch_sheet_metadata", planilha.fetch_sheet_metadata)
     requests = []
     abas = []
     for properties in metadata.get("sheets", []):
@@ -64,7 +85,7 @@ def _remover_validacoes_menu_suspenso(planilha) -> dict:
         abas.append(str(props.get("title") or sheet_id))
 
     if requests:
-        planilha.batch_update({"requests": requests})
+        _sheets_call("batch_update", lambda: planilha.batch_update({"requests": requests}))
     return {"abas_processadas": abas, "validacoes_removidas": len(requests)}
 
 
@@ -93,7 +114,7 @@ def _marcar_evento(conn, tabela: str, event_id: int, *, status: str, erro: str |
         colunas.append("tentativas=%s")
         params.append(tentativas)
     elif status == "failed":
-        colunas.append("proxima_tentativa_em=now() + make_interval(secs => LEAST(3600, 30 * (2 ^ GREATEST(0, tentativas))))")
+        colunas.append("proxima_tentativa_em=now() + LEAST(interval '1 hour', interval '30 seconds' * power(2::double precision, GREATEST(0, tentativas)::double precision))")
     params.append(event_id)
     with conn.cursor() as cur:
         consulta = sql.SQL("UPDATE public.{tabela} SET {colunas} WHERE id=%s").format(
@@ -210,13 +231,13 @@ def _espelhar_patrimonio(item: dict) -> None:
         patrimonio["data"],
         patrimonio["codigo"],
     ]
-    atuais = aba.get_all_values()
+    atuais = _sheets_call("get_all_values", aba.get_all_values)
     for indice, linha in enumerate(atuais[1:], start=2):
         if len(linha) > 2 and _chave_texto(linha[2]) == _chave_texto(patrimonio["numero"]):
-            aba.update(values=[valores], range_name=f"A{indice}:{_coluna(len(COLUNAS_INVENTARIO))}{indice}", value_input_option="RAW")
+            _sheets_call("update_patrimonio", lambda: aba.update(values=[valores], range_name=f"A{indice}:{_coluna(len(COLUNAS_INVENTARIO))}{indice}", value_input_option="RAW"))
             return
 
-    aba.append_row(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS")
+    _sheets_call("append_patrimonio", lambda: aba.append_row(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS"))
 
 
 def _buscar_foto(foto_id: int) -> dict:
@@ -252,7 +273,7 @@ def _buscar_foto(foto_id: int) -> dict:
 
 
 def _garantir_colunas_fotos(aba, quantidade: int) -> None:
-    headers = [str(v).strip() for v in (aba.row_values(1) or [])]
+    headers = [str(v).strip() for v in (_sheets_call("row_values_header", lambda: aba.row_values(1)) or [])]
     alvo = 5 + max(1, min(quantidade, FOTO_MAX_COLUNAS))
     novos = []
     for ordem in range(1, max(1, min(quantidade, FOTO_MAX_COLUNAS)) + 1):
@@ -262,7 +283,7 @@ def _garantir_colunas_fotos(aba, quantidade: int) -> None:
     if novos:
         inicio = max(6, len(headers) + 1)
         fim = inicio + len(novos) - 1
-        aba.update(values=[headers + novos], range_name=f"A1:{_coluna(fim)}1", value_input_option="RAW")
+        _sheets_call("update_photo_headers", lambda: aba.update(values=[headers + novos], range_name=f"A1:{_coluna(fim)}1", value_input_option="RAW"))
 
 
 def _coluna(numero: int) -> str:
@@ -305,7 +326,7 @@ def _normalizar_cabecalhos_fotos(aba) -> list[str]:
                 headers[indice] = novo
                 alterados = True
     if alterados:
-        aba.update(values=[headers], range_name=f"A1:{_coluna(len(headers))}1", value_input_option="RAW")
+        _sheets_call("normalize_photo_headers", lambda: aba.update(values=[headers], range_name=f"A1:{_coluna(len(headers))}1", value_input_option="RAW"))
     return headers
 
 
@@ -362,7 +383,7 @@ def _espelhar_foto(item: dict) -> None:
     url_planilha = drive_url.replace(chr(34), chr(34) + chr(34))
     separador = _separador_formula_sheets(planilha)
     formula = f'=HYPERLINK("{url_planilha}"{separador}"{nome}")'
-    aba.update_cell(linha_planilha, coluna, formula, value_input_option="USER_ENTERED")
+    _sheets_call("update_photo_formula", lambda: aba.update_cell(linha_planilha, coluna, formula, value_input_option="USER_ENTERED"))
 
 
 def _espelhar_fotos_do_patrimonio(patrimonio_id: int) -> None:
@@ -405,7 +426,10 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
                 "Google Sheets indisponível para preflight estrutural.",
             )
         )
-    limpeza_validacoes = _remover_validacoes_menu_suspenso(planilha_preflight)
+    limpeza_validacoes = {"habilitada": False, "abas_processadas": [], "validacoes_removidas": 0}
+    if os.getenv("SHEETS_REMOVE_VALIDATIONS", "false").strip().lower() == "true":
+        limpeza_validacoes = _remover_validacoes_menu_suspenso(planilha_preflight)
+        limpeza_validacoes["habilitada"] = True
     auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=True)
 
     resultado = {
