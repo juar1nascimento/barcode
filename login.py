@@ -84,6 +84,41 @@ def _carregar_usuarios_persistentes() -> dict | None:
         return None
 
 
+def _salvar_usuario_persistente(usuario: str, dados: dict) -> bool:
+    """Persiste somente um usuário, sem reconciliar ou apagar outras contas."""
+    usuario_normalizado = str(usuario or "").strip().lower()
+    if not usuario_normalizado or not isinstance(dados, dict):
+        return False
+    url = _auth_database_url()
+    if not url:
+        return False
+    try:
+        with psycopg.connect(url, connect_timeout=AUTH_DB_CONNECT_TIMEOUT_SECONDS) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into public.gti_auth_usuarios
+                        (usuario, senha, aprovado, approval_token_digests, updated_at)
+                    values (%s, %s, %s, %s::jsonb, now())
+                    on conflict (usuario) do update set
+                        senha = excluded.senha,
+                        aprovado = excluded.aprovado,
+                        approval_token_digests = excluded.approval_token_digests,
+                        updated_at = now()
+                    """,
+                    (
+                        usuario_normalizado,
+                        str(dados.get("senha", "")),
+                        bool(dados.get("aprovado", False)),
+                        json.dumps(dados.get("approval_token_digests", {})),
+                    ),
+                )
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
 def _salvar_usuarios_persistentes(db: dict) -> bool:
     url = _auth_database_url()
     if not url:
@@ -330,7 +365,10 @@ def processar_acao_via_url():
         # Isso torna a autorização estritamente de uso único, inclusive
         # antes de o usuário concluir a nova senha.
         db[user].setdefault("approval_token_digests", {}).pop("redefinir", None)
-        salvar_usuarios(db)
+        if not _salvar_usuario_persistente(user, db[user]):
+            st.error("Não foi possível confirmar a redefinição no armazenamento persistente. Tente novamente.")
+            return
+        _salvar_usuarios_local(db)
         st.session_state.email_solicitante = user
         st.session_state.tela_atual = "redefinicao_criar"
         st.session_state.reset_autorizado = True
@@ -339,7 +377,10 @@ def processar_acao_via_url():
 
     db[user]["aprovado"] = acao == "aprovar"
     db[user].pop("approval_token_digests", None)
-    salvar_usuarios(db)
+    if not _salvar_usuario_persistente(user, db[user]):
+        st.error("Não foi possível confirmar a alteração do cadastro no armazenamento persistente. Tente novamente.")
+        return
+    _salvar_usuarios_local(db)
     corpo = f"<h3>Prefeitura Municipal da Serra</h3><p>Sua solicitação para <b>{html.escape(user)}</b> foi <b>{'ACEITA' if acao == 'aprovar' else 'RECUSADA'}</b>.</p>"
     enviar_email(user, "Atualização do cadastro - Prefeitura da Serra", corpo)
     (st.success if acao == "aprovar" else st.error)(f"Solicitação do usuário {user} foi {'APROVADA' if acao == 'aprovar' else 'RECUSADA'}.")
@@ -420,7 +461,10 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                             try:
                                 token = _criar_token_aprovacao("redefinir", email_alvo)
                                 db[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}
-                                salvar_usuarios(db)
+                                if not _salvar_usuario_persistente(email_alvo, db[email_alvo]):
+                                    st.error("Não foi possível registrar a solicitação de recuperação no armazenamento persistente. Tente novamente.")
+                                    return False
+                                _salvar_usuarios_local(db)
                                 base = str(st.secrets.get("email", {}).get("app_url", "http://localhost:8501")).rstrip("/")
                                 link = base + "/?" + urllib.parse.urlencode({"token": token})
                                 body = (
@@ -467,7 +511,10 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 else:
                                     db[user]["senha"] = hash_senha(nova)
                                     db[user].pop("approval_token_digests", None)
-                                    salvar_usuarios(db)
+                                    if not _salvar_usuario_persistente(user, db[user]):
+                                        st.error("Não foi possível confirmar a nova senha no armazenamento persistente. Tente novamente.")
+                                        return False
+                                    _salvar_usuarios_local(db)
                                     st.session_state.reset_autorizado = False
                                     st.session_state.tela_atual = "login"
                                     st.success("Senha redefinida com sucesso. Agora você pode entrar com a nova senha.")
@@ -480,7 +527,12 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                     "credenciais ou aprovação existentes."
                                 )
                                 return False
-                            salvar_usuarios(db)
+                            if not _salvar_usuario_persistente(user, db[user]):
+                                db.pop(user, None)
+                                _salvar_usuarios_local(db)
+                                st.error("Não foi possível confirmar o cadastro no armazenamento persistente. Tente novamente.")
+                                return False
+                            _salvar_usuarios_local(db)
                             cfg = st.secrets.get("email", {})
                             admin = cfg.get("admin_email", "")
                             base = cfg.get("app_url", "http://localhost:8501").rstrip("/")
@@ -495,7 +547,10 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                     "aprovar": _digest_token_aprovacao(token_aprovar),
                                     "recusar": _digest_token_aprovacao(token_recusar),
                                 }
-                                salvar_usuarios(db)
+                                if not _salvar_usuario_persistente(user, db[user]):
+                                    st.error("Não foi possível registrar os tokens de aprovação no armazenamento persistente. Tente novamente.")
+                                    return False
+                                _salvar_usuarios_local(db)
                                 link_aprovar = base + "/?" + urllib.parse.urlencode({"token": token_aprovar})
                                 link_recusar = base + "/?" + urllib.parse.urlencode({"token": token_recusar})
                                 body = f'<p>Solicitação de cadastro: <b>{html.escape(user)}</b></p><p><a href="{html.escape(link_aprovar, quote=True)}">Autorizar</a> | <a href="{html.escape(link_recusar, quote=True)}">Recusar</a></p>'
@@ -559,7 +614,8 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                         else:
                             if migrar:
                                 db[user]["senha"] = hash_senha(senha)
-                                salvar_usuarios(db)
+                                _salvar_usuario_persistente(user, db[user])
+                                _salvar_usuarios_local(db)
                             st.session_state.autenticado = True
                             st.session_state.usuario_logado = user
                             st.session_state.ultimo_acesso_em = time.time()
