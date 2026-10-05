@@ -56,7 +56,7 @@ if oidc_homologacao:
         st.error("OIDC de homologação está ativado, mas a configuração [auth] está incompleta.")
         st.stop()
 
-    if not getattr(st.user, "is_logged_in", False):
+    if not bool(getattr(st.user, "is_logged_in", False)):
         st.info("Homologação OIDC ativa. Faça login pelo provedor de identidade.")
         if st.button("Entrar com OIDC"):
             iniciar_login_oidc()
@@ -69,8 +69,7 @@ if oidc_homologacao:
         st.stop()
 
     usuario_logado = dados_oidc["email"] or dados_oidc["preferred_username"]
-    admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
-    is_admin = bool(admin_configurado and usuario_logado == admin_configurado)
+    is_admin = bool(dados_oidc.get("is_admin", False))
 
     if st.button("🚪 Sair do Sistema"):
         encerrar_login_oidc()
