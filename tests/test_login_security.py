@@ -354,6 +354,16 @@ def test_targeted_persistence_concurrent_users_remain_isolated(monkeypatch):
     assert all("where not" not in query for query, _ in executions)
 
 
+def test_recovery_token_creation_uses_targeted_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index('if st.session_state.tela_atual == "redefinicao_solicitar":')
+    end = source.index('elif st.session_state.tela_atual == "redefinicao_criar":', start)
+    block = source[start:end]
+    assert "if not _salvar_usuario_persistente(email_alvo, candidato[email_alvo]):" in block
+    assert "if not _salvar_usuarios_persistentes(candidato):" not in block
+    assert "_salvar_usuarios_local(candidato)" in block
+
+
 def test_targeted_persistence_helper_is_atomic_and_single_user():
     source = Path("login.py").read_text(encoding="utf-8")
     start = source.index("def _salvar_usuario_persistente")
