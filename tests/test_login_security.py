@@ -178,7 +178,7 @@ def test_recovery_token_creation_requires_durable_persistence_before_email():
     start = source.index(marker)
     end = source.index('base =', start)
     block = source[start:end]
-    assert "if not _salvar_usuarios_persistentes(candidato):" in block
+    assert "if not _salvar_usuario_persistente(email_alvo, candidato[email_alvo]):" in block
     assert "_salvar_usuarios_local(candidato)" in block
     assert "salvar_usuarios(db)" not in block
 
@@ -262,7 +262,7 @@ def test_sensitive_paths_use_expected_persistence_scope():
     checks = (
         ('candidato[user]["aprovado"] = acao == "aprovar"', "_salvar_usuario_persistente(user, candidato[user])"),
         ('candidato[user]["senha"] = hash_senha(nova)', "_salvar_usuario_persistente(user, candidato[user])"),
-        ('candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}', "_salvar_usuarios_persistentes(candidato)"),
+        ('candidato[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}', "_salvar_usuario_persistente(email_alvo, candidato[email_alvo])"),
     )
     for marker, persistence_call in checks:
         start = source.index(marker)
