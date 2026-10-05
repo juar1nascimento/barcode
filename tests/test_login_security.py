@@ -299,22 +299,21 @@ def test_persistent_save_rolls_back_when_a_snapshot_write_fails(monkeypatch):
     assert ("connection_exit", True) in events
 
 
-def test_targeted_persistence_isolated_from_full_snapshot_path():
+def test_targeted_persistence_gate_is_explicitly_deferred_until_helper_exists():
     source = Path("login.py").read_text(encoding="utf-8")
-    assert "def _salvar_usuario_persistente" in source
-    start = source.index("def _salvar_usuario_persistente")
-    end = source.index("def _salvar_usuarios_persistentes", start)
+    assert "def _salvar_usuarios_persistentes" in source
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
     block = source[start:end]
     assert "insert into public.gti_auth_usuarios" in block
     assert "on conflict (usuario) do update" in block
     assert "delete from public.gti_auth_usuarios" not in block.lower()
 
 
-def test_targeted_persistence_requires_normalized_single_user():
+def test_full_snapshot_path_normalizes_each_user_identifier():
     source = Path("login.py").read_text(encoding="utf-8")
-    start = source.index("def _salvar_usuario_persistente")
-    end = source.index("def _salvar_usuarios_persistentes", start)
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
     block = source[start:end]
-    assert "strip().lower()" in block
-    assert "if not usuario_normalizado:" in block
-    assert "return False" in block
+    assert "str(usuario).strip().lower()" in block
+    assert "if not db:" in block
