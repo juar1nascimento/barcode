@@ -1,3 +1,4 @@
+# Gate de homologação GTI-SESA: manter execução manual disponível para validação controlada do PR.
 name: Inventário GTI SESA - Security
 
 on:
