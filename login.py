@@ -213,6 +213,7 @@ def carregar_usuarios() -> dict:
 
 
 def salvar_usuarios(db: dict):
+    """Compatibilidade legada: mantém o cache local e tenta persistir sem apagar dados."""
     _salvar_usuarios_local(db)
     _salvar_usuarios_persistentes(db)
 
