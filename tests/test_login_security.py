@@ -364,6 +364,15 @@ def test_recovery_token_creation_uses_targeted_persistence():
     assert "_salvar_usuarios_local(candidato)" in block
 
 
+def test_registration_uses_targeted_persistence():
+    source = Path("login.py").read_text(encoding="utf-8")
+    start = source.index('elif st.session_state.tela_atual == "criar_usuario":')
+    end = source.index('else:\n            with st.form("glpi_login_form"', start)
+    block = source[start:end]
+    assert "if not _salvar_usuario_persistente(user, db[user]):" in block
+    assert "if not _salvar_usuarios_persistentes(db):" not in block
+
+
 def test_targeted_persistence_helper_is_atomic_and_single_user():
     source = Path("login.py").read_text(encoding="utf-8")
     start = source.index("def _salvar_usuario_persistente")
