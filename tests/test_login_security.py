@@ -136,7 +136,9 @@ def test_recovery_after_database_restoration_replaces_stale_local_cache(monkeypa
 
 def test_persistent_save_is_non_destructive_by_default():
     source = Path("login.py").read_text(encoding="utf-8")
-    save_block = source[source.index("def _salvar_usuarios_persistentes"):source.index("def hash_senha")]
+    start = source.index("def _salvar_usuarios_persistentes")
+    end = source.index("def reconciliar_usuarios_persistentes", start)
+    save_block = source[start:end]
     assert "delete from public.gti_auth_usuarios" not in save_block
     assert "if not db:" in save_block
     assert "def reconciliar_usuarios_persistentes" in source
