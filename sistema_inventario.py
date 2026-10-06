@@ -36,6 +36,7 @@ TIPOS_PATRIMONIO_PERMITIDOS = (
     "Mouse",
     "Imprenssoras",
     "Outros Dispositivos",
+    "Outros Patrimônio",
 )
 
 
@@ -45,13 +46,12 @@ def opcoes_tipo_patrimonio() -> List[str]:
 
 
 def validar_tipo_patrimonio(tipo: str) -> str:
-    """Impede gravação de tipos antigos ou não autorizados."""
+    """Valida tipos padrão ou um novo tipo informado pelo usuário."""
     tipo_limpo = re.sub(r"\s+", " ", str(tipo or "").strip())
-    if tipo_limpo not in TIPOS_PATRIMONIO_PERMITIDOS:
-        raise ValueError(
-            f"Tipo de patrimônio inválido: {tipo_limpo!r}. "
-            "Permitidos: " + ", ".join(TIPOS_PATRIMONIO_PERMITIDOS)
-        )
+    if not tipo_limpo or tipo_limpo.casefold().startswith("selecione"):
+        raise ValueError("Informe o tipo de patrimônio.")
+    if tipo_limpo.casefold() == "outros patrimônio":
+        raise ValueError("Digite o nome do novo patrimônio.")
     return tipo_limpo
 
 
@@ -612,7 +612,11 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
         setor_selecionado = selecionar_setor(opcoes_setor)
         setor_input = setor_selecionado
         if setor_selecionado == "Outro Setor":
-            setor_input = st.text_input("Nome do Setor:", placeholder="Digite o nome do setor...")
+            setor_input = st.text_input(
+                "Nome do Setor:",
+                placeholder="Digite o nome do novo setor...",
+                key="novo_setor_custom",
+            ).strip()
         st.session_state.saved_setor = setor_input
 
     with col_desc2:
@@ -626,6 +630,12 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     with col_desc3:
         descricao_final = opcao_selecionada or ""
+        if opcao_selecionada == "Outros Patrimônio":
+            descricao_final = st.text_input(
+                "Nome do novo patrimônio:",
+                placeholder="Digite o nome do patrimônio...",
+                key="novo_tipo_patrimonio_custom",
+            ).strip()
         st.session_state.saved_descricao = descricao_final
 
     with col_desc4:
