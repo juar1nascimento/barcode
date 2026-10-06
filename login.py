@@ -21,7 +21,6 @@ DB_FILE = "db_usuarios.json"
 LOGO_FILE = Path(__file__).resolve().parent / "assets" / "logo_serra_login.jpg"
 PBKDF2_ITERATIONS = 310_000
 APPROVAL_TOKEN_TTL_SECONDS = 15 * 60
-RESET_TOKEN_TTL_SECONDS = 15 * 60
 LOGIN_MAX_TENTATIVAS = 5
 LOGIN_BLOQUEIO_SEGUNDOS = 15 * 60
 SESSAO_INATIVA_SEGUNDOS = 30 * 60
@@ -29,7 +28,7 @@ AUTH_DB_CONNECT_TIMEOUT_SECONDS = 5
 
 
 def _auth_database_url() -> str:
-    """Obtém a conexão persistente do cadastro a partir das Secrets."""
+    """Obtém a conexão persistente do cadastro sem usar Supabase Auth."""
     try:
         valor = st.secrets.get("GTI_DATABASE_URL", "")
         if valor:
@@ -42,7 +41,6 @@ def _auth_database_url() -> str:
         user = str(cfg.get("user", "")).strip()
         password = str(cfg.get("password", "")).strip()
         sslmode = str(cfg.get("sslmode", "")).strip()
-
         if host and dbname and user and password:
             query = f"?sslmode={urllib.parse.quote_plus(sslmode)}" if sslmode else ""
             return (
@@ -56,9 +54,9 @@ def _auth_database_url() -> str:
 
 
 def _email_config() -> dict:
-    """Lê a configuração de e-mail aceitando [email] ou [connections.gsheets]."""
+    """Lê a configuração de e-mail das Secrets atuais."""
     try:
-        cfg = st.secrets.get("email", {})
+        cfg = _email_config()
         if cfg:
             return dict(cfg)
         cfg = st.secrets.get("connections", {}).get("gsheets", {})
@@ -194,29 +192,6 @@ def carregar_usuarios() -> dict:
     persistente = _carregar_usuarios_persistentes()
     if persistente is not None:
         if persistente:
-            # A conta administrativa é a única conta que pode ser
-            # sincronizada diretamente a partir de uma credencial protegida
-            # nas Secrets. Isso permite recuperar o acesso administrativo
-            # mesmo quando já existe um registro antigo no PostgreSQL.
-            admin = str(_email_config().get("admin_email", ADMIN_EMAIL_DEFAULT)).strip().lower()
-            admin_hash = str(_email_config().get("admin_password_hash", "")).strip()
-            if admin and admin_hash:
-                atual = persistente.get(admin)
-                if not isinstance(atual, dict):
-                    persistente[admin] = {
-                        "senha": admin_hash,
-                        "aprovado": True,
-                        "approval_token_digests": {},
-                    }
-                    _salvar_usuarios_persistentes(persistente)
-                elif (
-                    str(atual.get("senha", "")) != admin_hash
-                    or not bool(atual.get("aprovado", False))
-                ):
-                    atual["senha"] = admin_hash
-                    atual["aprovado"] = True
-                    atual.setdefault("approval_token_digests", {})
-                    _salvar_usuarios_persistentes(persistente)
             _salvar_usuarios_local(persistente)
             return persistente
 
@@ -254,33 +229,6 @@ def salvar_usuarios(db: dict):
     _salvar_usuarios_persistentes(db)
 
 
-def diagnostico_autenticacao_admin(usuario: str) -> dict:
-    """Retorna somente indicadores seguros para diagnosticar o acesso administrativo."""
-    alvo = str(usuario or "").strip().lower()
-    cfg = _email_config()
-    admin = str(cfg.get("admin_email", "")).strip().lower()
-    admin_hash = str(cfg.get("admin_password_hash", "")).strip()
-
-    resultado = {
-        "postgres_configurado": bool(_auth_database_url()),
-        "postgres_acessivel": False,
-        "admin_configurado": validar_email(admin),
-        "admin_hash_configurado": admin_hash.startswith("pbkdf2_sha256$"),
-        "conta_encontrada": False,
-        "conta_aprovada": False,
-    }
-
-    persistente = _carregar_usuarios_persistentes()
-    if persistente is not None:
-        resultado["postgres_acessivel"] = True
-        conta = persistente.get(alvo) if alvo == admin else None
-        if isinstance(conta, dict):
-            resultado["conta_encontrada"] = True
-            resultado["conta_aprovada"] = bool(conta.get("aprovado", False))
-
-    return resultado
-
-
 def registrar_novo_usuario(db: dict, usuario: str, senha: str) -> bool:
     """Cria apenas contas inexistentes; nunca sobrescreve credenciais existentes."""
     usuario = str(usuario or "").strip().lower()
@@ -306,27 +254,6 @@ def validar_senha_alfanumerica_8(senha: str) -> tuple[bool, str]:
 
 def _segredo_aprovacao() -> str:
     return str(_email_config().get("approval_secret", "")).strip()
-
-
-def _email_config_status() -> tuple[bool, str]:
-    """Valida a configuração mínima do mecanismo de recuperação."""
-    try:
-        cfg = _email_config()
-        admin = str(cfg.get("admin_email", "")).strip().lower()
-        sender = str(cfg.get("sender_email", "")).strip().lower()
-        password = str(cfg.get("sender_password", "")).strip()
-        secret = str(cfg.get("approval_secret", "")).strip()
-        if not validar_email(admin):
-            return False, "admin_email não está configurado corretamente."
-        if not validar_email(sender):
-            return False, "sender_email não está configurado corretamente."
-        if not password:
-            return False, "sender_password não está configurado."
-        if not secret:
-            return False, "approval_secret não está configurado."
-        return True, ""
-    except Exception:
-        return False, "Configuração [email] indisponível nas Secrets."
 
 
 def _criar_token_aprovacao(acao: str, usuario: str) -> str:
@@ -371,7 +298,7 @@ def _validar_token_aprovacao(token: str) -> tuple[str, str] | None:
             return None
 
         acao, usuario, expira = partes
-        if acao not in {"aprovar", "recusar", "redefinir", "redefinir_usuario"}:
+        if acao not in {"aprovar", "recusar"}:
             return None
 
         try:
@@ -390,10 +317,10 @@ def _validar_token_aprovacao(token: str) -> tuple[str, str] | None:
 def enviar_email(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool, str]:
     try:
         cfg = _email_config()
-        host = str(cfg.get("smtp_server", "smtp.gmail.com")).strip()
+        host = cfg.get("smtp_server", "smtp.gmail.com")
         port = int(cfg.get("smtp_port", 587))
-        sender = str(cfg.get("sender_email", "")).strip()
-        password = str(cfg.get("sender_password", "")).strip()
+        sender = cfg.get("sender_email", "")
+        password = cfg.get("sender_password", "")
         if not sender or not password:
             return False, "Credenciais SMTP não configuradas nas Secrets."
         msg = MIMEMultipart("alternative")
@@ -401,15 +328,13 @@ def enviar_email(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool
         msg["To"] = destinatario
         msg["Subject"] = assunto
         msg.attach(MIMEText(corpo_html, "html"))
-        with smtplib.SMTP(host, port, timeout=15) as server:
-            server.ehlo()
+        with smtplib.SMTP(host, port) as server:
             server.starttls()
-            server.ehlo()
             server.login(sender, password)
-            server.sendmail(sender, [destinatario], msg.as_string())
+            server.sendmail(sender, destinatario, msg.as_string())
         return True, "E-mail enviado com sucesso."
-    except (OSError, smtplib.SMTPException, ValueError) as exc:
-        return False, f"Falha SMTP: {type(exc).__name__}."
+    except Exception:
+        return False, "Não foi possível enviar o e-mail SMTP."
 
 
 def processar_acao_via_url():
@@ -439,47 +364,6 @@ def processar_acao_via_url():
     esperado = str(digests.get(acao, ""))
     if not esperado or not hmac.compare_digest(token_digest, esperado):
         st.error("Link de autorização já utilizado ou inválido.")
-        return
-
-    if acao == "redefinir":
-        # Este token pertence ao ADMINISTRADOR. Somente após a aprovação
-        # explícita o sistema gera um segundo token, destinado ao usuário.
-        db[user].setdefault("approval_token_digests", {}).pop("redefinir", None)
-        try:
-            token_usuario = _criar_token_aprovacao("redefinir_usuario", user)
-        except RuntimeError:
-            st.error("Não foi possível gerar o link de redefinição. Verifique approval_secret nas Secrets.")
-            return
-
-        db[user].setdefault("approval_token_digests", {})["redefinir_usuario"] = _digest_token_aprovacao(token_usuario)
-        salvar_usuarios(db)
-
-        cfg = _email_config()
-        base = str(cfg.get("app_url", "http://localhost:8501")).rstrip("/")
-        link_usuario = base + "/?" + urllib.parse.urlencode({"token": token_usuario})
-        corpo = (
-            "<h3>Prefeitura Municipal da Serra</h3>"
-            f"<p>A recuperação de acesso para <b>{html.escape(user)}</b> foi autorizada pelo administrador.</p>"
-            f'<p><a href="{html.escape(link_usuario, quote=True)}">Criar nova senha</a></p>'
-            "<p>Este link expira em 15 minutos e pode ser usado uma única vez.</p>"
-        )
-        enviado, mensagem = enviar_email(user, "Recuperação de acesso autorizada - Prefeitura da Serra", corpo)
-        if enviado:
-            st.success(f"Recuperação de acesso de {user} autorizada. O link de redefinição foi enviado ao usuário.")
-        else:
-            st.error(
-                "A autorização foi registrada, mas o e-mail ao usuário não pôde ser enviado. "
-                + mensagem
-            )
-        return
-
-    if acao == "redefinir_usuario":
-        db[user].setdefault("approval_token_digests", {}).pop("redefinir_usuario", None)
-        salvar_usuarios(db)
-        st.session_state.email_solicitante = user
-        st.session_state.tela_atual = "redefinicao_criar"
-        st.session_state.reset_autorizado = True
-        st.success("Solicitação autorizada. Defina sua nova senha.")
         return
 
     db[user]["aprovado"] = acao == "aprovar"
@@ -554,61 +438,12 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                 st.write("**Informe seu e-mail de acesso**")
                 email_req = st.text_input("E-mail", placeholder="seuemail@serra.es.gov.br", label_visibility="collapsed", key="email_req")
                 if st.form_submit_button("Avançar", use_container_width=True):
-                    email_alvo = email_req.strip().lower()
-                    if not validar_email(email_alvo):
-                        st.error("Por favor, informe um e-mail com formato válido.")
+                    if validar_email(email_req):
+                        st.session_state.email_solicitante = email_req.strip().lower()
+                        st.session_state.tela_atual = "redefinicao_criar"
+                        st.rerun()
                     else:
-                        db = carregar_usuarios()
-                        if email_alvo not in db or not bool(db[email_alvo].get("aprovado", False)):
-                            st.success("Se o e-mail estiver cadastrado e aprovado, as instruções de recuperação serão enviadas.")
-                        else:
-                            try:
-                                # Primeiro estágio: o pedido vai obrigatoriamente para o
-                                # administrador. O usuário não recebe autorização automática.
-                                admin = str(_email_config().get("admin_email", "")).strip().lower()
-                                if not validar_email(admin):
-                                    st.error("E-mail administrador não configurado corretamente nas Secrets.")
-                                else:
-                                    token = _criar_token_aprovacao("redefinir", email_alvo)
-                                    db[email_alvo]["approval_token_digests"] = {
-                                        "redefinir": _digest_token_aprovacao(token)
-                                    }
-                                    salvar_usuarios(db)
-
-                                    base = str(_email_config().get("app_url", "http://localhost:8501")).rstrip("/")
-                                    link_aprovar = base + "/?" + urllib.parse.urlencode({"token": token})
-                                    body = (
-                                        "<h3>Prefeitura Municipal da Serra</h3>"
-                                        f"<p>Foi solicitada a <b>recuperação de senha</b> para o usuário "
-                                        f"<b>{html.escape(email_alvo)}</b>.</p>"
-                                        f'<p><a href="{html.escape(link_aprovar, quote=True)}">Autorizar recuperação</a></p>'
-                                        "<p>Se você não reconhece a solicitação, não autorize.</p>"
-                                        "<p>O link de autorização expira em 15 minutos e pode ser usado uma única vez.</p>"
-                                    )
-                                    enviado, mensagem = enviar_email(
-                                        admin,
-                                        "Solicitação de recuperação de senha - GTI-SESA",
-                                        body,
-                                    )
-                                    if enviado:
-                                        st.success(
-                                            "Solicitação enviada ao administrador. "
-                                            "Aguarde a autorização para receber o link de redefinição."
-                                        )
-                                    else:
-                                        # Não deixa um pedido aparentemente pendente se o
-                                        # SMTP falhar: remove o token de autorização.
-                                        db[email_alvo].setdefault("approval_token_digests", {}).pop("redefinir", None)
-                                        salvar_usuarios(db)
-                                        st.error(
-                                            "A solicitação não foi enviada ao administrador. "
-                                            + mensagem
-                                        )
-                            except RuntimeError as exc:
-                                st.error(
-                                    "Não foi possível iniciar a recuperação. "
-                                    + str(exc)
-                                )
+                        st.error("Por favor, informe um e-mail com formato válido.")
             if st.button("← Voltar ao Login", use_container_width=True, key="btn_voltar_solicitar"):
                 st.session_state.tela_atual = "login"
                 st.rerun()
@@ -621,8 +456,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                 nova = st.text_input("Nova Senha", type="password", placeholder="Nova senha", label_visibility="collapsed", key="nova_pass")
                 st.write("**Confirme a Nova Senha**")
                 confirma = st.text_input("Confirmar Senha", type="password", placeholder="Repita a senha", label_visibility="collapsed", key="confirma_pass")
-                rotulo_botao = "Redefinir Senha" if st.session_state.get("reset_autorizado") else "Cadastrar e Solicitar Autorização"
-                if st.form_submit_button(rotulo_botao, use_container_width=True):
+                if st.form_submit_button("Cadastrar e Solicitar Autorização", use_container_width=True):
                     user = novo.strip().lower()
                     if not validar_email(user):
                         st.error("O nome de usuário deve ser obrigatoriamente um e-mail válido.")
@@ -634,18 +468,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                             st.error(msg)
                         else:
                             db = carregar_usuarios()
-                            if st.session_state.get("reset_autorizado"):
-                                if user not in db or not bool(db[user].get("aprovado", False)):
-                                    st.error("Cadastro não encontrado ou não aprovado.")
-                                else:
-                                    db[user]["senha"] = hash_senha(nova)
-                                    db[user].pop("approval_token_digests", None)
-                                    salvar_usuarios(db)
-                                    st.session_state.reset_autorizado = False
-                                    st.session_state.tela_atual = "login"
-                                    st.success("Senha redefinida com sucesso. Agora você pode entrar com a nova senha.")
-                                    return False
-                            elif not registrar_novo_usuario(db, user, nova):
+                            if not registrar_novo_usuario(db, user, nova):
                                 st.error(
                                     "Este e-mail já possui cadastro. "
                                     "Para redefinir uma conta existente, utilize o fluxo "
@@ -729,27 +552,6 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 st.session_state.erro_login_msg = "Usuário ou senha inválidos."
                             else:
                                 st.session_state.erro_login_msg = "Usuário ou senha inválidos."
-
-                            # Para o administrador, exibe apenas indicadores técnicos
-                            # não sensíveis. Isso permite distinguir falha de Secrets,
-                            # PostgreSQL, cadastro ou senha sem revelar credenciais.
-                            admin_cfg = str(_email_config().get("admin_email", "")).strip().lower()
-                            if user and user == admin_cfg:
-                                diag = diagnostico_autenticacao_admin(user)
-                                if not diag["postgres_configurado"]:
-                                    st.warning("Diagnóstico: conexão PostgreSQL não está configurada nas Secrets.")
-                                elif not diag["postgres_acessivel"]:
-                                    st.warning("Diagnóstico: PostgreSQL configurado, mas não está acessível pelo aplicativo.")
-                                elif not diag["admin_configurado"]:
-                                    st.warning("Diagnóstico: admin_email não está configurado como e-mail válido.")
-                                elif not diag["admin_hash_configurado"]:
-                                    st.warning("Diagnóstico: admin_password_hash não está configurado no formato esperado.")
-                                elif not diag["conta_encontrada"]:
-                                    st.warning("Diagnóstico: conta administrativa não foi encontrada no PostgreSQL.")
-                                elif not diag["conta_aprovada"]:
-                                    st.warning("Diagnóstico: conta administrativa existe, mas está sem aprovação.")
-                                else:
-                                    st.info("Diagnóstico: PostgreSQL, conta administrativa, aprovação e hash estão disponíveis. Se a mensagem de senha inválida permanecer, a senha digitada não corresponde ao hash configurado.")
                         else:
                             if migrar:
                                 db[user]["senha"] = hash_senha(senha)
