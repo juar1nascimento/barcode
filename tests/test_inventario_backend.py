@@ -146,14 +146,14 @@ def test_aliases_de_tipo_legado_sao_aceitos_sem_reintroduzir_tipo_antigo(monkeyp
     assert list(estado["df"]["Tipo de Patrimônio"]) == ["CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Imprenssoras"]
 
 
-def test_tipo_invalido_nao_vira_outros_dispositivos(monkeypatch):
+def test_tipo_personalizado_e_aceito_com_nome_informado(monkeypatch):
     estado = _estado_vazio()
     avisos = []
     _mock_persistencia(monkeypatch, estado)
     monkeypatch.setattr(backend.st, "warning", lambda mensagem: avisos.append(mensagem))
-    assert not backend.registrar_patrimonio("PAT-INVALIDO", "Celular", "Farmacia", "UBS Teste", "Apple")
-    assert estado["df"].empty
-    assert avisos
+    assert backend.registrar_patrimonio("PAT-CUSTOM", "Celular", "Farmacia", "UBS Teste", "Apple")
+    assert estado["df"].iloc[0]["Tipo de Patrimônio"] == "Celular"
+    assert avisos == []
 
 
 def test_registro_com_numero_explicito_sem_codigo(monkeypatch):
@@ -216,7 +216,11 @@ def test_normalizacao_de_numero_numerico_remove_apenas_sufixo_decimal_artificial
 def test_validacao_de_cadastro_retorna_motivos_claros():
     assert backend.validar_cadastro_patrimonio("CPU", "Farmacia", "UBS Teste", "PAT-1") == (True, "")
     ok, msg = backend.validar_cadastro_patrimonio("Celular", "Farmacia", "UBS Teste", "PAT-1")
+    assert ok and msg == ""
+    ok, msg = backend.validar_cadastro_patrimonio("", "Farmacia", "UBS Teste", "PAT-1")
     assert not ok and "tipo" in msg.lower()
+    ok, msg = backend.validar_cadastro_patrimonio("Outros Patrimônio", "Farmacia", "UBS Teste", "PAT-1")
+    assert not ok and "novo patrimônio" in msg.lower()
     ok, msg = backend.validar_cadastro_patrimonio("CPU", "Farmacia", "UBS Teste", "")
     assert not ok and "número" in msg.lower()
 
