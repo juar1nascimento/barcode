@@ -194,6 +194,29 @@ def carregar_usuarios() -> dict:
     persistente = _carregar_usuarios_persistentes()
     if persistente is not None:
         if persistente:
+            # A conta administrativa é a única conta que pode ser
+            # sincronizada diretamente a partir de uma credencial protegida
+            # nas Secrets. Isso permite recuperar o acesso administrativo
+            # mesmo quando já existe um registro antigo no PostgreSQL.
+            admin = str(_email_config().get("admin_email", ADMIN_EMAIL_DEFAULT)).strip().lower()
+            admin_hash = str(_email_config().get("admin_password_hash", "")).strip()
+            if admin and admin_hash:
+                atual = persistente.get(admin)
+                if not isinstance(atual, dict):
+                    persistente[admin] = {
+                        "senha": admin_hash,
+                        "aprovado": True,
+                        "approval_token_digests": {},
+                    }
+                    _salvar_usuarios_persistentes(persistente)
+                elif (
+                    str(atual.get("senha", "")) != admin_hash
+                    or not bool(atual.get("aprovado", False))
+                ):
+                    atual["senha"] = admin_hash
+                    atual["aprovado"] = True
+                    atual.setdefault("approval_token_digests", {})
+                    _salvar_usuarios_persistentes(persistente)
             _salvar_usuarios_local(persistente)
             return persistente
 
