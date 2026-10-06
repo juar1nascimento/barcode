@@ -1,7 +1,7 @@
 import streamlit as st
 
 # Importações dos módulos independentes
-from login import renderizar_login, _limpar_sessao_autenticacao
+from login import renderizar_login, _limpar_sessao_autenticacao, _email_config
 from sistema_inventario import renderizar_card_inventario, renderizar_sistema_inventario
 from auditoria_pre_migracao_postgresql import renderizar_auditoria_pre_migracao
 from preflight_supabase_secrets import verificar_secrets_supabase, testar_acesso_storage
@@ -50,7 +50,7 @@ if "pagina_atual" not in st.session_state:
     st.session_state.pagina_atual = "portal"
 
 usuario_logado = str(st.session_state.get("usuario_logado", "")).strip().lower()
-admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
+admin_configurado = str(_email_config().get("admin_email", "")).strip().lower()
 is_admin = bool(usuario_logado and admin_configurado and usuario_logado == admin_configurado)
 
 # ==========================================
