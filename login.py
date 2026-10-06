@@ -29,14 +29,44 @@ AUTH_DB_CONNECT_TIMEOUT_SECONDS = 5
 
 
 def _auth_database_url() -> str:
-    """Obtém a conexão persistente do cadastro sem usar Supabase Auth."""
+    """Obtém a conexão persistente do cadastro a partir das Secrets."""
     try:
         valor = st.secrets.get("GTI_DATABASE_URL", "")
         if valor:
             return str(valor).strip()
+
+        cfg = st.secrets.get("postgresql", {})
+        host = str(cfg.get("host", "")).strip()
+        port = str(cfg.get("port", "5432")).strip()
+        dbname = str(cfg.get("dbname", "")).strip()
+        user = str(cfg.get("user", "")).strip()
+        password = str(cfg.get("password", "")).strip()
+        sslmode = str(cfg.get("sslmode", "")).strip()
+
+        if host and dbname and user and password:
+            query = f"?sslmode={urllib.parse.quote_plus(sslmode)}" if sslmode else ""
+            return (
+                "postgresql://"
+                f"{urllib.parse.quote(user, safe='')}:{urllib.parse.quote(password, safe='')}"
+                f"@{host}:{port}/{urllib.parse.quote(dbname, safe='')}{query}"
+            )
     except Exception:
         pass
     return str(os.environ.get("GTI_DATABASE_URL", "")).strip()
+
+
+def _email_config() -> dict:
+    """Lê a configuração de e-mail aceitando [email] ou [connections.gsheets]."""
+    try:
+        cfg = st.secrets.get("email", {})
+        if cfg:
+            return dict(cfg)
+        cfg = st.secrets.get("connections", {}).get("gsheets", {})
+        if cfg:
+            return dict(cfg)
+    except Exception:
+        pass
+    return {}
 
 
 def _carregar_usuarios_local() -> dict:
@@ -175,8 +205,8 @@ def carregar_usuarios() -> dict:
                 return local
 
         # Bootstrap seguro do administrador a partir das Secrets já existentes.
-        admin = str(st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)).strip().lower()
-        admin_hash = str(st.secrets.get("email", {}).get("admin_password_hash", "")).strip()
+        admin = str(_email_config().get("admin_email", ADMIN_EMAIL_DEFAULT)).strip().lower()
+        admin_hash = str(_email_config().get("admin_password_hash", "")).strip()
         db = {admin: {"senha": admin_hash, "aprovado": True}} if admin and admin_hash else {}
         if db:
             _salvar_usuarios_persistentes(db)
@@ -189,8 +219,8 @@ def carregar_usuarios() -> dict:
     if local:
         return local
 
-    admin = str(st.secrets.get("email", {}).get("admin_email", ADMIN_EMAIL_DEFAULT)).strip().lower()
-    admin_hash = str(st.secrets.get("email", {}).get("admin_password_hash", "")).strip()
+    admin = str(_email_config().get("admin_email", ADMIN_EMAIL_DEFAULT)).strip().lower()
+    admin_hash = str(_email_config().get("admin_password_hash", "")).strip()
     db = {admin: {"senha": admin_hash, "aprovado": True}} if admin and admin_hash else {}
     _salvar_usuarios_local(db)
     return db
@@ -225,13 +255,13 @@ def validar_senha_alfanumerica_8(senha: str) -> tuple[bool, str]:
 
 
 def _segredo_aprovacao() -> str:
-    return str(st.secrets.get("email", {}).get("approval_secret", "")).strip()
+    return str(_email_config().get("approval_secret", "")).strip()
 
 
 def _email_config_status() -> tuple[bool, str]:
     """Valida a configuração mínima do mecanismo de recuperação."""
     try:
-        cfg = st.secrets.get("email", {})
+        cfg = _email_config()
         admin = str(cfg.get("admin_email", "")).strip().lower()
         sender = str(cfg.get("sender_email", "")).strip().lower()
         password = str(cfg.get("sender_password", "")).strip()
@@ -309,7 +339,7 @@ def _validar_token_aprovacao(token: str) -> tuple[str, str] | None:
 
 def enviar_email(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool, str]:
     try:
-        cfg = st.secrets.get("email", {})
+        cfg = _email_config()
         host = str(cfg.get("smtp_server", "smtp.gmail.com")).strip()
         port = int(cfg.get("smtp_port", 587))
         sender = str(cfg.get("sender_email", "")).strip()
@@ -374,7 +404,7 @@ def processar_acao_via_url():
         db[user].setdefault("approval_token_digests", {})["redefinir_usuario"] = _digest_token_aprovacao(token_usuario)
         salvar_usuarios(db)
 
-        cfg = st.secrets.get("email", {})
+        cfg = _email_config()
         base = str(cfg.get("app_url", "http://localhost:8501")).rstrip("/")
         link_usuario = base + "/?" + urllib.parse.urlencode({"token": token_usuario})
         corpo = (
@@ -485,7 +515,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                             try:
                                 # Primeiro estágio: o pedido vai obrigatoriamente para o
                                 # administrador. O usuário não recebe autorização automática.
-                                admin = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
+                                admin = str(_email_config().get("admin_email", "")).strip().lower()
                                 if not validar_email(admin):
                                     st.error("E-mail administrador não configurado corretamente nas Secrets.")
                                 else:
@@ -495,7 +525,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                     }
                                     salvar_usuarios(db)
 
-                                    base = str(st.secrets.get("email", {}).get("app_url", "http://localhost:8501")).rstrip("/")
+                                    base = str(_email_config().get("app_url", "http://localhost:8501")).rstrip("/")
                                     link_aprovar = base + "/?" + urllib.parse.urlencode({"token": token})
                                     body = (
                                         "<h3>Prefeitura Municipal da Serra</h3>"
@@ -574,7 +604,7 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 )
                                 return False
                             salvar_usuarios(db)
-                            cfg = st.secrets.get("email", {})
+                            cfg = _email_config()
                             admin = cfg.get("admin_email", "")
                             base = cfg.get("app_url", "http://localhost:8501").rstrip("/")
                             try:
