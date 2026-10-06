@@ -21,6 +21,7 @@ DB_FILE = "db_usuarios.json"
 LOGO_FILE = Path(__file__).resolve().parent / "assets" / "logo_serra_login.jpg"
 PBKDF2_ITERATIONS = 310_000
 APPROVAL_TOKEN_TTL_SECONDS = 15 * 60
+RESET_TOKEN_TTL_SECONDS = 15 * 60
 LOGIN_MAX_TENTATIVAS = 5
 LOGIN_BLOQUEIO_SEGUNDOS = 15 * 60
 SESSAO_INATIVA_SEGUNDOS = 30 * 60
@@ -215,6 +216,27 @@ def _segredo_aprovacao() -> str:
     return str(st.secrets.get("email", {}).get("approval_secret", "")).strip()
 
 
+def _email_config_status() -> tuple[bool, str]:
+    """Valida a configuração mínima do mecanismo de recuperação."""
+    try:
+        cfg = st.secrets.get("email", {})
+        admin = str(cfg.get("admin_email", "")).strip().lower()
+        sender = str(cfg.get("sender_email", "")).strip().lower()
+        password = str(cfg.get("sender_password", "")).strip()
+        secret = str(cfg.get("approval_secret", "")).strip()
+        if not validar_email(admin):
+            return False, "admin_email não está configurado corretamente."
+        if not validar_email(sender):
+            return False, "sender_email não está configurado corretamente."
+        if not password:
+            return False, "sender_password não está configurado."
+        if not secret:
+            return False, "approval_secret não está configurado."
+        return True, ""
+    except Exception:
+        return False, "Configuração [email] indisponível nas Secrets."
+
+
 def _criar_token_aprovacao(acao: str, usuario: str) -> str:
     segredo = _segredo_aprovacao()
     if not segredo:
@@ -257,7 +279,7 @@ def _validar_token_aprovacao(token: str) -> tuple[str, str] | None:
             return None
 
         acao, usuario, expira = partes
-        if acao not in {"aprovar", "recusar", "redefinir"}:
+        if acao not in {"aprovar", "recusar", "redefinir", "redefinir_usuario"}:
             return None
 
         try:
@@ -276,10 +298,10 @@ def _validar_token_aprovacao(token: str) -> tuple[str, str] | None:
 def enviar_email(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool, str]:
     try:
         cfg = st.secrets.get("email", {})
-        host = cfg.get("smtp_server", "smtp.gmail.com")
+        host = str(cfg.get("smtp_server", "smtp.gmail.com")).strip()
         port = int(cfg.get("smtp_port", 587))
-        sender = cfg.get("sender_email", "")
-        password = cfg.get("sender_password", "")
+        sender = str(cfg.get("sender_email", "")).strip()
+        password = str(cfg.get("sender_password", "")).strip()
         if not sender or not password:
             return False, "Credenciais SMTP não configuradas nas Secrets."
         msg = MIMEMultipart("alternative")
@@ -287,13 +309,15 @@ def enviar_email(destinatario: str, assunto: str, corpo_html: str) -> tuple[bool
         msg["To"] = destinatario
         msg["Subject"] = assunto
         msg.attach(MIMEText(corpo_html, "html"))
-        with smtplib.SMTP(host, port) as server:
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            server.ehlo()
             server.starttls()
+            server.ehlo()
             server.login(sender, password)
-            server.sendmail(sender, destinatario, msg.as_string())
+            server.sendmail(sender, [destinatario], msg.as_string())
         return True, "E-mail enviado com sucesso."
-    except Exception:
-        return False, "Não foi possível enviar o e-mail SMTP."
+    except (OSError, smtplib.SMTPException, ValueError) as exc:
+        return False, f"Falha SMTP: {type(exc).__name__}."
 
 
 def processar_acao_via_url():
@@ -326,15 +350,44 @@ def processar_acao_via_url():
         return
 
     if acao == "redefinir":
-        # Consome o token antes de abrir a tela de troca de senha.
-        # Isso torna a autorização estritamente de uso único, inclusive
-        # antes de o usuário concluir a nova senha.
+        # Este token pertence ao ADMINISTRADOR. Somente após a aprovação
+        # explícita o sistema gera um segundo token, destinado ao usuário.
         db[user].setdefault("approval_token_digests", {}).pop("redefinir", None)
+        try:
+            token_usuario = _criar_token_aprovacao("redefinir_usuario", user)
+        except RuntimeError:
+            st.error("Não foi possível gerar o link de redefinição. Verifique approval_secret nas Secrets.")
+            return
+
+        db[user].setdefault("approval_token_digests", {})["redefinir_usuario"] = _digest_token_aprovacao(token_usuario)
+        salvar_usuarios(db)
+
+        cfg = st.secrets.get("email", {})
+        base = str(cfg.get("app_url", "http://localhost:8501")).rstrip("/")
+        link_usuario = base + "/?" + urllib.parse.urlencode({"token": token_usuario})
+        corpo = (
+            "<h3>Prefeitura Municipal da Serra</h3>"
+            f"<p>A recuperação de acesso para <b>{html.escape(user)}</b> foi autorizada pelo administrador.</p>"
+            f'<p><a href="{html.escape(link_usuario, quote=True)}">Criar nova senha</a></p>'
+            "<p>Este link expira em 15 minutos e pode ser usado uma única vez.</p>"
+        )
+        enviado, mensagem = enviar_email(user, "Recuperação de acesso autorizada - Prefeitura da Serra", corpo)
+        if enviado:
+            st.success(f"Recuperação de acesso de {user} autorizada. O link de redefinição foi enviado ao usuário.")
+        else:
+            st.error(
+                "A autorização foi registrada, mas o e-mail ao usuário não pôde ser enviado. "
+                + mensagem
+            )
+        return
+
+    if acao == "redefinir_usuario":
+        db[user].setdefault("approval_token_digests", {}).pop("redefinir_usuario", None)
         salvar_usuarios(db)
         st.session_state.email_solicitante = user
         st.session_state.tela_atual = "redefinicao_criar"
         st.session_state.reset_autorizado = True
-        st.success("Solicitação de redefinição validada. Defina uma nova senha.")
+        st.success("Solicitação autorizada. Defina sua nova senha.")
         return
 
     db[user]["aprovado"] = acao == "aprovar"
@@ -418,24 +471,52 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                             st.success("Se o e-mail estiver cadastrado e aprovado, as instruções de recuperação serão enviadas.")
                         else:
                             try:
-                                token = _criar_token_aprovacao("redefinir", email_alvo)
-                                db[email_alvo]["approval_token_digests"] = {"redefinir": _digest_token_aprovacao(token)}
-                                salvar_usuarios(db)
-                                base = str(st.secrets.get("email", {}).get("app_url", "http://localhost:8501")).rstrip("/")
-                                link = base + "/?" + urllib.parse.urlencode({"token": token})
-                                body = (
-                                    "<h3>Prefeitura Municipal da Serra</h3>"
-                                    "<p>Foi solicitada a recuperação de acesso para seu cadastro.</p>"
-                                    f'<p><a href="{html.escape(link, quote=True)}">Redefinir minha senha</a></p>'
-                                    "<p>O link expira em 15 minutos e pode ser usado uma única vez.</p>"
-                                )
-                                enviado, mensagem = enviar_email(email_alvo, "Recuperação de acesso - Prefeitura da Serra", body)
-                                if enviado:
-                                    st.success("Se o e-mail estiver cadastrado e aprovado, as instruções de recuperação serão enviadas.")
+                                # Primeiro estágio: o pedido vai obrigatoriamente para o
+                                # administrador. O usuário não recebe autorização automática.
+                                admin = str(st.secrets.get("email", {}).get("admin_email", "")).strip().lower()
+                                if not validar_email(admin):
+                                    st.error("E-mail administrador não configurado corretamente nas Secrets.")
                                 else:
-                                    st.error(mensagem)
-                            except RuntimeError:
-                                st.error("Não foi possível iniciar a recuperação. Verifique a configuração do ambiente.")
+                                    token = _criar_token_aprovacao("redefinir", email_alvo)
+                                    db[email_alvo]["approval_token_digests"] = {
+                                        "redefinir": _digest_token_aprovacao(token)
+                                    }
+                                    salvar_usuarios(db)
+
+                                    base = str(st.secrets.get("email", {}).get("app_url", "http://localhost:8501")).rstrip("/")
+                                    link_aprovar = base + "/?" + urllib.parse.urlencode({"token": token})
+                                    body = (
+                                        "<h3>Prefeitura Municipal da Serra</h3>"
+                                        f"<p>Foi solicitada a <b>recuperação de senha</b> para o usuário "
+                                        f"<b>{html.escape(email_alvo)}</b>.</p>"
+                                        f'<p><a href="{html.escape(link_aprovar, quote=True)}">Autorizar recuperação</a></p>'
+                                        "<p>Se você não reconhece a solicitação, não autorize.</p>"
+                                        "<p>O link de autorização expira em 15 minutos e pode ser usado uma única vez.</p>"
+                                    )
+                                    enviado, mensagem = enviar_email(
+                                        admin,
+                                        "Solicitação de recuperação de senha - GTI-SESA",
+                                        body,
+                                    )
+                                    if enviado:
+                                        st.success(
+                                            "Solicitação enviada ao administrador. "
+                                            "Aguarde a autorização para receber o link de redefinição."
+                                        )
+                                    else:
+                                        # Não deixa um pedido aparentemente pendente se o
+                                        # SMTP falhar: remove o token de autorização.
+                                        db[email_alvo].setdefault("approval_token_digests", {}).pop("redefinir", None)
+                                        salvar_usuarios(db)
+                                        st.error(
+                                            "A solicitação não foi enviada ao administrador. "
+                                            + mensagem
+                                        )
+                            except RuntimeError as exc:
+                                st.error(
+                                    "Não foi possível iniciar a recuperação. "
+                                    + str(exc)
+                                )
             if st.button("← Voltar ao Login", use_container_width=True, key="btn_voltar_solicitar"):
                 st.session_state.tela_atual = "login"
                 st.rerun()
