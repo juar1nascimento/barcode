@@ -57,7 +57,10 @@ def formatar_nome_fabricante(patrimonio: str) -> str:
 def _normalizar_tipo(valor: str) -> str:
     valor = re.sub(r"\s+", " ", str(valor or "").strip())
     mapa = {"computador": "CPU", "cpu": "CPU", "monitor": "Monitores", "monitores": "Monitores", "teclado": "Teclado", "mouse": "Mouse", "impressora": "Imprenssoras", "impressoras": "Imprenssoras", "imprenssoras": "Imprenssoras", "outros dispositivos": "Outros Dispositivos"}
-    return mapa.get(valor.casefold(), valor if valor in TIPOS_PATRIMONIO else "")
+    # Os tipos oficiais continuam normalizados pelos aliases acima.
+    # Qualquer nome novo informado pela opção "Outros Patrimônio" é aceito
+    # após limpeza, sem permitir valores vazios ou placeholders.
+    return mapa.get(valor.casefold(), valor)
 
 
 def _normalizar_unidade_aba(nome: str) -> str:
