@@ -1,4 +1,5 @@
 import base64
+import base64
 import hashlib
 import html
 import hmac
@@ -56,7 +57,7 @@ def _auth_database_url() -> str:
 def _email_config() -> dict:
     """Lê a configuração de e-mail das Secrets atuais."""
     try:
-        cfg = _email_config()
+        cfg = st.secrets.get("email", {})
         if cfg:
             return dict(cfg)
         cfg = st.secrets.get("connections", {}).get("gsheets", {})
