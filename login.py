@@ -66,6 +66,18 @@ def _carregar_usuarios_persistentes() -> dict | None:
         return None
     try:
         with psycopg.connect(url, connect_timeout=AUTH_DB_CONNECT_TIMEOUT_SECONDS) as conn:
+            conn.execute(
+                """
+                create table if not exists public.gti_auth_usuarios (
+                    usuario varchar(320) primary key,
+                    senha text not null,
+                    aprovado boolean not null default false,
+                    approval_token_digests jsonb not null default '{}'::jsonb,
+                    updated_at timestamptz not null default now()
+                )
+                """
+            )
+            conn.commit()
             rows = conn.execute(
                 """
                 select usuario, senha, aprovado, approval_token_digests
