@@ -86,5 +86,19 @@ CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_patrimonio
 CREATE INDEX IF NOT EXISTS idx_patrimonio_fotos_sha256
     ON public.patrimonio_fotos(sha256);
 
+
+-- Autenticação do sistema GTI-SESA.
+-- Credenciais e tokens permanecem no PostgreSQL; nunca são armazenados no GitHub.
+CREATE TABLE IF NOT EXISTS public.gti_auth_usuarios (
+    usuario VARCHAR(320) PRIMARY KEY,
+    senha TEXT NOT NULL,
+    aprovado BOOLEAN NOT NULL DEFAULT FALSE,
+    approval_token_digests JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_gti_auth_usuarios_aprovado
+    ON public.gti_auth_usuarios(aprovado);
+
 -- A coluna Setor do Google Sheets pode apresentar "Consultório 5 - Odontologia",
 -- enquanto o PostgreSQL mantém nome, número e especialidade estruturados.
