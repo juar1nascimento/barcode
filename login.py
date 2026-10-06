@@ -254,6 +254,33 @@ def salvar_usuarios(db: dict):
     _salvar_usuarios_persistentes(db)
 
 
+def diagnostico_autenticacao_admin(usuario: str) -> dict:
+    """Retorna somente indicadores seguros para diagnosticar o acesso administrativo."""
+    alvo = str(usuario or "").strip().lower()
+    cfg = _email_config()
+    admin = str(cfg.get("admin_email", "")).strip().lower()
+    admin_hash = str(cfg.get("admin_password_hash", "")).strip()
+
+    resultado = {
+        "postgres_configurado": bool(_auth_database_url()),
+        "postgres_acessivel": False,
+        "admin_configurado": validar_email(admin),
+        "admin_hash_configurado": admin_hash.startswith("pbkdf2_sha256$"),
+        "conta_encontrada": False,
+        "conta_aprovada": False,
+    }
+
+    persistente = _carregar_usuarios_persistentes()
+    if persistente is not None:
+        resultado["postgres_acessivel"] = True
+        conta = persistente.get(alvo) if alvo == admin else None
+        if isinstance(conta, dict):
+            resultado["conta_encontrada"] = True
+            resultado["conta_aprovada"] = bool(conta.get("aprovado", False))
+
+    return resultado
+
+
 def registrar_novo_usuario(db: dict, usuario: str, senha: str) -> bool:
     """Cria apenas contas inexistentes; nunca sobrescreve credenciais existentes."""
     usuario = str(usuario or "").strip().lower()
@@ -702,6 +729,27 @@ div[data-testid="stForm"] button[kind="secondaryFormSubmit"],div[data-testid="st
                                 st.session_state.erro_login_msg = "Usuário ou senha inválidos."
                             else:
                                 st.session_state.erro_login_msg = "Usuário ou senha inválidos."
+
+                            # Para o administrador, exibe apenas indicadores técnicos
+                            # não sensíveis. Isso permite distinguir falha de Secrets,
+                            # PostgreSQL, cadastro ou senha sem revelar credenciais.
+                            admin_cfg = str(_email_config().get("admin_email", "")).strip().lower()
+                            if user and user == admin_cfg:
+                                diag = diagnostico_autenticacao_admin(user)
+                                if not diag["postgres_configurado"]:
+                                    st.warning("Diagnóstico: conexão PostgreSQL não está configurada nas Secrets.")
+                                elif not diag["postgres_acessivel"]:
+                                    st.warning("Diagnóstico: PostgreSQL configurado, mas não está acessível pelo aplicativo.")
+                                elif not diag["admin_configurado"]:
+                                    st.warning("Diagnóstico: admin_email não está configurado como e-mail válido.")
+                                elif not diag["admin_hash_configurado"]:
+                                    st.warning("Diagnóstico: admin_password_hash não está configurado no formato esperado.")
+                                elif not diag["conta_encontrada"]:
+                                    st.warning("Diagnóstico: conta administrativa não foi encontrada no PostgreSQL.")
+                                elif not diag["conta_aprovada"]:
+                                    st.warning("Diagnóstico: conta administrativa existe, mas está sem aprovação.")
+                                else:
+                                    st.info("Diagnóstico: PostgreSQL, conta administrativa, aprovação e hash estão disponíveis. Se a mensagem de senha inválida permanecer, a senha digitada não corresponde ao hash configurado.")
                         else:
                             if migrar:
                                 db[user]["senha"] = hash_senha(senha)
