@@ -32,7 +32,6 @@ OAUTH_CLIENT_ID_ENV = "GOOGLE_DRIVE_OAUTH_CLIENT_ID"
 OAUTH_CLIENT_SECRET_ENV = "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"  # nosec B105 - nome de variável de ambiente, não segredo
 OAUTH_REFRESH_TOKEN_ENV = "GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN"  # nosec B105 - nome de variável de ambiente, não token
 OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token"  # nosec B105 - endpoint público do OAuth
-FOLDER_PREFIX = "Fotos - Inventário GTI SESA"
 TIMEOUT = 30
 
 
@@ -217,10 +216,20 @@ def _ensure_folder(token: str, parent_id: str, name: str) -> str:
 
 
 def pasta_patrimonio(token: str, unidade: str, numero: str) -> str:
+    """Resolve a pasta no layout canônico GTI SESA.
+
+    A raiz configurada é a mesma pasta pai que contém as unidades
+    correspondentes no Drive. Não é criada uma camada intermediária.
+    """
     root = _root_folder_id()
     _validate_root_access(token, root)
-    fotos_root = _ensure_folder(token, root, FOLDER_PREFIX)
-    unidade_folder = _ensure_folder(token, fotos_root, _safe_name(unidade))
+    unidade_nome = _safe_name(unidade)
+    unidade_folder = _find_folder(token, root, unidade_nome)
+    if not unidade_folder:
+        raise RuntimeError(
+            f"Pasta da unidade '{unidade}' não existe diretamente na raiz do Drive. "
+            "Sincronização bloqueada para evitar roteamento incorreto."
+        )
     return _ensure_folder(token, unidade_folder, f"Patrimônio {numero}")
 
 
