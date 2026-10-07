@@ -227,7 +227,7 @@ def main():
             reconciled = int(cur.fetchone()[0] or 0)
         conn.commit()
         sheets = sheets_client()
-        spreadsheet = open_spreadsheet(sheets_client())
+        spreadsheet = open_spreadsheet(sheets)
         claimed = claim_batch(conn, limit)
 
         by_patrimonio = {}
