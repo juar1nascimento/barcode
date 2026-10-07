@@ -38,7 +38,7 @@ def test_password_recovery_is_local_and_signed():
     assert "approval_token_digests" in source
     assert "_criar_token_aprovacao" in source
     assert "enviar_email" in source
-    assert 'st.session_state.reset_autorizado = True' in source
+    assert "_validar_token_aprovacao" in source
 
 
 def test_password_reset_action_is_rejected_by_approval_token_validator(monkeypatch):
