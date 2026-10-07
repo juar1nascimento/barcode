@@ -33,21 +33,21 @@ def test_session_timeout_is_enforced_in_login_flow():
 
 def test_password_recovery_is_local_and_signed():
     source = Path("login.py").read_text(encoding="utf-8")
-    assert 'acao not in {"aprovar", "recusar", "redefinir"}' in source
+    assert 'acao not in {"aprovar", "recusar"}' in source
+    assert 'acao == "redefinir"' not in source
     assert "approval_token_digests" in source
     assert "_criar_token_aprovacao" in source
     assert "enviar_email" in source
     assert 'st.session_state.reset_autorizado = True' in source
 
 
-def test_password_reset_token_is_consumed_before_reset_screen():
-    source = Path("login.py").read_text(encoding="utf-8")
-    marker = 'if acao == "redefinir":'
-    start = source.index(marker)
-    end = source.index('st.session_state.email_solicitante', start)
-    block = source[start:end]
-    assert 'pop("redefinir", None)' in block
-    assert "salvar_usuarios(db)" in block
+def test_password_reset_action_is_rejected_by_approval_token_validator(monkeypatch):
+    import login
+
+    monkeypatch.setattr(login, "_segredo_aprovacao", lambda: "teste-segredo")
+    token = login._criar_token_aprovacao("redefinir", "usuario@example.com")
+
+    assert login._validar_token_aprovacao(token) is None
 
 
 def test_auth_uses_local_cache_when_persistent_store_is_unavailable(monkeypatch):
