@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from datetime import datetime, timezone
 import json
 import os
 import sys
@@ -69,6 +70,10 @@ def sb_get(params: dict[str, str]) -> list[dict[str, Any]]:
     )
     r.raise_for_status()
     return r.json()
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def sb_patch(row_id: int, values: dict[str, Any], expected_status: str | None = None) -> list[dict[str, Any]]:
@@ -174,7 +179,7 @@ def claim(row: dict[str, Any]) -> dict[str, Any] | None:
         int(row["id"]),
         {
             "status": "processing",
-            "processando_em": "now()",
+            "processando_em": utc_now(),
             "tentativas": int(row.get("tentativas") or 0) + 1,
         },
         expected_status="pending",
@@ -203,8 +208,8 @@ def mark_drive_delete_pending(row: dict[str, Any], local_path: Path, digest: str
             "status": "drive_delete_pending",
             "caminho_local": str(local_path),
             "sha256_local": digest,
-            "baixado_em": "now()",
-            "verificado_em": "now()",
+            "baixado_em": utc_now(),
+            "verificado_em": utc_now(),
             "ultimo_erro": None,
         },
         expected_status="processing",
@@ -218,14 +223,57 @@ def complete_after_drive_delete(row: dict[str, Any]) -> None:
         int(row["id"]),
         {
             "status": "completed",
-            "removido_drive_em": "now()",
+            "removido_drive_em": utc_now(),
             "ultimo_erro": None,
         },
         expected_status="drive_delete_pending",
     )
 
 
+def status_rows(status: str) -> list[dict[str, Any]]:
+    return sb_get(
+        {
+            "select": "*",
+            "status": f"eq.{status}",
+            "order": "ordem_fila.asc,id.asc",
+            "limit": "500",
+        }
+    )
+
+
 def pending_rows() -> list[dict[str, Any]]:
+    return status_rows("pending")
+
+
+def recover_drive_delete_pending(service) -> None:
+    for row in status_rows("drive_delete_pending"):
+        file_id = row["drive_file_id"]
+        try:
+            meta = drive_metadata(service, file_id)
+            if meta.get("trashed"):
+                complete_after_drive_delete(row)
+                print(f"RECUPERADO | Drive já estava na lixeira | id={row['id']}")
+                continue
+
+            local_path = Path(row["caminho_local"])
+            if not local_path.is_file():
+                raise FileNotFoundError(f"Arquivo local ausente: {local_path}")
+
+            expected_size = int(row["tamanho_bytes"])
+            if local_path.stat().st_size != expected_size:
+                raise RuntimeError("Tamanho local divergente na recuperação.")
+
+            digest = sha256_file(local_path)
+            if digest.lower() != row["drive_sha256"].lower():
+                raise RuntimeError("SHA-256 divergente na recuperação.")
+
+            service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
+            complete_after_drive_delete(row)
+            print(f"RECUPERADO | Drive removido e estado concluído | id={row['id']}")
+        except Exception as exc:
+            print(f"RECUPERAÇÃO FALHOU | id={row['id']} | {exc}", file=sys.stderr)
+
+
     return sb_get(
         {
             "select": "*",
@@ -241,6 +289,16 @@ def run(dry_run: bool) -> int:
     DRY_RUN_ENV = dry_run
 
     rows = pending_rows()
+    recovery = status_rows("drive_delete_pending")
+    if recovery:
+        service = drive_service()
+        if not dry_run and not ALLOW_DELETE:
+            print("RECUPERAÇÃO BLOQUEADA: LOCAL_MIRROR_ALLOW_DELETE != true", file=sys.stderr)
+        elif not dry_run:
+            recover_drive_delete_pending(service)
+        else:
+            print(f"DRY-RUN: {len(recovery)} registro(s) em drive_delete_pending não serão alterados.")
+
     total = sum(int(row["tamanho_bytes"]) for row in rows)
     print(f"Pendentes: {len(rows)} | volume: {total} bytes")
 
