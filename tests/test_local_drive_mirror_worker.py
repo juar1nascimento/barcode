@@ -157,6 +157,7 @@ def test_drive_delete_pending_404_completes(worker, monkeypatch):
 
 
 def test_download_drive_file_verifies_and_replaces_atomically(worker, tmp_path, monkeypatch):
+    worker.LOCAL_ROOT = tmp_path
     destination = tmp_path / "UBS Teste" / "Patrimonio 123" / "Foto 1.jpg"
     destination.parent.mkdir(parents=True)
     payload = b"foto-real"
