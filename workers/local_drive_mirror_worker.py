@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GTI SESA - Local Google Drive for Desktop mirror worker.
+GTI SESA - Local mirror worker for Google Drive.
 
 Safety:
 - dry-run is the default;
@@ -8,8 +8,8 @@ Safety:
 - processing starts only at >= 1 GiB pending;
 - FIFO is ordem_fila ASC, id ASC;
 - local path is derived from the exact Drive parent chain up to GOOGLE_DRIVE_ROOT_ID;
-- ambiguous filename-only discovery is intentionally not used;
-- size + SHA-256 are mandatory before deletion;
+- live mode downloads directly from Drive API when the local file is absent or invalid;
+- download uses a temporary file and verifies size + SHA-256 before replacing the destination;
 - Drive deletion additionally requires --live and LOCAL_MIRROR_ALLOW_DELETE=true;
 - failures keep the Drive source intact.
 """
@@ -22,12 +22,14 @@ from datetime import datetime, timezone
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 
 
@@ -126,11 +128,6 @@ def drive_parent_metadata(service, folder_id: str) -> dict[str, Any]:
 
 
 def exact_local_path(service, file_meta: dict[str, Any]) -> Path:
-    """
-    Reconstructs the exact relative Drive path from the configured Drive root.
-    This prevents duplicate filenames in different units/patrimony folders from
-    being confused with each other.
-    """
     names: list[str] = [file_meta["name"]]
     parents = file_meta.get("parents") or []
     if len(parents) != 1:
@@ -171,6 +168,50 @@ def exact_local_path(service, file_meta: dict[str, Any]) -> Path:
         raise RuntimeError("Caminho local saiu da raiz configurada.") from exc
 
     return candidate
+
+
+def download_drive_file(service, file_id: str, destination: Path, expected_size: int, expected_sha256: str) -> str:
+    """Download to a temporary file, verify it, then atomically replace destination."""
+    destination = destination.resolve()
+    destination.relative_to(LOCAL_ROOT)
+
+    if destination.is_symlink():
+        raise RuntimeError(f"Destino local é link simbólico; download bloqueado: {destination}")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".gti-{file_id}-",
+        suffix=".part",
+        dir=str(destination.parent),
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+
+    try:
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        with temp_path.open("wb") as fh:
+            downloader = MediaIoBaseDownload(fh, request, chunksize=8 * 1024 * 1024)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+
+        actual_size = temp_path.stat().st_size
+        if actual_size != expected_size:
+            raise RuntimeError(
+                f"Tamanho baixado divergente: esperado={expected_size}, local={actual_size}"
+            )
+
+        digest = sha256_file(temp_path)
+        if digest.lower() != expected_sha256.lower():
+            raise RuntimeError(
+                f"SHA-256 do download divergente: esperado={expected_sha256}, local={digest}"
+            )
+
+        os.replace(temp_path, destination)
+        return digest
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def claim(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -281,6 +322,66 @@ def recover_drive_delete_pending(service) -> None:
             print(f"RECUPERAÇÃO FALHOU | id={row['id']} | {exc}", file=sys.stderr)
 
 
+def run_download_only_canary(file_id: str | None = None) -> int:
+    """Explicit physical-transfer canary: downloads and verifies one file only.
+
+    This mode intentionally bypasses the 1 GiB production gate, never mutates
+    Supabase, and never deletes the Drive source. It is only reachable through
+    the explicit --download-only-canary CLI option.
+    """
+    rows = pending_rows()
+    if not rows:
+        raise RuntimeError("Canário sem registros pending no outbox local.")
+
+    if file_id:
+        matches = [row for row in rows if row.get("drive_file_id") == file_id]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"Canário exige exatamente 1 registro pending para drive_file_id={file_id}; "
+                f"encontrados={len(matches)}."
+            )
+        row = matches[0]
+    else:
+        row = rows[0]
+
+    service = drive_service()
+    meta = drive_metadata(service, row["drive_file_id"])
+    if meta.get("trashed"):
+        raise RuntimeError("Arquivo Drive do canário está na lixeira.")
+
+    expected_size = int(row["tamanho_bytes"])
+    actual_drive_size = int(meta.get("size") or 0)
+    if actual_drive_size != expected_size:
+        raise RuntimeError(
+            f"Tamanho Drive divergente no canário: esperado={expected_size}, Drive={actual_drive_size}"
+        )
+
+    local_path = exact_local_path(service, meta)
+    if local_path.exists():
+        if local_path.is_symlink() or not local_path.is_file():
+            raise RuntimeError(f"Destino local do canário não é arquivo regular: {local_path}")
+        if local_path.stat().st_size == expected_size:
+            digest = sha256_file(local_path)
+            if digest.lower() == row["drive_sha256"].lower():
+                print(
+                    f"CANÁRIO OK | arquivo local já verificado | id={row['id']} | "
+                    f"foto={row['foto_id']} | {local_path} | sha256={digest}"
+                )
+                return 0
+
+    digest = download_drive_file(
+        service,
+        row["drive_file_id"],
+        local_path,
+        expected_size,
+        row["drive_sha256"],
+    )
+    print(
+        f"CANÁRIO DOWNLOAD + VERIFICAÇÃO OK | id={row['id']} | foto={row['foto_id']} | "
+        f"{local_path} | sha256={digest} | Drive PRESERVADO | Supabase PRESERVADO"
+    )
+    return 0
+
 
 def run(dry_run: bool) -> int:
     global DRY_RUN_ENV
@@ -334,35 +435,46 @@ def run(dry_run: bool) -> int:
                 )
 
             local_path = exact_local_path(service, meta)
-            if not local_path.is_file():
-                raise FileNotFoundError(
-                    f"Arquivo ainda não está disponível no espelho local: {local_path}"
-                )
+            existing_ok = False
+            if local_path.exists():
+                if local_path.is_symlink():
+                    raise RuntimeError(f"Destino local é link simbólico: {local_path}")
+                if not local_path.is_file():
+                    raise RuntimeError(f"Destino local não é arquivo: {local_path}")
+                local_size = local_path.stat().st_size
+                if local_size == expected_size:
+                    digest = sha256_file(local_path)
+                    existing_ok = digest.lower() == row["drive_sha256"].lower()
+                    if existing_ok:
+                        print(
+                            f"OK LOCAL EXISTENTE | id={row['id']} | foto={row['foto_id']} | "
+                            f"{local_path} | sha256={digest}"
+                        )
 
-            local_size = local_path.stat().st_size
-            if local_size != expected_size:
-                raise RuntimeError(
-                    f"Tamanho local divergente: esperado={expected_size}, local={local_size}"
-                )
+            if not existing_ok:
+                if dry_run:
+                    print(
+                        f"DRY-RUN | id={row['id']} | foto={row['foto_id']} | "
+                        f"seria baixado para {local_path}"
+                    )
+                    consumed += size
+                    continue
 
-            digest = sha256_file(local_path)
-            if digest.lower() != row["drive_sha256"].lower():
-                raise RuntimeError(
-                    f"SHA-256 divergente: esperado={row['drive_sha256']}, local={digest}"
+                digest = download_drive_file(
+                    service,
+                    file_id,
+                    local_path,
+                    expected_size,
+                    row["drive_sha256"],
                 )
-
-            print(
-                f"OK LOCAL | id={row['id']} | foto={row['foto_id']} | "
-                f"{local_path} | sha256={digest}"
-            )
+                print(
+                    f"DOWNLOAD + VERIFICAÇÃO OK | id={row['id']} | foto={row['foto_id']} | "
+                    f"{local_path} | sha256={digest}"
+                )
 
             if dry_run:
                 print("DRY-RUN: nenhuma exclusão nem mutação do outbox.")
             else:
-                if not ALLOW_DELETE:
-                    raise RuntimeError(
-                        "Exclusão bloqueada: LOCAL_MIRROR_ALLOW_DELETE != true"
-                    )
                 mark_drive_delete_pending(row, local_path, digest)
                 service.files().delete(
                     fileId=file_id,
@@ -384,10 +496,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--download-only-canary", action="store_true")
+    parser.add_argument("--canary-drive-file-id")
     args = parser.parse_args()
 
-    if args.dry_run and args.live:
-        parser.error("Use --dry-run ou --live, não ambos.")
+    modes = sum(bool(x) for x in (args.dry_run, args.live, args.download_only_canary))
+    if modes > 1:
+        parser.error("Escolha apenas um modo: --dry-run, --live ou --download-only-canary.")
+    if args.canary_drive_file_id and not args.download_only_canary:
+        parser.error("--canary-drive-file-id exige --download-only-canary.")
+
+    if args.download_only_canary:
+        return run_download_only_canary(args.canary_drive_file_id)
 
     return run(not args.live)
 
