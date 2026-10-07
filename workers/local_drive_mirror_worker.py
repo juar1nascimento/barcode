@@ -194,21 +194,34 @@ def fail(row: dict[str, Any], message: str) -> None:
     )
 
 
-def complete(row: dict[str, Any], local_path: Path, digest: str) -> None:
+def mark_drive_delete_pending(row: dict[str, Any], local_path: Path, digest: str) -> None:
+    if DRY_RUN_ENV:
+        return
+    sb_patch(
+        int(row["id"]),
+        {
+            "status": "drive_delete_pending",
+            "caminho_local": str(local_path),
+            "sha256_local": digest,
+            "baixado_em": "now()",
+            "verificado_em": "now()",
+            "ultimo_erro": None,
+        },
+        expected_status="processing",
+    )
+
+
+def complete_after_drive_delete(row: dict[str, Any]) -> None:
     if DRY_RUN_ENV:
         return
     sb_patch(
         int(row["id"]),
         {
             "status": "completed",
-            "caminho_local": str(local_path),
-            "sha256_local": digest,
-            "baixado_em": "now()",
-            "verificado_em": "now()",
             "removido_drive_em": "now()",
             "ultimo_erro": None,
         },
-        expected_status="processing",
+        expected_status="drive_delete_pending",
     )
 
 
@@ -291,11 +304,12 @@ def run(dry_run: bool) -> int:
                     raise RuntimeError(
                         "Exclusão bloqueada: LOCAL_MIRROR_ALLOW_DELETE != true"
                     )
+                mark_drive_delete_pending(row, local_path, digest)
                 service.files().delete(
                     fileId=file_id,
                     supportsAllDrives=True,
                 ).execute()
-                complete(row, local_path, digest)
+                complete_after_drive_delete(row)
                 print(f"DRIVE REMOVIDO APÓS VERIFICAÇÃO | {file_id}")
 
             consumed += size
