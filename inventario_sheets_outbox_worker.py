@@ -15,8 +15,8 @@ import gspread
 import psycopg
 from google.oauth2.service_account import Credentials
 
-COLUNAS = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
 
+COLUNAS = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
 
 def env(name: str) -> str:
     value = os.getenv(name, "").strip()
@@ -24,9 +24,7 @@ def env(name: str) -> str:
         raise RuntimeError(f"Variável obrigatória ausente: {name}")
     return value
 
-
 def safe_error(error: Exception | str) -> str:
-    """Remove credenciais e detalhes potencialmente sensíveis dos registros operacionais."""
     value = str(error or "")
     value = re.sub(r"(?i)(postgres(?:ql)?://)[^\s]+", r"\1[REDACTED]", value)
     value = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]", value)
@@ -34,23 +32,14 @@ def safe_error(error: Exception | str) -> str:
     value = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", "[REDACTED PEM]", value, flags=re.DOTALL)
     return value[:500]
 
-
 def normalize_unit(value: str) -> str:
-    aliases = {
-        "URS Jacara_pe": "URS Jacaraípe",
-        "UBS Bairro de F_tima": "UBS Bairro de Fátima",
-    }
+    aliases = {"URS Jacara_pe": "URS Jacaraípe", "UBS Bairro de F_tima": "UBS Bairro de Fátima"}
     return aliases.get(str(value or "").strip(), str(value or "").strip())
-
 
 def sheets_client():
     data = json.loads(env("GOOGLE_SERVICE_ACCOUNT_JSON"))
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     return gspread.authorize(Credentials.from_service_account_info(data, scopes=scopes))
-
 
 def open_spreadsheet(client):
     spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID", "").strip()
@@ -61,7 +50,6 @@ def open_spreadsheet(client):
         return client.open_by_url(spreadsheet_url)
     raise RuntimeError("Defina GOOGLE_SPREADSHEET_ID ou GOOGLE_SPREADSHEET_URL.")
 
-
 def col_letter(n: int) -> str:
     out = ""
     while n:
@@ -69,102 +57,96 @@ def col_letter(n: int) -> str:
         out = chr(65 + r) + out
     return out
 
-
 def claim_batch(conn, limit: int):
     with conn.cursor() as cur:
-        cur.execute(
-            """WITH candidatos AS (
-                 SELECT id
-                   FROM public.patrimonios_sheets_outbox
-                  WHERE status IN ('pending','failed')
-                    AND proxima_tentativa_em <= now()
-                  ORDER BY id
-                  FOR UPDATE SKIP LOCKED
-                  LIMIT %s
-               )
-               UPDATE public.patrimonios_sheets_outbox o
-                  SET status='processing',
-                      processando_em=now(),
-                      tentativas=tentativas+1,
-                      atualizado_em=now()
-                 FROM candidatos c
-                WHERE o.id=c.id
-               RETURNING o.id,o.patrimonio_id""",
-            (limit,),
-        )
+        cur.execute("""WITH candidatos AS (
+             SELECT id FROM public.patrimonios_sheets_outbox
+              WHERE status IN ('pending','failed') AND proxima_tentativa_em <= now()
+              ORDER BY id FOR UPDATE SKIP LOCKED LIMIT %s)
+           UPDATE public.patrimonios_sheets_outbox o
+              SET status='processing', processando_em=now(), tentativas=tentativas+1, atualizado_em=now()
+             FROM candidatos c WHERE o.id=c.id
+           RETURNING o.id,o.patrimonio_id""", (limit,))
         rows = cur.fetchall()
     conn.commit()
     return rows
 
-
 def mark(conn, outbox_id: int, status: str, error: str | None = None, max_attempts: int = 8):
     with conn.cursor() as cur:
         if status == "synced":
-            cur.execute(
-                """UPDATE public.patrimonios_sheets_outbox
-                      SET status='synced', sincronizado_em=now(),
-                          processando_em=NULL, ultimo_erro=NULL, atualizado_em=now()
-                    WHERE id=%s""",
-                (outbox_id,),
-            )
+            cur.execute("""UPDATE public.patrimonios_sheets_outbox
+                              SET status='synced', sincronizado_em=now(), processando_em=NULL,
+                                  ultimo_erro=NULL, atualizado_em=now() WHERE id=%s""", (outbox_id,))
         else:
-            cur.execute(
-                """UPDATE public.patrimonios_sheets_outbox
-                      SET status=CASE WHEN tentativas >= %s THEN 'dead_letter' ELSE 'failed' END,
-                          processando_em=NULL,
-                          proxima_tentativa_em=CASE
-                            WHEN tentativas >= %s THEN now()
-                            ELSE now() + LEAST(interval '1 hour',
-                                 interval '5 minutes' * power(2, tentativas - 1))
-                          END,
-                          ultimo_erro=%s, atualizado_em=now()
-                    WHERE id=%s""",
-                (max_attempts, max_attempts, safe_error(error or "erro"), outbox_id),
-            )
+            cur.execute("""UPDATE public.patrimonios_sheets_outbox
+                              SET status=CASE WHEN tentativas >= %s THEN 'dead_letter' ELSE 'failed' END,
+                                  processando_em=NULL,
+                                  proxima_tentativa_em=CASE WHEN tentativas >= %s THEN now()
+                                    ELSE now() + LEAST(interval '1 hour', interval '5 minutes' * power(2, tentativas - 1)) END,
+                                  ultimo_erro=%s, atualizado_em=now() WHERE id=%s""",
+                        (max_attempts, max_attempts, safe_error(error or "erro"), outbox_id))
     conn.commit()
-
 
 def reset_stale(conn):
     with conn.cursor() as cur:
-        cur.execute(
-            """UPDATE public.patrimonios_sheets_outbox
-                  SET status='failed', processando_em=NULL,
-                      proxima_tentativa_em=now(),
-                      ultimo_erro='job recuperado após expiração do lock',
-                      atualizado_em=now()
-                WHERE status='processing'
-                  AND processando_em < now() - interval '15 minutes'"""
-        )
+        cur.execute("""UPDATE public.patrimonios_sheets_outbox
+                          SET status='failed', processando_em=NULL, proxima_tentativa_em=now(),
+                              ultimo_erro='job recuperado após expiração do lock', atualizado_em=now()
+                        WHERE status='processing' AND processando_em < now() - interval '15 minutes'""")
     conn.commit()
+
+CANONICAL_REQUIRED = [
+    "Setor",
+    "Tipo de Patrimônio",
+    "Nº de Patrimônio",
+    "Fabricante",
+    "Data Cadastro",
+]
+HEADER_ALIASES = {
+    "setor": "Setor",
+    "tipo de patrimonio": "Tipo de Patrimônio",
+    "tipo patrimonio": "Tipo de Patrimônio",
+    "n de patrimonio": "Nº de Patrimônio",
+    "n patrimonio": "Nº de Patrimônio",
+    "numero de patrimonio": "Nº de Patrimônio",
+    "numero patrimonio": "Nº de Patrimônio",
+    "fabricante": "Fabricante",
+    "data cadastro": "Data Cadastro",
+    "data de cadastro": "Data Cadastro",
+}
+
+def _header_key(value: str) -> str:
+    import unicodedata
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+
+def _canonical_header_positions(header: list[str]) -> dict[str, int]:
+    positions = {}
+    for index, value in enumerate(header):
+        canonical = HEADER_ALIASES.get(_header_key(value), str(value or "").strip())
+        if canonical in CANONICAL_REQUIRED and canonical not in positions:
+            positions[canonical] = index
+    return positions
+
+
+def _row_value(row: list[str], index: int) -> str:
+    return str(row[index]).strip() if index < len(row) else ""
 
 
 def migrate_legacy_cpu_sheet(values: list[list[str]]) -> list[list[str]]:
-    """Converte apenas a estrutura legada conhecida, sem inventar dados.
-
-    Mapeamento preservador:
-      Setor -> Setor
-      CPU Nº de Patrimônio -> Nº de Patrimônio
-      Fabricante CPU -> Fabricante
-    Os campos Tipo de Patrimônio e Data Cadastro ficam vazios para registros
-    legados até que sejam reconciliados com a fonte PostgreSQL.
-    """
+    """Compatibilidade para testes/migrações legadas explícitas; não é usada pelo sync automático."""
     if not values:
         raise ValueError("Planilha legada vazia.")
     header = [str(value or "").strip() for value in values[0]]
-    import unicodedata
-
     def key(value: str) -> str:
+        import unicodedata
         text = unicodedata.normalize("NFKD", str(value or ""))
         text = "".join(ch for ch in text if not unicodedata.combining(ch))
         return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
-
-    if [key(item) for item in header] != [
-        "setor",
-        "cpu no de patrimonio",
-        "fabricante cpu",
-    ]:
+    if [key(item) for item in header] != ["setor", "cpu no de patrimonio", "fabricante cpu"]:
         raise ValueError("Estrutura legada não reconhecida para migração segura.")
-
     migrated = [COLUNAS]
     for row in values[1:]:
         cells = list(row) + ["", "", ""]
@@ -200,51 +182,17 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
     values = aba.get_all_values()
 
     if not values:
-        aba.update(values=[COLUNAS], range_name="A1:E1")
-        values = [COLUNAS]
-
-    header = list(values[0])
-
-    def _header_key(value: str) -> str:
-        import unicodedata
-        text = unicodedata.normalize("NFKD", str(value or ""))
-        text = "".join(ch for ch in text if not unicodedata.combining(ch))
-        return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
-
-    aliases = {
-        "setor": "Setor",
-        "tipo de patrimonio": "Tipo de Patrimônio",
-        "tipo patrimonio": "Tipo de Patrimônio",
-        "n de patrimonio": "Nº de Patrimônio",
-        "n patrimonio": "Nº de Patrimônio",
-        "numero de patrimonio": "Nº de Patrimônio",
-        "numero patrimonio": "Nº de Patrimônio",
-        "fabricante": "Fabricante",
-        "data cadastro": "Data Cadastro",
-        "data de cadastro": "Data Cadastro",
-    }
-    normalized_header = [aliases.get(_header_key(item), str(item or "").strip()) for item in header]
-    legacy_header = [_header_key(item) for item in header]
-    legacy_cpu = ["setor", "cpu no de patrimonio", "fabricante cpu"]
-    if len(header) == 3 and legacy_header == legacy_cpu:
-        migrated = migrate_legacy_cpu_sheet(values)
-        aba.update(
-            values=migrated,
-            range_name=f"A1:E{len(migrated)}",
-            value_input_option="RAW",
-        )
-        values = migrated
-        header = list(values[0])
-        normalized_header = header
-    required_keys = [_header_key(item) for item in COLUNAS]
-    actual_keys = [_header_key(item) for item in normalized_header]
-    if actual_keys[:len(COLUNAS)] != required_keys:
-        missing = [COLUNAS[i] for i, key in enumerate(required_keys) if i >= len(actual_keys) or actual_keys[i] != key]
-        observed = actual_keys[:len(COLUNAS)]
         raise RuntimeError(
-            f"Aba {unidade} possui cabeçalho incompatível com o inventário. "
-            f"Coluna divergente: {missing[0] if missing else 'desconhecida'}. "
-            f"Chaves observadas: {observed!r}."
+            f"Aba {unidade} está vazia: o worker não cria nem reestrutura cabeçalhos."
+        )
+
+    header = [str(value or "").strip() for value in values[0]]
+    positions = _canonical_header_positions(header)
+    missing = [column for column in CANONICAL_REQUIRED if column not in positions]
+    if missing:
+        raise RuntimeError(
+            f"Aba {unidade} não possui o contrato mínimo do inventário: "
+            f"{', '.join(missing)}. Nenhuma alteração estrutural foi realizada."
         )
 
     numero = str(numero or "").strip()
@@ -252,34 +200,48 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
     tipo = str(tipo or "").strip()
     fabricante = str(fabricante or "").strip()
     data_texto = data_cadastro.isoformat(sep=" ") if hasattr(data_cadastro, "isoformat") else str(data_cadastro or "").strip()
-    esperado = [setor, tipo, numero, fabricante, data_texto]
+    esperado = {
+        "Setor": setor,
+        "Tipo de Patrimônio": tipo,
+        "Nº de Patrimônio": numero,
+        "Fabricante": fabricante,
+        "Data Cadastro": data_texto,
+    }
 
+    numero_col = positions["Nº de Patrimônio"]
     row_number = None
     compact_expected = re.sub(r"\s+", " ", numero).casefold()
     for idx, existing in enumerate(values[1:], start=2):
-        current = existing[2].strip() if len(existing) > 2 else ""
+        current = _row_value(existing, numero_col)
         if re.sub(r"\s+", " ", current).casefold() == compact_expected:
             row_number = idx
             break
 
     if row_number is None:
-        aba.append_rows([esperado], value_input_option="RAW")
+        largura = max(len(header), max(positions.values()) + 1)
+        nova_linha = [""] * largura
+        for column, value in esperado.items():
+            nova_linha[positions[column]] = value
+        aba.append_rows([nova_linha], value_input_option="RAW")
         row_number = len(aba.get_all_values())
     else:
-        aba.update(
-            values=[esperado],
-            range_name=f"A{row_number}:E{row_number}",
-            value_input_option="RAW",
-        )
+        for column, value in esperado.items():
+            column_number = positions[column] + 1
+            aba.update_cell(row_number, column_number, value)
 
-    confirmed = aba.get(f"A{row_number}:E{row_number}")
-    actual = list(confirmed[0]) if confirmed else []
-    actual = (actual + [""] * 5)[:5]
-    if actual != esperado:
-        raise RuntimeError(
-            f"Google Sheets não confirmou o patrimônio {patrimonio_id}: "
-            f"esperado={esperado!r}, recebido={actual!r}"
-        )
+    # Confirma somente as células que o worker escreveu. Colunas como
+    # Origem, Status, ID Patrimônio e Fotos permanecem intocadas.
+    confirmada = aba.get(
+        f"A{row_number}:{col_letter(max(len(header), max(positions.values()) + 1))}{row_number}"
+    )
+    linha = list(confirmada[0]) if confirmada else []
+    for column, value in esperado.items():
+        atual = _row_value(linha, positions[column])
+        if atual != value:
+            raise RuntimeError(
+                f"Google Sheets não confirmou {column} do patrimônio {patrimonio_id}: "
+                f"esperado={value!r}, recebido={atual!r}"
+            )
 
 
 def main():

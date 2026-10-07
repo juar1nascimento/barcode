@@ -22,7 +22,7 @@ from google.oauth2.service_account import Credentials
 ARQUIVO_EXCEL = "inventario_dados.xlsx"
 COLUNA_CHAVE = "Setor"
 COLUNAS_OBSOLETAS = ["Data_Hora", "Usuario", "Origem", "Status"]
-TIPOS_PATRIMONIO = ("CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos")
+TIPOS_PATRIMONIO = ("CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos", "Outros Patrimônio")
 COLUNAS_INVENTARIO = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro", "Código de Barras"]
 COLUNAS_PADRAO = COLUNAS_INVENTARIO.copy()
 SETORES_PADRAO = ["Consultório", "Almoxarifado", "Farmacia", "Sala de Preparo", "Sala de Vacina", "Sala de curativo", "Gerencia", "Administração", "Odontologia", "Recepção", "Outro Setor"]
@@ -31,7 +31,7 @@ LISTA_ALMOXARIFADO_PADRAO = [
     "Almoxarifado Central SESA",
     "Almoxarifado GTI-SESA-SEDE",
 ]
-LISTA_UBS_PADRAO = ["UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)", "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos", "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra", "UBS Itinerante (atendimento na UBS)"]
+LISTA_UBS_PADRAO = ["UBS André Carloni", "UBS Bairro de Fátima", "UBS Feu Rosa", "UBS Barcelona", "UBS Barro Branco", "UBS Campinho da Serra", "UBS Carapebus", "UBS Carapina Grande", "UBS Central Carapina", "UBS Cidade Continental", "UBS Eldorado", "UBS Jardim Carapina", "UBS Jardim Tropical", "UBS José de Anchieta", "UBS Laranjeiras Velha", "UBS Manguinhos", "UBS Manoel Plaza", "UBS Nova Almeida", "UBS Nova Carapina I", "UBS Nova Carapina II", "UBS Oceania", "UBS Pitanga", "UBS Planalto Serrano (Bloco A)", "UBS Planalto Serrano (Bloco B)", "UBS Porto Canoa", "UBS São Diogo", "UBS São Marcos", "UBS Taquara I", "UBS Taquara II", "UBS Vila Nova de Colares", "UBS Vista da Serra", "UBS Itinerante (atendimento na zona rural)"]
 UNIDADES_PADRAO = LISTA_URS_PADRAO + LISTA_UBS_PADRAO + LISTA_ALMOXARIFADO_PADRAO
 FUSO_HORARIO_APLICACAO = ZoneInfo("America/Sao_Paulo")
 _PERSISTENCIA_LOCK = threading.RLock()
