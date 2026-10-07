@@ -186,3 +186,48 @@ def test_download_drive_file_verifies_and_replaces_atomically(worker, tmp_path, 
     assert result == digest
     assert destination.read_bytes() == payload
     assert not list(destination.parent.glob("*.part"))
+
+
+def test_download_only_canary_bypasses_threshold_without_mutation_or_delete(worker, monkeypatch, tmp_path):
+    worker.LOCAL_ROOT = tmp_path
+    payload = b"canario-real"
+    digest = __import__("hashlib").sha256(payload).hexdigest()
+    row = {
+        "id": 1,
+        "foto_id": 1,
+        "drive_file_id": "FILE",
+        "tamanho_bytes": len(payload),
+        "drive_sha256": digest,
+        "tentativas": 0,
+    }
+
+    class FakeDownloader:
+        def __init__(self, fh, request, chunksize):
+            self.fh = fh
+        def next_chunk(self):
+            self.fh.write(payload)
+            return SimpleNamespace(progress=lambda: 1), True
+
+    monkeypatch.setattr(worker, "pending_rows", lambda: [row])
+    monkeypatch.setattr(worker, "drive_service", lambda: Mock())
+    service = worker.drive_service()
+    service.files.return_value.get_media.return_value = object()
+    monkeypatch.setattr(worker, "MediaIoBaseDownload", FakeDownloader)
+    monkeypatch.setattr(
+        worker,
+        "drive_metadata",
+        lambda *args: {"id": "FILE", "name": "Foto 1.jpg", "size": len(payload), "parents": ["P"], "trashed": False},
+    )
+    monkeypatch.setattr(worker, "exact_local_path", lambda *args: tmp_path / "Foto 1.jpg")
+    monkeypatch.setattr(worker, "sb_patch", lambda *args, **kwargs: pytest.fail("Canário não pode mutar Supabase"))
+
+    worker.THRESHOLD = worker.DEFAULT_THRESHOLD
+    assert worker.run_download_only_canary("FILE") == 0
+    assert (tmp_path / "Foto 1.jpg").read_bytes() == payload
+    service.files.return_value.delete.assert_not_called()
+
+
+def test_download_only_canary_requires_exact_pending_file(worker, monkeypatch):
+    monkeypatch.setattr(worker, "pending_rows", lambda: [])
+    with pytest.raises(RuntimeError, match="sem registros pending"):
+        worker.run_download_only_canary("FILE")
