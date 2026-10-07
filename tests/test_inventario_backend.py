@@ -57,7 +57,10 @@ def test_schema_e_tipo_patrimonio():
     assert "Código de Barras" in COLUNAS
     assert "Origem" not in COLUNAS
     assert "Status" not in COLUNAS
-    assert TIPOS == ("CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras", "Outros Dispositivos")
+    assert TIPOS == (
+        "CPU", "Monitores", "Teclado", "Mouse", "Imprenssoras",
+        "Outros Dispositivos", "Outros Patrimônio",
+    )
 
 
 def test_lista_de_setores_oficial():
@@ -129,13 +132,33 @@ def test_mesmo_numero_e_bloqueado_em_outro_setor_da_mesma_unidade(monkeypatch):
     assert len(estado["df"]) == 1
 
 
-def test_todos_os_seis_tipos_podem_ser_cadastrados(monkeypatch):
+def test_todos_os_tipos_padrao_podem_ser_cadastrados(monkeypatch):
     estado = _estado_vazio()
     _mock_persistencia(monkeypatch, estado)
-    for indice, tipo in enumerate(TIPOS, start=1):
-        assert backend.registrar_patrimonio(f"PAT-{indice:03d}", tipo, "Consultório", "UBS Teste", f"Fabricante {indice}")
-    assert len(estado["df"]) == 6
-    assert set(estado["df"]["Tipo de Patrimônio"]) == set(TIPOS)
+    tipos_padrao = TIPOS[:-1]
+    for indice, tipo in enumerate(tipos_padrao, start=1):
+        assert backend.registrar_patrimonio(
+            f"PAT-{indice:03d}", tipo, "Consultório", "UBS Teste", f"Fabricante {indice}"
+        )
+    assert len(estado["df"]) == len(tipos_padrao)
+    assert set(estado["df"]["Tipo de Patrimônio"]) == set(tipos_padrao)
+
+
+def test_outros_patrimonio_exige_nome_customizado(monkeypatch):
+    estado = _estado_vazio()
+    avisos = []
+    _mock_persistencia(monkeypatch, estado)
+    monkeypatch.setattr(backend.st, "warning", lambda mensagem: avisos.append(mensagem))
+
+    assert not backend.registrar_patrimonio(
+        "PAT-007", "Outros Patrimônio", "Consultório", "UBS Teste", "Fabricante 7"
+    )
+    assert avisos
+
+    assert backend.registrar_patrimonio(
+        "PAT-008", "Celular", "Consultório", "UBS Teste", "Fabricante 8"
+    )
+    assert estado["df"].iloc[-1]["Tipo de Patrimônio"] == "Celular"
 
 
 def test_aliases_de_tipo_legado_sao_aceitos_sem_reintroduzir_tipo_antigo(monkeypatch):
