@@ -147,6 +147,7 @@ def test_drive_delete_pending_404_completes(worker, monkeypatch):
 
     class Resp:
         status = 404
+        reason = "Not Found"
 
     from googleapiclient.errors import HttpError
     error = HttpError(Resp(), b"not found")
