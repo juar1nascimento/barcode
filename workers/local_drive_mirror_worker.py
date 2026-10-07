@@ -188,14 +188,9 @@ def download_drive_file(service, file_id: str, destination: Path, expected_size:
 
     try:
         request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
-        downloader = MediaIoBaseDownload(
-            open(temp_path, "wb"),
-            request,
-            chunksize=8 * 1024 * 1024,
-        )
-        done = False
         with temp_path.open("wb") as fh:
             downloader = MediaIoBaseDownload(fh, request, chunksize=8 * 1024 * 1024)
+            done = False
             while not done:
                 _, done = downloader.next_chunk()
 
