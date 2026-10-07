@@ -106,11 +106,9 @@ def test_live_mode_requires_delete_flag(worker, monkeypatch, tmp_path):
     monkeypatch.setattr(worker, "drive_metadata", lambda *args: {"id": "FILE", "name": "x", "size": 4, "parents": ["P"], "trashed": False})
     monkeypatch.setattr(worker, "exact_local_path", lambda *args: tmp_path / "x")
     (tmp_path / "x").write_bytes(b"test")
-    monkeypatch.setattr(worker, "fail", lambda r, message: (_ for _ in ()).throw(AssertionError(message)))
-
     # Hash matches size but deletion permission must still be the final gate.
     row["drive_sha256"] = worker.sha256_file(tmp_path / "x")
-    with pytest.raises(AssertionError, match="Exclusão bloqueada"):
+    with pytest.raises(RuntimeError, match="Exclusão bloqueada"):
         worker.run(False)
 
 
