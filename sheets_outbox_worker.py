@@ -274,7 +274,7 @@ def reset_stale(conn):
     conn.commit()
 
 
-def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
+def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
     with conn.cursor() as cur:
         cur.execute(
             """SELECT p.id, p.numero_patrimonio, u.nome
@@ -297,7 +297,6 @@ def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
         raise RuntimeError(f"Patrimônio {patrimonio_id} não encontrado.")
 
     _, numero, unidade = patrimonio
-    spreadsheet = open_spreadsheet(sheets)
     aba = spreadsheet.worksheet(normalize_unit(unidade))
     values = aba.get_all_values()
     if not values:
@@ -344,24 +343,64 @@ def sync_one(conn, sheets, outbox_id: int, patrimonio_id: int):
         range_name=f"{col_letter(id_idx + 1)}{row_number}",
     )
 
-    formulas = [_photo_formula(sheet_url(path)) for _, path in fotos[:10]]
-    formulas += [""] * (10 - len(formulas))
-    first = header.index(PHOTO_COLUMNS[0]) + 1
-    last = first + 9
-    target_range = f"{col_letter(first)}{row_number}:{col_letter(last)}{row_number}"
-    aba.update(
-        values=[formulas],
-        range_name=target_range,
-        value_input_option="USER_ENTERED",
+    photo_columns = []
+    for ordem in range(1, 11):
+        candidates = (f"Foto {ordem}", f"Foto {ordem:02d}")
+        found = next((h for h in candidates if h in header), None)
+        if found is None:
+            raise RuntimeError(f"Aba {unidade} não possui a coluna Foto {ordem}.")
+        photo_columns.append(header.index(found))
+
+    cells = [{"userEnteredValue": {"stringValue": ""}, "textFormatRuns": []} for _ in range(10)]
+    for ordem, drive_url, _drive_name in fotos[:10]:
+        drive_url = str(drive_url or "").strip()
+        if not drive_url:
+            raise RuntimeError(
+                f"Foto {ordem} do patrimônio {patrimonio_id} ainda não possui URL do Google Drive."
+            )
+        index = int(ordem) - 1
+        if index < 0 or index >= 10:
+            raise RuntimeError(f"Ordem de foto inválida: {ordem}.")
+        cells[index] = {
+            "userEnteredValue": {"stringValue": f"Foto {int(ordem)}"},
+            "textFormatRuns": [{"startIndex": 0, "format": {"link": {"uri": drive_url}}}],
+        }
+
+    requests = []
+    for index, column_index in enumerate(photo_columns):
+        requests.append({
+            "updateCells": {
+                "start": {
+                    "sheetId": aba.id,
+                    "rowIndex": row_number - 1,
+                    "columnIndex": column_index,
+                },
+                "rows": [{"values": [cells[index]]}],
+                "fields": "userEnteredValue,textFormatRuns",
+            }
+        })
+
+    _sheets_call(
+        "update_photo_rich_text_batch",
+        lambda: spreadsheet.batch_update({"requests": requests}),
     )
 
-    confirmed = aba.get(target_range, value_render_option="FORMULA")
-    actual = confirmed[0] if confirmed else []
-    actual = list(actual) + [""] * (10 - len(actual))
-    expected = list(formulas)
-    if actual[:10] != expected[:10]:
+    confirmed = aba.batch_get(
+        [f"{col_letter(column + 1)}{row_number}" for column in photo_columns],
+        value_render_option="FORMULA",
+    )
+    actual = [
+        str(result[0][0]) if result and result[0] else ""
+        for result in confirmed
+    ]
+    expected = [
+        f"Foto {int(ordem)}" if int(ordem) <= 10 else ""
+        for ordem, _url, _name in fotos[:10]
+    ]
+    expected += [""] * (10 - len(expected))
+    if actual != expected:
         raise RuntimeError(
-            f"Google Sheets não confirmou as fórmulas do patrimônio {patrimonio_id}."
+            f"Google Sheets não confirmou os links Rich Text do patrimônio {patrimonio_id}."
         )
 
 
@@ -376,13 +415,7 @@ def main():
             reconciled = int(cur.fetchone()[0] or 0)
         conn.commit()
         sheets = sheets_client()
-        renewal = renew_expiring_sheet_photo_urls(sheets)
-        print(json.dumps({
-            "event": "sheets_photo_url_renewal",
-            **renewal,
-            "expiration_seconds": PHOTO_URL_EXPIRATION_SECONDS,
-            "refresh_threshold_seconds": PHOTO_URL_REFRESH_THRESHOLD_SECONDS,
-        }, ensure_ascii=False))
+        spreadsheet = open_spreadsheet(sheets_client())
         claimed = claim_batch(conn, limit)
 
         by_patrimonio = {}
@@ -393,7 +426,7 @@ def main():
         for patrimonio_id, event_ids in by_patrimonio.items():
             started = time.monotonic()
             try:
-                sync_one(conn, sheets, event_ids[0], patrimonio_id)
+                sync_one(conn, spreadsheet, event_ids[0], patrimonio_id)
                 for outbox_id in event_ids:
                     mark(conn, outbox_id, "synced")
                 synced += len(event_ids)
