@@ -80,7 +80,7 @@ jobs:
         run: python inventario_sheets_outbox_worker.py
 
   sync-fotos:
-    name: Sync photos and renew signed URLs
+    name: Sync photos to Drive links
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -91,11 +91,8 @@ jobs:
       GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
-      SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
-      SUPABASE_SECRET_KEY: ${{ secrets.GTI_SUPABASE_SECRET_KEY }}
       OUTBOX_BATCH_SIZE: "20"
       OUTBOX_MAX_ATTEMPTS: "12"
-      SHEETS_RENEWAL_MAX_ROWS: "5000"
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -106,24 +103,6 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Validate photo synchronization secrets without exposing values
-        run: |
-          test -n "${SUPABASE_URL}" || {
-            echo "::error::Secret GTI_SUPABASE_URL não configurado; sincronização de fotos permanece bloqueada por segurança."
-            exit 1
-          }
-          case "${SUPABASE_URL}" in
-            https://*|http://*) ;;
-            *) echo "::error::Secret GTI_SUPABASE_URL inválido."; exit 1 ;;
-          esac
-          test -n "${SUPABASE_SECRET_KEY}" || {
-            echo "::error::Secret GTI_SUPABASE_SECRET_KEY não configurado; sincronização de fotos permanece bloqueada por segurança."
-            exit 1
-          }
-          case "${SUPABASE_SECRET_KEY}" in
-            sb_secret_*) ;;
-            *) echo "::error::Secret GTI_SUPABASE_SECRET_KEY não está no formato esperado."; exit 1 ;;
-          esac
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Prepare PostgreSQL connection
