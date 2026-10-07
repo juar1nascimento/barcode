@@ -7,7 +7,7 @@ eventos confirmados para o Sheets e registra o resultado no outbox.
 from __future__ import annotations
 
 import os
-import random
+import secrets
 import re
 import time
 from datetime import timedelta
@@ -49,7 +49,7 @@ def _sheets_call(label: str, operation):
             ))
             if not transitoria or tentativa >= SHEETS_RETRY_ATTEMPTS - 1:
                 raise
-            atraso = min(32.0, 2.0 ** tentativa) + random.random()
+            atraso = min(32.0, 2.0 ** tentativa) + secrets.randbelow(1_000_000) / 1_000_000
             time.sleep(atraso)
     raise RuntimeError(f"Falha transitória no Google Sheets: {label}")
 

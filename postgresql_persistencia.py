@@ -506,7 +506,14 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
         setor = re.sub(r"\s+", " ", str(item.get("setor") or "").strip())
         unidade = str(item.get("unidade") or "").strip()
         fabricante = str(item.get("fabricante") or "").strip() or None
-        if not numero or not tipo or tipo not in TIPOS_PATRIMONIO or not setor or not unidade:
+        tipo_custom = None
+        tipo_normalizado = re.sub(r"\s+", " ", tipo).strip()
+        if tipo_normalizado.casefold() == "outros patrimônio":
+            return False, [], f'Registro {posicao}: informe o nome do patrimônio em "Outros Patrimônio".'
+        if tipo_normalizado not in TIPOS_PATRIMONIO:
+            tipo_custom = tipo_normalizado
+            tipo_normalizado = "Outros Patrimônio"
+        if not numero or not tipo_normalizado or not setor or not unidade:
             return False, [], f"Registro {posicao}: dados insuficientes ou inválidos."
         chave_numero = numero.casefold()
         if chave_numero in vistos_numeros:
@@ -519,7 +526,7 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
                 return False, [], f"Registro {posicao}: código de barras duplicado no lote."
             vistos_barras.add(chave_codigo)
 
-        preparados.append((numero, codigo, tipo, setor, unidade, fabricante))
+        preparados.append((numero, codigo, tipo_normalizado, tipo_custom, setor, unidade, fabricante))
 
     conn = conectar()
     if conn is None:
@@ -528,16 +535,19 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
     ids = []
     try:
         with conn.cursor() as cur:
-            for numero, codigo, tipo, setor, unidade, fabricante in preparados:
+            for numero, codigo, tipo, tipo_custom, setor, unidade, fabricante in preparados:
                 unidade_id = garantir_unidade(cur, unidade)
                 setor_id = garantir_setor(cur, unidade_id, setor)
                 cur.execute(
                     """INSERT INTO public.patrimonios
-                         (unidade_id, setor_id, tipo, numero_patrimonio,
+                         (unidade_id, setor_id, tipo, tipo_custom, descricao, numero_patrimonio,
                           codigo_barras, fabricante, data_cadastro, atualizado_em)
-                       VALUES (%s,%s,%s,%s,%s,%s,NOW(),NOW())
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
                        RETURNING id""",
-                    (unidade_id, setor_id, tipo, numero, codigo, fabricante),
+                    (
+                        unidade_id, setor_id, tipo, tipo_custom, tipo_custom,
+                        numero, codigo, fabricante,
+                    ),
                 )
                 ids.append(cur.fetchone()[0])
         conn.commit()

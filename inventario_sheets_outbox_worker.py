@@ -181,8 +181,9 @@ def migrate_legacy_cpu_sheet(values: list[list[str]]) -> list[list[str]]:
 def sync_one(conn, spreadsheet, patrimonio_id: int):
     with conn.cursor() as cur:
         cur.execute(
-            """SELECT p.id,p.numero_patrimonio,p.codigo_barras,p.tipo,p.fabricante,
-                      p.data_cadastro,u.nome,s.nome
+            """SELECT p.id,p.numero_patrimonio,p.codigo_barras,
+                      COALESCE(NULLIF(p.tipo_custom, ''), p.tipo) AS tipo,
+                      p.fabricante,p.data_cadastro,u.nome,s.nome
                  FROM public.patrimonios p
                  JOIN public.unidades u ON u.id=p.unidade_id
                  JOIN public.setores s ON s.id=p.setor_id

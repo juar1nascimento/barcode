@@ -124,6 +124,8 @@ def validar_cadastro_patrimonio(tipo_patrimonio: str, setor: str, unidade: str, 
         return False, "Selecione ou informe um setor válido."
     if not tipo:
         return False, "Selecione um tipo de patrimônio válido."
+    if tipo.casefold() == "outros patrimônio":
+        return False, 'Informe o nome do novo patrimônio em "Outros Patrimônio".'
     if not numero or numero.casefold().startswith("selecione"):
         return False, "Informe ou leia o número de patrimônio."
     return True, ""
@@ -213,7 +215,7 @@ def _carregar_dados_postgresql(unidade: str) -> Optional[Tuple[pd.DataFrame, str
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT COALESCE(s.nome, ''),
-                          p.tipo,
+                          COALESCE(NULLIF(p.tipo_custom, ''), p.tipo),
                           p.numero_patrimonio,
                           COALESCE(p.fabricante, ''),
                           COALESCE(to_char(p.data_cadastro, 'YYYY-MM-DD HH24:MI:SS'), ''),
