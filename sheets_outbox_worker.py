@@ -134,21 +134,183 @@ def renew_expiring_sheet_photo_urls(sheets, max_rows: int = SHEETS_RENEWAL_MAX_R
         if not values:
             continue
         header = list(values[0])
+        photo_indexes = [header.index(col) for col in PHOTO_COLUMNS if col in header]
+        if not photo_indexes:
+            continue
 
-    # Este worker não cria, renomeia ou reorganiza cabeçalhos.
-    # A estrutura da aba é tratada por gate/auditoria separado.
+        for row_idx, row in enumerate(values[1:max_rows + 1], start=2):
+            for col_idx in photo_indexes:
+                if col_idx >= len(row):
+                    continue
+                current = str(row[col_idx] or "").strip()
+                url = _url_from_formula(current)
+                if not url:
+                    continue
+                scanned += 1
+                exp = _signed_url_expiry(url)
+                if exp is not None and exp - now > PHOTO_URL_REFRESH_THRESHOLD_SECONDS:
+                    continue
+                path = _photo_path_from_url(url)
+                if not path:
+                    errors += 1
+                    continue
+                try:
+                    new_url = sheet_url(path)
+                    aba.update(
+                        values=[[_photo_formula(new_url)]],
+                        range_name=f"{col_letter(col_idx + 1)}{row_idx}",
+                        value_input_option="USER_ENTERED",
+                    )
+                    renewed += 1
+                except Exception:
+                    errors += 1
+
+    return {"scanned": scanned, "renewed": renewed, "errors": errors}
+
+
+def normalize_unit(value: str) -> str:
+    aliases = {"URS Jacara_pe": "URS Jacaraípe", "UBS Bairro de F_tima": "UBS Bairro de Fátima"}
+    return aliases.get(str(value or "").strip(), str(value or "").strip())
+
+
+def sheets_client():
+    raw = env("GOOGLE_SERVICE_ACCOUNT_JSON")
+    data = json.loads(raw)
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    return gspread.authorize(Credentials.from_service_account_info(data, scopes=scopes))
+
+
+def _safe_error(error: Exception | str) -> str:
+    """Remove credenciais e URLs potencialmente sensíveis dos logs."""
+    value = str(error or "")
+    value = re.sub(r"(?i)(postgres(?:ql)?://)[^\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)(token=)[^&\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", "[REDACTED PEM]", value, flags=re.DOTALL)
+    return value[:500]
+
+
+def open_spreadsheet(client):
+    spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID", "").strip()
+    spreadsheet_url = os.getenv("GOOGLE_SPREADSHEET_URL", "").strip()
+    if spreadsheet_id:
+        return client.open_by_key(spreadsheet_id)
+    if spreadsheet_url:
+        return client.open_by_url(spreadsheet_url)
+    raise RuntimeError("Defina GOOGLE_SPREADSHEET_ID ou GOOGLE_SPREADSHEET_URL.")
+
+
+def claim_batch(conn, limit: int):
+    with conn.cursor() as cur:
+        cur.execute(
+            """WITH candidatos AS (
+                 SELECT id
+                   FROM public.patrimonio_fotos_sheets_outbox
+                  WHERE status IN ('pending','failed')
+                    AND proxima_tentativa_em <= now()
+                  ORDER BY id
+                  FOR UPDATE SKIP LOCKED
+                  LIMIT %s
+               )
+               UPDATE public.patrimonio_fotos_sheets_outbox o
+                  SET status = 'processing',
+                      processando_em = now(),
+                      tentativas = tentativas + 1,
+                      atualizado_em = now()
+                 FROM candidatos c
+                WHERE o.id = c.id
+               RETURNING o.id, o.patrimonio_id, o.foto_id""",
+            (limit,),
+        )
+        rows = cur.fetchall()
+    conn.commit()
+    return rows
+
+
+def mark(conn, outbox_id: int, status: str, error: str | None = None, max_attempts: int = 8):
+    with conn.cursor() as cur:
+        if status == "synced":
+            cur.execute(
+                """UPDATE public.patrimonio_fotos_sheets_outbox
+                      SET status='synced', sincronizado_em=now(),
+                          processando_em=NULL, ultimo_erro=NULL,
+                          atualizado_em=now()
+                    WHERE id=%s""",
+                (outbox_id,),
+            )
+        else:
+            cur.execute(
+                """UPDATE public.patrimonio_fotos_sheets_outbox
+                      SET status=CASE WHEN tentativas >= %s THEN 'dead_letter' ELSE 'failed' END,
+                          processando_em=NULL,
+                          proxima_tentativa_em=CASE
+                            WHEN tentativas >= %s THEN now()
+                            ELSE now() + LEAST(interval '1 hour',
+                                  interval '5 minutes' * power(2, tentativas - 1))
+                          END,
+                          ultimo_erro=%s,
+                          atualizado_em=now()
+                    WHERE id=%s""",
+                (max_attempts, max_attempts, str(error or "erro")[:2000], outbox_id),
+            )
+    conn.commit()
+
+
+def reset_stale(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE public.patrimonio_fotos_sheets_outbox
+                  SET status='failed', processando_em=NULL,
+                      proxima_tentativa_em=now(),
+                      ultimo_erro='job recuperado após expiração do lock',
+                      atualizado_em=now()
+                WHERE status='processing'
+                  AND processando_em IS NOT NULL
+                  AND processando_em < now() - interval '15 minutes'"""
+        )
+    conn.commit()
+
+
+def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT p.id,p.numero_patrimonio,u.nome
+                 FROM public.patrimonios p
+                 JOIN public.unidades u ON u.id=p.unidade_id
+                WHERE p.id=%s""",
+            (patrimonio_id,),
+        )
+        patrimonio = cur.fetchone()
+        cur.execute(
+            """SELECT ordem, drive_web_url, drive_file_name
+                 FROM public.patrimonio_fotos
+                WHERE patrimonio_id=%s
+                ORDER BY ordem, id""",
+            (patrimonio_id,),
+        )
+        fotos = cur.fetchall()
+
+    if not patrimonio:
+        raise RuntimeError(f"Patrimônio {patrimonio_id} não encontrado.")
+
+    _, numero, unidade = patrimonio
+    aba = spreadsheet.worksheet(normalize_unit(unidade))
+    values = aba.get_all_values()
+    if not values:
+        raise RuntimeError(f"Aba {unidade} sem cabeçalho.")
+
+    header = list(values[0])
     if "Nº de Patrimônio" not in header:
         raise RuntimeError(f"Aba {unidade} não possui a coluna Nº de Patrimônio.")
 
-    number_idx = header.index("Nº de Patrimônio") if "Nº de Patrimônio" in header else 2
+    number_idx = header.index("Nº de Patrimônio")
     row_number = None
     for row_idx, row in enumerate(values[1:], start=2):
-        stable_id = row[id_idx].strip() if len(row) > id_idx else ""
         number = row[number_idx].strip() if len(row) > number_idx else ""
-        if stable_id == str(patrimonio_id) or (
-            not stable_id and re.sub(r"\s+", " ", number).casefold()
-            == re.sub(r"\s+", " ", str(numero)).casefold()
-        ):
+        if re.sub(r"\s+", " ", number).casefold() == re.sub(r"\s+", " ", str(numero)).casefold():
             row_number = row_idx
             break
 
@@ -167,9 +329,7 @@ def renew_expiring_sheet_photo_urls(sheets, max_rows: int = SHEETS_RENEWAL_MAX_R
     for ordem, drive_url, _drive_name in fotos[:10]:
         drive_url = str(drive_url or "").strip()
         if not drive_url:
-            raise RuntimeError(
-                f"Foto {ordem} do patrimônio {patrimonio_id} ainda não possui URL do Google Drive."
-            )
+            raise RuntimeError(f"Foto {ordem} do patrimônio {patrimonio_id} ainda não possui URL do Google Drive.")
         index = int(ordem) - 1
         if index < 0 or index >= 10:
             raise RuntimeError(f"Ordem de foto inválida: {ordem}.")
@@ -182,39 +342,23 @@ def renew_expiring_sheet_photo_urls(sheets, max_rows: int = SHEETS_RENEWAL_MAX_R
     for index, column_index in enumerate(photo_columns):
         requests.append({
             "updateCells": {
-                "start": {
-                    "sheetId": aba.id,
-                    "rowIndex": row_number - 1,
-                    "columnIndex": column_index,
-                },
+                "start": {"sheetId": aba.id, "rowIndex": row_number - 1, "columnIndex": column_index},
                 "rows": [{"values": [cells[index]]}],
                 "fields": "userEnteredValue,textFormatRuns",
             }
         })
 
-    _sheets_call(
-        "update_photo_rich_text_batch",
-        lambda: spreadsheet.batch_update({"requests": requests}),
-    )
+    _sheets_call("update_photo_rich_text_batch", lambda: spreadsheet.batch_update({"requests": requests}))
 
     confirmed = aba.batch_get(
         [f"{col_letter(column + 1)}{row_number}" for column in photo_columns],
         value_render_option="FORMULA",
     )
-    actual = [
-        str(result[0][0]) if result and result[0] else ""
-        for result in confirmed
-    ]
-    expected = [
-        f"Foto {int(ordem)}" if int(ordem) <= 10 else ""
-        for ordem, _url, _name in fotos[:10]
-    ]
+    actual = [str(result[0][0]) if result and result[0] else "" for result in confirmed]
+    expected = [f"Foto {int(ordem)}" for ordem, _url, _name in fotos[:10]]
     expected += [""] * (10 - len(expected))
     if actual != expected:
-        raise RuntimeError(
-            f"Google Sheets não confirmou os links Rich Text do patrimônio {patrimonio_id}."
-        )
-
+        raise RuntimeError(f"Google Sheets não confirmou os links Rich Text do patrimônio {patrimonio_id}.")
 
 def main():
     limit = max(1, int(os.getenv("OUTBOX_BATCH_SIZE", "20")))
