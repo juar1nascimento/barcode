@@ -135,6 +135,31 @@ def _row_value(row: list[str], index: int) -> str:
     return str(row[index]).strip() if index < len(row) else ""
 
 
+def migrate_legacy_cpu_sheet(values: list[list[str]]) -> list[list[str]]:
+    """Compatibilidade para testes/migrações legadas explícitas; não é usada pelo sync automático."""
+    if not values:
+        raise ValueError("Planilha legada vazia.")
+    header = [str(value or "").strip() for value in values[0]]
+    def key(value: str) -> str:
+        import unicodedata
+        text = unicodedata.normalize("NFKD", str(value or ""))
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
+        return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+    if [key(item) for item in header] != ["setor", "cpu no de patrimonio", "fabricante cpu"]:
+        raise ValueError("Estrutura legada não reconhecida para migração segura.")
+    migrated = [COLUNAS]
+    for row in values[1:]:
+        cells = list(row) + ["", "", ""]
+        migrated.append([
+            str(cells[0] or "").strip(),
+            "",
+            str(cells[1] or "").strip(),
+            str(cells[2] or "").strip(),
+            "",
+        ])
+    return migrated
+
+
 def sync_one(conn, spreadsheet, patrimonio_id: int):
     with conn.cursor() as cur:
         cur.execute(
