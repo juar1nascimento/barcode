@@ -213,7 +213,7 @@ def _carregar_dados_postgresql(unidade: str) -> Optional[Tuple[pd.DataFrame, str
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT COALESCE(s.nome, ''),
-                          p.tipo,
+                          COALESCE(NULLIF(p.tipo_custom, ''), p.tipo),
                           p.numero_patrimonio,
                           COALESCE(p.fabricante, ''),
                           COALESCE(to_char(p.data_cadastro, 'YYYY-MM-DD HH24:MI:SS'), ''),
