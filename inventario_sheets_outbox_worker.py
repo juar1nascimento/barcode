@@ -15,6 +15,86 @@ import gspread
 import psycopg
 from google.oauth2.service_account import Credentials
 
+
+COLUNAS = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro"]
+
+def env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Variável obrigatória ausente: {name}")
+    return value
+
+def safe_error(error: Exception | str) -> str:
+    value = str(error or "")
+    value = re.sub(r"(?i)(postgres(?:ql)?://)[^\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)(token=)[^&\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", "[REDACTED PEM]", value, flags=re.DOTALL)
+    return value[:500]
+
+def normalize_unit(value: str) -> str:
+    aliases = {"URS Jacara_pe": "URS Jacaraípe", "UBS Bairro de F_tima": "UBS Bairro de Fátima"}
+    return aliases.get(str(value or "").strip(), str(value or "").strip())
+
+def sheets_client():
+    data = json.loads(env("GOOGLE_SERVICE_ACCOUNT_JSON"))
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    return gspread.authorize(Credentials.from_service_account_info(data, scopes=scopes))
+
+def open_spreadsheet(client):
+    spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID", "").strip()
+    spreadsheet_url = os.getenv("GOOGLE_SPREADSHEET_URL", "").strip()
+    if spreadsheet_id:
+        return client.open_by_key(spreadsheet_id)
+    if spreadsheet_url:
+        return client.open_by_url(spreadsheet_url)
+    raise RuntimeError("Defina GOOGLE_SPREADSHEET_ID ou GOOGLE_SPREADSHEET_URL.")
+
+def col_letter(n: int) -> str:
+    out = ""
+    while n:
+        n, r = divmod(n - 1, 26)
+        out = chr(65 + r) + out
+    return out
+
+def claim_batch(conn, limit: int):
+    with conn.cursor() as cur:
+        cur.execute("""WITH candidatos AS (
+             SELECT id FROM public.patrimonios_sheets_outbox
+              WHERE status IN ('pending','failed') AND proxima_tentativa_em <= now()
+              ORDER BY id FOR UPDATE SKIP LOCKED LIMIT %s)
+           UPDATE public.patrimonios_sheets_outbox o
+              SET status='processing', processando_em=now(), tentativas=tentativas+1, atualizado_em=now()
+             FROM candidatos c WHERE o.id=c.id
+           RETURNING o.id,o.patrimonio_id""", (limit,))
+        rows = cur.fetchall()
+    conn.commit()
+    return rows
+
+def mark(conn, outbox_id: int, status: str, error: str | None = None, max_attempts: int = 8):
+    with conn.cursor() as cur:
+        if status == "synced":
+            cur.execute("""UPDATE public.patrimonios_sheets_outbox
+                              SET status='synced', sincronizado_em=now(), processando_em=NULL,
+                                  ultimo_erro=NULL, atualizado_em=now() WHERE id=%s""", (outbox_id,))
+        else:
+            cur.execute("""UPDATE public.patrimonios_sheets_outbox
+                              SET status=CASE WHEN tentativas >= %s THEN 'dead_letter' ELSE 'failed' END,
+                                  processando_em=NULL,
+                                  proxima_tentativa_em=CASE WHEN tentativas >= %s THEN now()
+                                    ELSE now() + LEAST(interval '1 hour', interval '5 minutes' * power(2, tentativas - 1)) END,
+                                  ultimo_erro=%s, atualizado_em=now() WHERE id=%s""",
+                        (max_attempts, max_attempts, safe_error(error or "erro"), outbox_id))
+    conn.commit()
+
+def reset_stale(conn):
+    with conn.cursor() as cur:
+        cur.execute("""UPDATE public.patrimonios_sheets_outbox
+                          SET status='failed', processando_em=NULL, proxima_tentativa_em=now(),
+                              ultimo_erro='job recuperado após expiração do lock', atualizado_em=now()
+                        WHERE status='processing' AND processando_em < now() - interval '15 minutes'""")
+    conn.commit()
+
 CANONICAL_REQUIRED = [
     "Setor",
     "Tipo de Patrimônio",
