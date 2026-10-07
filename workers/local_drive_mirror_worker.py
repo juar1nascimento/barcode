@@ -304,6 +304,9 @@ def run(dry_run: bool) -> int:
         print(f"Gate 1 GB: NÃO atingido ({total}/{THRESHOLD} bytes). Nenhum processamento.")
         return 0
 
+    if not dry_run and not ALLOW_DELETE:
+        raise RuntimeError("Exclusão bloqueada: LOCAL_MIRROR_ALLOW_DELETE != true")
+
     service = drive_service()
     consumed = 0
 
