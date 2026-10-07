@@ -281,15 +281,6 @@ def recover_drive_delete_pending(service) -> None:
             print(f"RECUPERAÇÃO FALHOU | id={row['id']} | {exc}", file=sys.stderr)
 
 
-    return sb_get(
-        {
-            "select": "*",
-            "status": "eq.pending",
-            "order": "ordem_fila.asc,id.asc",
-            "limit": "500",
-        }
-    )
-
 
 def run(dry_run: bool) -> int:
     global DRY_RUN_ENV
