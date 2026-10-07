@@ -124,6 +124,8 @@ def validar_cadastro_patrimonio(tipo_patrimonio: str, setor: str, unidade: str, 
         return False, "Selecione ou informe um setor válido."
     if not tipo:
         return False, "Selecione um tipo de patrimônio válido."
+    if tipo.casefold() == "outros patrimônio":
+        return False, 'Informe o nome do novo patrimônio em "Outros Patrimônio".'
     if not numero or numero.casefold().startswith("selecione"):
         return False, "Informe ou leia o número de patrimônio."
     return True, ""
