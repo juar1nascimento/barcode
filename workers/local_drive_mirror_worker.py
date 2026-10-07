@@ -322,6 +322,67 @@ def recover_drive_delete_pending(service) -> None:
             print(f"RECUPERAÇÃO FALHOU | id={row['id']} | {exc}", file=sys.stderr)
 
 
+def run_download_only_canary(file_id: str | None = None) -> int:
+    """Explicit physical-transfer canary: downloads and verifies one file only.
+
+    This mode intentionally bypasses the 1 GiB production gate, never mutates
+    Supabase, and never deletes the Drive source. It is only reachable through
+    the explicit --download-only-canary CLI option.
+    """
+    rows = pending_rows()
+    if not rows:
+        raise RuntimeError("Canário sem registros pending no outbox local.")
+
+    if file_id:
+        matches = [row for row in rows if row.get("drive_file_id") == file_id]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"Canário exige exatamente 1 registro pending para drive_file_id={file_id}; "
+                f"encontrados={len(matches)}."
+            )
+        row = matches[0]
+    else:
+        row = rows[0]
+
+    service = drive_service()
+    meta = drive_metadata(service, row["drive_file_id"])
+    if meta.get("trashed"):
+        raise RuntimeError("Arquivo Drive do canário está na lixeira.")
+
+    expected_size = int(row["tamanho_bytes"])
+    actual_drive_size = int(meta.get("size") or 0)
+    if actual_drive_size != expected_size:
+        raise RuntimeError(
+            f"Tamanho Drive divergente no canário: esperado={expected_size}, Drive={actual_drive_size}"
+        )
+
+    local_path = exact_local_path(service, meta)
+    if local_path.exists():
+        if local_path.is_symlink() or not local_path.is_file():
+            raise RuntimeError(f"Destino local do canário não é arquivo regular: {local_path}")
+        if local_path.stat().st_size == expected_size:
+            digest = sha256_file(local_path)
+            if digest.lower() == row["drive_sha256"].lower():
+                print(
+                    f"CANÁRIO OK | arquivo local já verificado | id={row['id']} | "
+                    f"foto={row['foto_id']} | {local_path} | sha256={digest}"
+                )
+                return 0
+
+    digest = download_drive_file(
+        service,
+        row["drive_file_id"],
+        local_path,
+        expected_size,
+        row["drive_sha256"],
+    )
+    print(
+        f"CANÁRIO DOWNLOAD + VERIFICAÇÃO OK | id={row['id']} | foto={row['foto_id']} | "
+        f"{local_path} | sha256={digest} | Drive PRESERVADO | Supabase PRESERVADO"
+    )
+    return 0
+
+
 def run(dry_run: bool) -> int:
     global DRY_RUN_ENV
     DRY_RUN_ENV = dry_run
@@ -435,10 +496,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--live", action="store_true")
+    parser.add_argument("--download-only-canary", action="store_true")
+    parser.add_argument("--canary-drive-file-id")
     args = parser.parse_args()
 
-    if args.dry_run and args.live:
-        parser.error("Use --dry-run ou --live, não ambos.")
+    modes = sum(bool(x) for x in (args.dry_run, args.live, args.download_only_canary))
+    if modes > 1:
+        parser.error("Escolha apenas um modo: --dry-run, --live ou --download-only-canary.")
+    if args.canary_drive_file_id and not args.download_only_canary:
+        parser.error("--canary-drive-file-id exige --download-only-canary.")
+
+    if args.download_only_canary:
+        return run_download_only_canary(args.canary_drive_file_id)
 
     return run(not args.live)
 
