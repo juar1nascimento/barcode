@@ -28,6 +28,7 @@ from typing import Any
 import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 
 TABLE = "patrimonio_fotos_local_outbox"
@@ -270,6 +271,12 @@ def recover_drive_delete_pending(service) -> None:
             service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
             complete_after_drive_delete(row)
             print(f"RECUPERADO | Drive removido e estado concluído | id={row['id']}")
+        except HttpError as exc:
+            if getattr(exc, "resp", None) is not None and exc.resp.status == 404:
+                complete_after_drive_delete(row)
+                print(f"RECUPERADO | arquivo Drive já não existe | id={row['id']}")
+            else:
+                print(f"RECUPERAÇÃO FALHOU | id={row['id']} | {exc}", file=sys.stderr)
         except Exception as exc:
             print(f"RECUPERAÇÃO FALHOU | id={row['id']} | {exc}", file=sys.stderr)
 
