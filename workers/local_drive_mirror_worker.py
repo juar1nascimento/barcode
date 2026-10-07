@@ -11,7 +11,9 @@ Safety:
 - live mode downloads directly from Drive API when the local file is absent or invalid;
 - download uses a temporary file and verifies size + SHA-256 before replacing the destination;
 - Drive deletion additionally requires --live and LOCAL_MIRROR_ALLOW_DELETE=true;
-- failures keep the Drive source intact.
+- failures keep the Drive source intact;
+- local execution may use GOOGLE_SERVICE_ACCOUNT_FILE so the private JSON key
+  does not need to be placed in an environment variable.
 """
 
 from __future__ import annotations
@@ -103,6 +105,18 @@ def sha256_file(path: Path) -> str:
 
 
 def drive_service():
+    credential_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
+    if credential_file:
+        path = Path(credential_file).expanduser().resolve()
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(
+                f"Arquivo de credencial Google inválido ou não regular: {path}"
+            )
+        creds = service_account.Credentials.from_service_account_file(
+            str(path), scopes=DRIVE_SCOPES
+        )
+        return build("drive", "v3", credentials=creds, cache_discovery=False)
+
     raw = env_required("GOOGLE_SERVICE_ACCOUNT_JSON")
     info = json.loads(raw)
     creds = service_account.Credentials.from_service_account_info(
