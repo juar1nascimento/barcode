@@ -172,38 +172,7 @@ def _structure_requests(worksheet, column_count: int) -> list[dict]:
                 "fields": "userEnteredFormat(textFormat,horizontalAlignment)",
             }
         },
-        {
-            "setDataValidation": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": 1,
-                    "endRowIndex": max(worksheet.row_count, 1000),
-                    "startColumnIndex": 0,
-                    "endColumnIndex": 1,
-                },
-                "rule": _validation_rule(
-                    [*SETORES_PADRAO],
-                    strict=False,
-                    message="Use o mesmo menu de Setor do sistema. Valores personalizados continuam permitidos para 'Outro Setor'.",
-                ),
-            }
-        },
-        {
-            "setDataValidation": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": 1,
-                    "endRowIndex": max(worksheet.row_count, 1000),
-                    "startColumnIndex": 1,
-                    "endColumnIndex": 2,
-                },
-                "rule": _validation_rule(
-                    list(TIPOS_PATRIMONIO),
-                    strict=True,
-                    message="Selecione um tipo oficial de patrimônio do sistema.",
-                ),
-            }
-        },
+
     ]
     return requests
 
