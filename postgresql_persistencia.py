@@ -507,9 +507,9 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
         unidade = str(item.get("unidade") or "").strip()
         fabricante = str(item.get("fabricante") or "").strip() or None
         tipo_custom = None
-        tipo_normalizado = re.sub(r"\\s+", " ", tipo).strip()
+        tipo_normalizado = re.sub(r"\s+", " ", tipo).strip()
         if tipo_normalizado.casefold() == "outros patrimônio":
-            return False, [], f"Registro {posicao}: informe o nome do patrimônio em "Outros Patrimônio"."
+            return False, [], f'Registro {posicao}: informe o nome do patrimônio em "Outros Patrimônio".'
         if tipo_normalizado not in TIPOS_PATRIMONIO:
             tipo_custom = tipo_normalizado
             tipo_normalizado = "Outros Patrimônio"
