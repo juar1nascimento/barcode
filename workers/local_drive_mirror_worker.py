@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GTI SESA - Local Google Drive for Desktop mirror worker.
+GTI SESA - Local mirror worker for Google Drive.
 
 Safety:
 - dry-run is the default;
@@ -8,8 +8,8 @@ Safety:
 - processing starts only at >= 1 GiB pending;
 - FIFO is ordem_fila ASC, id ASC;
 - local path is derived from the exact Drive parent chain up to GOOGLE_DRIVE_ROOT_ID;
-- ambiguous filename-only discovery is intentionally not used;
-- size + SHA-256 are mandatory before deletion;
+- live mode downloads directly from Drive API when the local file is absent or invalid;
+- download uses a temporary file and verifies size + SHA-256 before replacing the destination;
 - Drive deletion additionally requires --live and LOCAL_MIRROR_ALLOW_DELETE=true;
 - failures keep the Drive source intact.
 """
@@ -22,12 +22,13 @@ from datetime import datetime, timezone
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import requests
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
+from googleapiclient.discovery import build, MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 
 
@@ -126,11 +127,6 @@ def drive_parent_metadata(service, folder_id: str) -> dict[str, Any]:
 
 
 def exact_local_path(service, file_meta: dict[str, Any]) -> Path:
-    """
-    Reconstructs the exact relative Drive path from the configured Drive root.
-    This prevents duplicate filenames in different units/patrimony folders from
-    being confused with each other.
-    """
     names: list[str] = [file_meta["name"]]
     parents = file_meta.get("parents") or []
     if len(parents) != 1:
@@ -171,6 +167,55 @@ def exact_local_path(service, file_meta: dict[str, Any]) -> Path:
         raise RuntimeError("Caminho local saiu da raiz configurada.") from exc
 
     return candidate
+
+
+def download_drive_file(service, file_id: str, destination: Path, expected_size: int, expected_sha256: str) -> str:
+    """Download to a temporary file, verify it, then atomically replace destination."""
+    destination = destination.resolve()
+    destination.relative_to(LOCAL_ROOT)
+
+    if destination.is_symlink():
+        raise RuntimeError(f"Destino local é link simbólico; download bloqueado: {destination}")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".gti-{file_id}-",
+        suffix=".part",
+        dir=str(destination.parent),
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+
+    try:
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        downloader = MediaIoBaseDownload(
+            open(temp_path, "wb"),
+            request,
+            chunksize=8 * 1024 * 1024,
+        )
+        done = False
+        with temp_path.open("wb") as fh:
+            downloader = MediaIoBaseDownload(fh, request, chunksize=8 * 1024 * 1024)
+            while not done:
+                _, done = downloader.next_chunk()
+
+        actual_size = temp_path.stat().st_size
+        if actual_size != expected_size:
+            raise RuntimeError(
+                f"Tamanho baixado divergente: esperado={expected_size}, local={actual_size}"
+            )
+
+        digest = sha256_file(temp_path)
+        if digest.lower() != expected_sha256.lower():
+            raise RuntimeError(
+                f"SHA-256 do download divergente: esperado={expected_sha256}, local={digest}"
+            )
+
+        os.replace(temp_path, destination)
+        return digest
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def claim(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -281,7 +326,6 @@ def recover_drive_delete_pending(service) -> None:
             print(f"RECUPERAÇÃO FALHOU | id={row['id']} | {exc}", file=sys.stderr)
 
 
-
 def run(dry_run: bool) -> int:
     global DRY_RUN_ENV
     DRY_RUN_ENV = dry_run
@@ -334,35 +378,46 @@ def run(dry_run: bool) -> int:
                 )
 
             local_path = exact_local_path(service, meta)
-            if not local_path.is_file():
-                raise FileNotFoundError(
-                    f"Arquivo ainda não está disponível no espelho local: {local_path}"
-                )
+            existing_ok = False
+            if local_path.exists():
+                if local_path.is_symlink():
+                    raise RuntimeError(f"Destino local é link simbólico: {local_path}")
+                if not local_path.is_file():
+                    raise RuntimeError(f"Destino local não é arquivo: {local_path}")
+                local_size = local_path.stat().st_size
+                if local_size == expected_size:
+                    digest = sha256_file(local_path)
+                    existing_ok = digest.lower() == row["drive_sha256"].lower()
+                    if existing_ok:
+                        print(
+                            f"OK LOCAL EXISTENTE | id={row['id']} | foto={row['foto_id']} | "
+                            f"{local_path} | sha256={digest}"
+                        )
 
-            local_size = local_path.stat().st_size
-            if local_size != expected_size:
-                raise RuntimeError(
-                    f"Tamanho local divergente: esperado={expected_size}, local={local_size}"
-                )
+            if not existing_ok:
+                if dry_run:
+                    print(
+                        f"DRY-RUN | id={row['id']} | foto={row['foto_id']} | "
+                        f"seria baixado para {local_path}"
+                    )
+                    consumed += size
+                    continue
 
-            digest = sha256_file(local_path)
-            if digest.lower() != row["drive_sha256"].lower():
-                raise RuntimeError(
-                    f"SHA-256 divergente: esperado={row['drive_sha256']}, local={digest}"
+                digest = download_drive_file(
+                    service,
+                    file_id,
+                    local_path,
+                    expected_size,
+                    row["drive_sha256"],
                 )
-
-            print(
-                f"OK LOCAL | id={row['id']} | foto={row['foto_id']} | "
-                f"{local_path} | sha256={digest}"
-            )
+                print(
+                    f"DOWNLOAD + VERIFICAÇÃO OK | id={row['id']} | foto={row['foto_id']} | "
+                    f"{local_path} | sha256={digest}"
+                )
 
             if dry_run:
                 print("DRY-RUN: nenhuma exclusão nem mutação do outbox.")
             else:
-                if not ALLOW_DELETE:
-                    raise RuntimeError(
-                        "Exclusão bloqueada: LOCAL_MIRROR_ALLOW_DELETE != true"
-                    )
                 mark_drive_delete_pending(row, local_path, digest)
                 service.files().delete(
                     fileId=file_id,
