@@ -154,3 +154,34 @@ def test_drive_delete_pending_404_completes(worker, monkeypatch):
 
     worker.recover_drive_delete_pending(service)
     worker.complete_after_drive_delete.assert_called_once_with(row)
+
+
+def test_download_drive_file_verifies_and_replaces_atomically(worker, tmp_path, monkeypatch):
+    destination = tmp_path / "UBS Teste" / "Patrimonio 123" / "Foto 1.jpg"
+    destination.parent.mkdir(parents=True)
+    payload = b"foto-real"
+
+    class FakeDownloader:
+        def __init__(self, fh, request, chunksize):
+            self.fh = fh
+        def next_chunk(self):
+            self.fh.write(payload)
+            return SimpleNamespace(progress=lambda: 1), True
+
+    monkeypatch.setattr(worker, "MediaIoBaseDownload", FakeDownloader)
+
+    service = Mock()
+    service.files.return_value.get_media.return_value = object()
+
+    digest = worker.sha256_file(tmp_path / "empty") if False else __import__("hashlib").sha256(payload).hexdigest()
+    result = worker.download_drive_file(
+        service,
+        "FILE",
+        destination,
+        len(payload),
+        digest,
+    )
+
+    assert result == digest
+    assert destination.read_bytes() == payload
+    assert not list(destination.parent.glob("*.part"))
