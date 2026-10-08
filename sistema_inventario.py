@@ -25,6 +25,7 @@ from supabase_storage import criar_url_assinada_storage
 FOTO_URL_EXPIRATION_SECONDS = 86_400
 FOTO_URL_REFRESH_INTERVAL = "50m"
 from consultorio_contexto import selecionar_setor
+from contagem_almoxarifado import registrar_contagem_se_almoxarifado
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA
@@ -71,7 +72,18 @@ def adicionar_e_salvar_sem_sobrescrever(
     except ValueError as e:
         st.error(str(e))
         return False
-    return registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante)
+    ok = registrar_patrimonio(codigo, patrimonio, setor, unidade, fabricante)
+    if ok and str(unidade or "").strip().casefold() == "almoxarifado central sesa".casefold():
+        # O cadastro continua sendo a operação principal. A contagem é complementar;
+        # uma falha no motor de projeção não invalida o patrimônio já armazenado.
+        resultado_contagem = registrar_contagem_se_almoxarifado(
+            codigo,
+            unidade,
+            str(st.session_state.get("usuario_logado", "") or "").strip(),
+        )
+        if resultado_contagem and resultado_contagem.get("ok") is False:
+            st.warning("Patrimônio gravado, mas o evento de contagem não pôde ser registrado.")
+    return ok
 
 
 adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
