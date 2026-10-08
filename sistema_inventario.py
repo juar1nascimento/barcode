@@ -507,6 +507,10 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     st.divider()
 
+    if unidade == "Almoxarifado Central SESA":
+        renderizar_projecao_embutida(is_admin=is_admin)
+        st.divider()
+
     # ------------------------------------------------------------------
     # MOVIMENTAÇÃO: operação transacional no Supabase.
     # Saída/transferência são operações administrativas e o backend também
