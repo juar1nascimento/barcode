@@ -7,6 +7,7 @@ import json
 import os
 import re
 from datetime import datetime
+from decimal import Decimal
 
 import gspread
 import psycopg
@@ -80,16 +81,22 @@ def open_spreadsheet(client):
     raise RuntimeError("Defina GOOGLE_SPREADSHEET_ID ou GOOGLE_SPREADSHEET_URL.")
 
 
+def normalize_value(value):
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="seconds")
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
+    return value
+
+
 def normalize_rows(rows: list[tuple], columns: list[str]) -> list[list[object]]:
     output = [columns]
     for row in rows:
-        values = []
-        for value in row:
-            if isinstance(value, datetime):
-                values.append(value.isoformat(sep=" ", timespec="seconds"))
-            else:
-                values.append(value)
-        output.append(values)
+        output.append([normalize_value(value) for value in row])
     return output
 
 
