@@ -9,6 +9,7 @@ from teste_upload_foto import renderizar_teste_upload_foto
 from entrada_equipamentos import renderizar_card_entrada, renderizar_sistema_entrada
 from saida_equipamentos import renderizar_card_saida, renderizar_sistema_saida
 from painel_integracao import renderizar_painel_integracao
+from projecao_almoxarifado import renderizar_projecao_almoxarifado
 
 # ==========================================
 # CONFIGURAÇÕES DA PÁGINA
@@ -78,6 +79,9 @@ with st.sidebar:
             st.rerun()
         if st.button("🩺 Saúde da sincronização"):
             st.session_state.pagina_atual = "saude_integracao"
+            st.rerun()
+        if st.button("📈 Projeção — Almoxarifado Central"):
+            st.session_state.pagina_atual = "projecao_almoxarifado"
             st.rerun()
 
     if st.button("🚪 Sair do Sistema"):
@@ -185,6 +189,13 @@ secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
                 "O preflight deverá mostrar **6 itens verdes**. Só então faremos o teste de leitura "
                 "do bucket e, depois, o primeiro upload controlado."
             )
+
+elif st.session_state.pagina_atual == "projecao_almoxarifado":
+    if not is_admin:
+        st.error("Acesso não autorizado.")
+        st.session_state.pagina_atual = "portal"
+        st.stop()
+    renderizar_projecao_almoxarifado()
 
 elif st.session_state.pagina_atual == "saude_integracao":
     if not is_admin:
