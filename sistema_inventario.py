@@ -507,10 +507,6 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
     st.divider()
 
-    if unidade == "Almoxarifado Central SESA":
-        renderizar_projecao_embutida(is_admin=is_admin)
-        st.divider()
-
     # ------------------------------------------------------------------
     # MOVIMENTAÇÃO: operação transacional no Supabase.
     # Saída/transferência são operações administrativas e o backend também
@@ -518,6 +514,10 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     # ------------------------------------------------------------------
     usuario_papel = str(st.session_state.get("usuario_papel", "usuario")).strip().lower()
     is_admin = usuario_papel == "admin"
+
+    if unidade == "Almoxarifado Central SESA":
+        renderizar_projecao_embutida(is_admin=is_admin)
+        st.divider()
 
     if is_admin:
         with st.expander("🔄 Movimentar patrimônio", expanded=False):
