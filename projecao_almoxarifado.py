@@ -146,6 +146,45 @@ def _projecao() -> list[dict[str, Any]]:
     return [dict(zip(cols, row)) for row in rows]
 
 
+def renderizar_projecao_embutida(is_admin: bool = False) -> None:
+    if not (is_admin or _is_admin()):
+        return
+    opcoes = _listar_opcoes()
+    if not opcoes:
+        return
+    labels, mapa = [], {}
+    for item in opcoes:
+        nome = item["tipo_custom"] if item["tipo"] == "Outros Patrimônio" and item["tipo_custom"] else item["tipo"]
+        fabricante = item["fabricante"] or "Todos / não informado"
+        label = f"{nome} — {fabricante}"
+        if label not in mapa:
+            labels.append(label)
+            mapa[label] = item
+    with st.expander("📈 Projeção / Contagem do Almoxarifado Central SESA", expanded=False):
+        st.caption("Quantidade total opcional. Vazio mantém o inventário normal, sem countdown.")
+        escolhido = st.selectbox("Patrimônio / fabricante", labels, index=None, placeholder="Selecione o patrimônio...", key="projecao_embutida_item")
+        if not escolhido:
+            return
+        item = mapa[escolhido]
+        atual = _meta_atual(item["tipo"], item["tipo_custom"], item["fabricante"])
+        valor_atual = atual[1] if atual else None
+        quantidade = st.number_input("Quantidade total", min_value=0, step=1, value=valor_atual, placeholder="Deixe vazio para não usar projeção", key="projecao_embutida_quantidade")
+        if st.button("💾 Salvar quantidade total", type="primary", use_container_width=True, key="btn_salvar_projecao_embutida"):
+            ok, msg = _salvar_meta(item["tipo"], item["tipo_custom"], item["fabricante"], quantidade)
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+        dados = [d for d in _projecao() if d["tipo"] == item["tipo"] and d["tipo_custom"] == item["tipo_custom"] and d["fabricante"] == item["fabricante"]]
+        if dados:
+            d = dados[0]
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("TOTAL DEFINIDO", d["quantidade_total"] if d["quantidade_total"] is not None else "—")
+            c2.metric("CONFERIDOS", int(d["quantidade_conferida"] or 0))
+            c3.metric("RESTANTES", int(d["quantidade_restante"]) if d["quantidade_restante"] is not None else "—")
+            c4.metric("PROGRESSO", f'{float(d["percentual_concluido"]):.2f}%' if d["percentual_concluido"] is not None else "—")
+
 def renderizar_projecao_almoxarifado() -> None:
     if not _is_admin():
         st.error("Acesso não autorizado.")
