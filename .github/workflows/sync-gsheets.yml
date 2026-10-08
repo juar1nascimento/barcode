@@ -38,7 +38,6 @@ jobs:
         run: |
           python -m py_compile inventario_sheets_outbox_worker.py
           python -m py_compile sheets_outbox_worker.py
-          python -m py_compile projecao_almoxarifado_sheets_worker.py
       - name: Validate required secrets without exposing values
         run: python scripts/validate_gti_sync.py
       - name: Validate no hardcoded secret patterns
@@ -75,35 +74,6 @@ jobs:
         run: python scripts/prepare_gti_database.py
       - name: Process patrimony outbox
         run: python inventario_sheets_outbox_worker.py
-
-  sync-projecao:
-    name: Sync projection for Looker Studio
-    needs: validate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      GTI_DB_HOST: ${{ secrets.GTI_DB_HOST }}
-      GTI_DB_NAME: ${{ secrets.GTI_DB_NAME }}
-      GTI_DB_USER: ${{ secrets.GTI_DB_USER }}
-      GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
-      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
-      GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa10851a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-      - name: Configure Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install dependencies
-        run: python -m pip install -r requirements.txt
-      - name: Prepare PostgreSQL connection
-        run: python scripts/prepare_gti_database.py
-      - name: Publish projection snapshot
-        run: python projecao_almoxarifado_sheets_worker.py
 
   sync-fotos:
     name: Sync photos to Drive links
