@@ -512,8 +512,16 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     # Saída/transferência são operações administrativas e o backend também
     # aplica a mesma autorização como defesa em profundidade.
     # ------------------------------------------------------------------
-    usuario_papel = str(st.session_state.get("usuario_papel", "usuario")).strip().lower()
-    is_admin = usuario_papel == "admin"
+    # A autorização administrativa deve usar a mesma fonte do app.py:
+    # o usuário autenticado comparado ao admin_email das Secrets. O login atual
+    # não grava usuario_papel na sessão, então depender desse campo ocultaria
+    # indevidamente o painel de projeção para o administrador.
+    usuario_logado_admin = str(st.session_state.get("usuario_logado", "")).strip().casefold()
+    try:
+        admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().casefold()
+    except Exception:
+        admin_configurado = ""
+    is_admin = bool(usuario_logado_admin and admin_configurado and usuario_logado_admin == admin_configurado)
 
     if unidade == "Almoxarifado Central SESA":
         renderizar_projecao_embutida(is_admin=is_admin)
