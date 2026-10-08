@@ -147,11 +147,14 @@ def _projecao() -> list[dict[str, Any]]:
 
 
 def renderizar_projecao_embutida(is_admin: bool = False) -> None:
-    if not (is_admin or _is_admin()):
-        return
+    # O painel deve ser visível no Almoxarifado; somente a gravação da meta é administrativa.
+    is_admin_efetivo = bool(is_admin or _is_admin())
     opcoes = _listar_opcoes()
     if not opcoes:
+        with st.expander("📈 Projeção / Contagem do Almoxarifado Central SESA", expanded=False):
+            st.info("Ainda não existem patrimônios ativos no Almoxarifado Central SESA.")
         return
+
     labels, mapa = [], {}
     for item in opcoes:
         nome = item["tipo_custom"] if item["tipo"] == "Outros Patrimônio" and item["tipo_custom"] else item["tipo"]
@@ -160,23 +163,60 @@ def renderizar_projecao_embutida(is_admin: bool = False) -> None:
         if label not in mapa:
             labels.append(label)
             mapa[label] = item
+
     with st.expander("📈 Projeção / Contagem do Almoxarifado Central SESA", expanded=False):
         st.caption("Quantidade total opcional. Vazio mantém o inventário normal, sem countdown.")
-        escolhido = st.selectbox("Patrimônio / fabricante", labels, index=None, placeholder="Selecione o patrimônio...", key="projecao_embutida_item")
+        if not is_admin_efetivo:
+            st.caption("🔐 A configuração da quantidade total é exclusiva do administrador.")
+
+        escolhido = st.selectbox(
+            "Patrimônio / fabricante",
+            labels,
+            index=None,
+            placeholder="Selecione o patrimônio...",
+            key="projecao_embutida_item",
+        )
         if not escolhido:
             return
+
         item = mapa[escolhido]
         atual = _meta_atual(item["tipo"], item["tipo_custom"], item["fabricante"])
         valor_atual = atual[1] if atual else None
-        quantidade = st.number_input("Quantidade total", min_value=0, step=1, value=valor_atual, placeholder="Deixe vazio para não usar projeção", key="projecao_embutida_quantidade")
-        if st.button("💾 Salvar quantidade total", type="primary", use_container_width=True, key="btn_salvar_projecao_embutida"):
-            ok, msg = _salvar_meta(item["tipo"], item["tipo_custom"], item["fabricante"], quantidade)
+
+        quantidade = st.number_input(
+            "Quantidade total",
+            min_value=0,
+            step=1,
+            value=valor_atual,
+            placeholder="Deixe vazio para não usar projeção",
+            disabled=not is_admin_efetivo,
+            key="projecao_embutida_quantidade",
+        )
+
+        if is_admin_efetivo and st.button(
+            "💾 Salvar quantidade total",
+            type="primary",
+            use_container_width=True,
+            key="btn_salvar_projecao_embutida",
+        ):
+            ok, msg = _salvar_meta(
+                item["tipo"],
+                item["tipo_custom"],
+                item["fabricante"],
+                quantidade,
+            )
             if ok:
                 st.success(msg)
                 st.rerun()
             else:
                 st.error(msg)
-        dados = [d for d in _projecao() if d["tipo"] == item["tipo"] and d["tipo_custom"] == item["tipo_custom"] and d["fabricante"] == item["fabricante"]]
+
+        dados = [
+            d for d in _projecao()
+            if d["tipo"] == item["tipo"]
+            and d["tipo_custom"] == item["tipo_custom"]
+            and d["fabricante"] == item["fabricante"]
+        ]
         if dados:
             d = dados[0]
             c1, c2, c3, c4 = st.columns(4)
