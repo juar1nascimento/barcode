@@ -1,4 +1,4 @@
-"""Página de projeção opcional do Almoxarifado Central SESA.
+"""Controles de projeção do Almoxarifado Central SESA, embutidos no inventário.
 
 A quantidade total é opcional: NULL significa que o patrimônio continua
 normalmente no inventário, sem countdown/projeção.
