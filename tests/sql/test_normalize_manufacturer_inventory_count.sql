@@ -23,6 +23,23 @@ BEGIN
     RAISE EXCEPTION 'Exact manufacturer match failed: %', row_to_json(r);
   END IF;
 
+  -- Re-scanning the same asset must not inflate the distinct count.
+  SELECT * INTO r FROM public.registrar_contagem_patrimonio('ASSET-EXACT');
+  IF r.meta_id IS DISTINCT FROM 101
+     OR r.quantidade_total IS DISTINCT FROM 3
+     OR r.quantidade_conferida IS DISTINCT FROM 1
+     OR r.quantidade_restante IS DISTINCT FROM 2 THEN
+    RAISE EXCEPTION 'Repeated scan changed distinct count unexpectedly: %', row_to_json(r);
+  END IF;
+
+  IF (SELECT count(*) FROM public.patrimonio_contagem_eventos
+      WHERE patrimonio_id = (SELECT id FROM public.patrimonios
+                             WHERE codigo_barras = 'ASSET-EXACT')
+        AND meta_id = 101
+        AND resultado = 'encontrado') <> 2 THEN
+    RAISE EXCEPTION 'Repeated scan event audit trail was not preserved';
+  END IF;
+
   SELECT * INTO r FROM public.registrar_contagem_patrimonio('ASSET-NORMALIZED');
   IF r.meta_id IS DISTINCT FROM 103 OR r.resultado <> 'encontrado' THEN
     RAISE EXCEPTION 'Case/trim normalized match failed: %', row_to_json(r);
@@ -43,6 +60,6 @@ BEGIN
     RAISE EXCEPTION 'Inactive asset behavior regressed: %', row_to_json(r);
   END IF;
 
-  RAISE NOTICE 'PASS: canonical schema + exact, normalized, ambiguous, missing, inactive cases';
+  RAISE NOTICE 'PASS: canonical schema + exact, normalized, ambiguous, missing, inactive, repeat-scan cases';
 END
 $test$;
