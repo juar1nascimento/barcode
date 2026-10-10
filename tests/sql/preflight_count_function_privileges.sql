@@ -21,8 +21,8 @@ SELECT
     )
   END AS effective_role_can_execute;
 
--- Optional expected-role checks, without assuming those roles exist on every
--- PostgreSQL installation.
+-- Optional expected-role checks, only when the function exists and roles are
+-- present on this PostgreSQL installation.
 SELECT
   r.rolname AS role_name,
   has_function_privilege(
@@ -32,8 +32,11 @@ SELECT
   ) AS can_execute
 FROM pg_roles AS r
 WHERE r.rolname IN ('anon', 'authenticated', 'service_role')
+  AND to_regprocedure(
+    'public.registrar_contagem_patrimonio(text,text,bigint,text)'
+  ) IS NOT NULL
 ORDER BY r.rolname;
 
 -- Expected for the application connection: function_exists=true and
--- effective_role_can_execute=true. Review the effective_role with the
--- deployment configuration owner before changing any grants.
+-- effective_role_can_execute=true. Review effective_role with the deployment
+-- configuration owner before changing any grants.
