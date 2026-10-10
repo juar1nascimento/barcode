@@ -60,6 +60,25 @@ BEGIN
     RAISE EXCEPTION 'Inactive asset behavior regressed: %', row_to_json(r);
   END IF;
 
-  RAISE NOTICE 'PASS: canonical schema + exact, normalized, ambiguous, missing, inactive, repeat-scan cases';
+  -- Invalid input must fail explicitly instead of creating an event.
+  BEGIN
+    PERFORM * FROM public.registrar_contagem_patrimonio('   ');
+    RAISE EXCEPTION 'Empty code should have been rejected';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'Empty code should have been rejected' THEN
+      RAISE;
+    END IF;
+  END;
+
+  BEGIN
+    PERFORM * FROM public.registrar_contagem_patrimonio('ASSET-EXACT', 'api');
+    RAISE EXCEPTION 'Invalid origin should have been rejected';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'Invalid origin should have been rejected' THEN
+      RAISE;
+    END IF;
+  END;
+
+  RAISE NOTICE 'PASS: canonical schema + exact, normalized, ambiguous, missing, inactive, repeat-scan, invalid-input cases';
 END
 $test$;
