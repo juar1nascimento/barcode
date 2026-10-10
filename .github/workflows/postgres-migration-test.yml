@@ -31,7 +31,15 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - name: Apply disposable fixture schema
+      - name: Apply canonical PostgreSQL schema
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f postgresql_schema.sql
+      - name: Apply active-patrimony migration
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f supabase/migrations/20261001000000_add_patrimonio_ativo.sql
+      - name: Apply isolated count-table fixtures
         env:
           PGPASSWORD: postgres
         run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f tests/sql/manufacturer_inventory_setup.sql
