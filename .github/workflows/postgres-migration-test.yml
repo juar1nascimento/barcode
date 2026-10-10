@@ -1,0 +1,53 @@
+name: PostgreSQL migration isolated test
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migration-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gti_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gti_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Apply canonical PostgreSQL schema
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f postgresql_schema.sql
+      - name: Apply active-patrimony migration
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f supabase/migrations/20261001000000_add_patrimonio_ativo.sql
+      - name: Apply isolated count-table fixtures
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f tests/sql/manufacturer_inventory_setup.sql
+      - name: Apply migration under test
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f supabase/migrations/20261010190000_normalize_manufacturer_inventory_count.sql
+      - name: Assert manufacturer matching and regressions
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f tests/sql/test_normalize_manufacturer_inventory_count.sql
