@@ -79,6 +79,25 @@ BEGIN
     END IF;
   END;
 
-  RAISE NOTICE 'PASS: canonical schema + exact, normalized, ambiguous, missing, inactive, repeat-scan, invalid-input cases';
+
+  -- Function execution is restricted to the private backend roles.
+  IF has_function_privilege('anon',
+       'public.registrar_contagem_patrimonio(text,text,bigint,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'anon must not execute registrar_contagem_patrimonio';
+  END IF;
+  IF has_function_privilege('authenticated',
+       'public.registrar_contagem_patrimonio(text,text,bigint,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'authenticated must not execute registrar_contagem_patrimonio';
+  END IF;
+  IF has_function_privilege('service_role',
+       'public.registrar_contagem_patrimonio(text,text,bigint,text)', 'EXECUTE') IS NOT TRUE THEN
+    RAISE EXCEPTION 'service_role must execute registrar_contagem_patrimonio';
+  END IF;
+  IF has_function_privilege('postgres',
+       'public.registrar_contagem_patrimonio(text,text,bigint,text)', 'EXECUTE') IS NOT TRUE THEN
+    RAISE EXCEPTION 'postgres must execute registrar_contagem_patrimonio';
+  END IF;
+
+  RAISE NOTICE 'PASS: matching, regressions, and function EXECUTE grants';
 END
 $test$;
