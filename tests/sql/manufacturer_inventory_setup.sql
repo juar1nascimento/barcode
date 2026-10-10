@@ -1,3 +1,18 @@
+-- Roles used by Supabase authorization may not exist in vanilla PostgreSQL CI.
+DO $roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    CREATE ROLE service_role NOLOGIN;
+  END IF;
+END
+$roles$;
+
 -- Supplemental fixtures layered on the repository's canonical PostgreSQL schema.
 -- The base public.unidades, public.setores, and public.patrimonios tables must
 -- come from postgresql_schema.sql; ativo must come from its versioned migration.
