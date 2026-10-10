@@ -173,3 +173,10 @@ BEGIN
            'encontrado'::text, v_total, v_conferidos, v_restante;
 END;
 $function$;
+
+-- The count engine is called by the private PostgreSQL backend, not the
+-- Supabase Data API. Do not leave EXECUTE available to PUBLIC/anonymous users.
+REVOKE EXECUTE ON FUNCTION public.registrar_contagem_patrimonio(text, text, bigint, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.registrar_contagem_patrimonio(text, text, bigint, text)
+  TO service_role, postgres;
