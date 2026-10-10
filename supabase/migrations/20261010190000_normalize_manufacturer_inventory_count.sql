@@ -100,25 +100,43 @@ BEGIN
     END IF;
 
     IF v_unidade_id = 2 THEN
-        SELECT m.id
+        -- Só associa quando existe uma única meta no melhor nível de
+        -- prioridade. Não use m.id como desempate: isso esconderia ambiguidades.
+        WITH candidatos AS (
+            SELECT
+                m.id,
+                (m.fabricante = v_patrimonio.fabricante) IS TRUE
+                    AS fabricante_exato,
+                (m.fabricante IS NOT NULL) AS fabricante_especifico,
+                (m.tipo_custom IS NOT NULL) AS custom_especifico
+            FROM public.patrimonio_contagem_metas m
+            WHERE m.unidade_id = 2
+              AND m.ativo
+              AND m.tipo = v_patrimonio.tipo
+              AND (m.tipo_custom IS NULL
+                   OR m.tipo_custom IS NOT DISTINCT FROM v_patrimonio.tipo_custom)
+              AND (
+                  m.fabricante IS NULL
+                  OR lower(trim(m.fabricante)) =
+                     lower(trim(v_patrimonio.fabricante))
+              )
+        ),
+        ranqueados AS (
+            SELECT
+                c.id,
+                rank() OVER (
+                    ORDER BY
+                        c.fabricante_exato DESC,
+                        c.fabricante_especifico DESC,
+                        c.custom_especifico DESC
+                ) AS prioridade
+            FROM candidatos c
+        )
+        SELECT CASE WHEN count(*) = 1 THEN min(r.id) END
           INTO v_meta_id
-        FROM public.patrimonio_contagem_metas m
-        WHERE m.unidade_id = 2
-          AND m.ativo
-          AND m.tipo = v_patrimonio.tipo
-          AND (m.tipo_custom IS NULL
-               OR m.tipo_custom IS NOT DISTINCT FROM v_patrimonio.tipo_custom)
-          AND (
-              m.fabricante IS NULL
-              OR lower(trim(m.fabricante)) =
-                 lower(trim(v_patrimonio.fabricante))
-          )
-        ORDER BY
-            (m.fabricante = v_patrimonio.fabricante) IS TRUE DESC,
-            (m.fabricante IS NOT NULL) DESC,
-            (m.tipo_custom IS NOT NULL) DESC,
-            m.id
-        LIMIT 1;
+        FROM ranqueados r
+        WHERE r.prioridade = 1;
+        -- Zero candidatos ou empate no melhor nível: v_meta_id permanece NULL.
     END IF;
 
     INSERT INTO public.patrimonio_contagem_eventos
