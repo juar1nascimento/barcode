@@ -436,11 +436,19 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
             "Sincronização bloqueada: SHEETS_REMOVE_VALIDATIONS=true é proibido "
             "no fluxo operacional porque removeria menus suspensos da planilha."
         )
-    auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=True)
-    if auditoria.get("abas_bloqueadas", 0):
+    auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=False)
+    detalhes = auditoria.get("detalhes", [])
+    abas_que_exigem_migracao = [
+        item.get("aba", "desconhecida")
+        for item in detalhes
+        if item.get("alteracao_necessaria")
+    ]
+    if auditoria.get("abas_bloqueadas", 0) or abas_que_exigem_migracao:
         raise RuntimeError(
-            "Sincronização bloqueada: a auditoria estrutural encontrou abas "
-            "ambíguas ou com erros; nenhum item do outbox será consumido."
+            "Sincronização bloqueada no preflight somente leitura. "
+            "Há abas ambíguas ou que exigem migração estrutural revisada; "
+            "nenhum item do outbox foi consumido. "
+            f"Abas pendentes: {', '.join(abas_que_exigem_migracao[:10]) or 'ver relatório estrutural'}."
         )
 
     resultado = {
