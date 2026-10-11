@@ -115,3 +115,36 @@ def test_resposta_lote_incompleta_dispara_fallback_individual(monkeypatch):
     assert len(resultado["UBS André Carloni"][0]) == 1
     assert len(resultado["UBS Feu Rosa"][0]) == 1
     assert len(planilha.chamadas) == 2
+
+class PlanilhaLoteCanonicoVazio(PlanilhaFalsa):
+    def values_batch_get(self, ranges, params=None):
+        self.batch_ranges = list(ranges)
+        return {
+            "valueRanges": [
+                {"range": intervalo, "values": [] if "URS Jacaraípe" in intervalo else [HEADERS, ROW]}
+                for intervalo in ranges
+            ]
+        }
+
+    def values_get(self, intervalo, params=None):
+        self.chamadas.append(intervalo)
+        if "URS Jacara_pe" in intervalo:
+            return {"range": intervalo, "values": [HEADERS, ROW]}
+        raise AssertionError(f"Fallback inesperado: {intervalo}")
+
+
+def test_lote_valido_tenta_alias_quando_aba_canonica_vem_vazia(monkeypatch):
+    planilha = PlanilhaLoteCanonicoVazio()
+    monkeypatch.setattr(lote, "conectar_google_sheets", lambda: planilha)
+
+    resultado = lote.carregar_dados_excel_lote(
+        ["URS Jacaraípe", "UBS André Carloni"]
+    )
+
+    df_jacaraipe, origem_jacaraipe = resultado["URS Jacaraípe"]
+    df_ubs, _ = resultado["UBS André Carloni"]
+
+    assert len(df_jacaraipe) == 1
+    assert "URS Jacara_pe" in origem_jacaraipe
+    assert len(df_ubs) == 1
+    assert planilha.chamadas == ["'URS Jacara_pe'!A:Z"]
