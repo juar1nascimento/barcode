@@ -38,6 +38,8 @@ UNIDADES_INVENTARIO = tuple(
 # Compatibilidade somente de cabeçalho. Valores de dados não são inventados.
 HEADER_ALIASES = {
     "setor": "Setor",
+    # Alias temporário para bloquear normalização automática de estruturas ambíguas.
+    "local setor": "Setor",
     "tipo de patrimonio": "Tipo de Patrimônio",
     "tipo patrimonio": "Tipo de Patrimônio",
     "n de patrimonio": "Nº de Patrimônio",
