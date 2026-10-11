@@ -106,3 +106,37 @@ def test_manual_sync_workflow_never_enables_validation_removal():
     )
     assert 'SHEETS_REMOVE_VALIDATIONS: "false"' in workflow
     assert 'SHEETS_REMOVE_VALIDATIONS: "true"' not in workflow
+
+
+def test_sync_preflight_blocks_before_claiming_any_outbox_item(monkeypatch):
+    import sincronizador_google_sheets as sync
+
+    monkeypatch.setenv("SHEETS_REMOVE_VALIDATIONS", "false")
+    monkeypatch.setattr(sync, "conectar_google_sheets", lambda: object())
+    monkeypatch.setattr(
+        sync,
+        "auditar_e_padronizar_abas_inventario",
+        lambda spreadsheet, aplicar=False: {
+            "abas_verificadas": 1,
+            "abas_bloqueadas": 1,
+            "erros": [],
+            "detalhes": [
+                {
+                    "aba": "UBS André Carloni",
+                    "alteracao_necessaria": True,
+                    "conflitos": ["Setor"],
+                    "status": "bloqueada_por_cabecalho_duplicado",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        sync,
+        "_claim",
+        lambda tabela, limit: pytest.fail(
+            f"outbox não deveria ser consumido: {tabela}"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="preflight somente leitura"):
+        sync.processar_fila_google_sheets(limit=1)
