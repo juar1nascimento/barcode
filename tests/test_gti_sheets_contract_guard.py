@@ -140,3 +140,18 @@ def test_sync_preflight_blocks_before_claiming_any_outbox_item(monkeypatch):
 
     with pytest.raises(RuntimeError, match="preflight somente leitura"):
         sync.processar_fila_google_sheets(limit=1)
+
+
+def test_schema_audit_only_mode_reports_ambiguous_headers_without_writes():
+    worksheet = FakeWorksheet([
+        CANONICAL + ["Data Cadastro"],
+        ["TI", "Computador", "X-2", "Dell", "2026-01-02", "legacy-date"],
+    ])
+    spreadsheet = FakeSpreadsheet(worksheet)
+
+    report = auditar_e_padronizar_abas_inventario(spreadsheet, aplicar=False)
+
+    assert report["abas_bloqueadas"] == 1
+    assert report["detalhes"][0]["conflitos"] == ["Data Cadastro"]
+    assert worksheet.update_calls == 0
+    assert spreadsheet.batch_update_calls == 0
