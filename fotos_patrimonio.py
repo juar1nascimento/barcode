@@ -474,11 +474,24 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
                 )
 
             if ok:
+                # Publica a referência da foto no Sheets no mesmo fluxo da captura.
+                # A persistência no Storage/PostgreSQL já foi concluída; falha do
+                # espelhamento não descarta a fotografia e permanece recuperável.
+                sheets_ok, sheets_msg = _sincronizar_fotos_google(patrimonio_id)
+                if not sheets_ok:
+                    registrar_falha_sincronizacao_fotos(patrimonio_id, sheets_msg)
                 st.success(
                     f"✅ {mensagem} "
                     f"Foto ID: {foto_id}. A fotografia foi persistida no Supabase Storage "
                     "e vinculada ao patrimônio no PostgreSQL."
                 )
+                if sheets_ok:
+                    st.caption("📡 Foto espelhada imediatamente no Google Sheets.")
+                else:
+                    st.warning(
+                        "A foto está salva no sistema, mas o Google Sheets ainda não confirmou "
+                        "o espelhamento. A fila de sincronização fará nova tentativa."
+                    )
                 st.rerun()
             else:
                 st.error(mensagem)
