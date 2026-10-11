@@ -278,7 +278,7 @@ def conectar_google_sheets():
     if isinstance(sec.get("credentials"), dict):
         sec = {**sec, **sec["credentials"]}
     if isinstance(sec.get("private_key"), str):
-        sec["private_key"] = sec["private_key"].replace("\\\\n", "\\n")
+        sec["private_key"] = sec["private_key"].replace("\\n", "\n")
 
     keys = (
         "type", "project_id", "private_key_id", "private_key", "client_email",
