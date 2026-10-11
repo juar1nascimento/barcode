@@ -34,6 +34,14 @@ STALE_MINUTES = 15
 FOTO_PREFIXO_COLUNA = "Foto "
 FOTO_THUMBNAIL_SIZE = 96
 FOTO_MAX_COLUNAS = 12
+
+# Abas técnicas/derivadas permitidas; qualquer outra aba fora do cadastro
+# de unidades exige classificação explícita antes de consumir o outbox.
+ABAS_NAO_OPERACIONAIS_PERMITIDAS = {
+    "_AUDITORIA_CABECALHOS",
+    "Projecao_Almoxarifado",
+    "Projecao_Almoxarifado_Resumo",
+}
 SHEETS_RETRY_ATTEMPTS = 5
 
 
@@ -316,7 +324,7 @@ def _normalizar_cabecalhos_fotos(aba) -> list[str]:
     headers = [str(v).strip() for v in (aba.row_values(1) or [])]
     alterados = False
     for indice, header in enumerate(headers):
-        match = re.fullmatch(r"Foto (\\d+)", header, flags=re.IGNORECASE)
+        match = re.fullmatch(r"Foto (\d+)", header, flags=re.IGNORECASE)
         if not match:
             continue
         ordem = int(match.group(1))
@@ -426,11 +434,39 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
                 "Google Sheets indisponível para preflight estrutural.",
             )
         )
-    limpeza_validacoes = {"habilitada": False, "abas_processadas": [], "validacoes_removidas": 0}
+    limpeza_validacoes = {
+        "habilitada": False,
+        "abas_processadas": [],
+        "validacoes_removidas": 0,
+    }
     if os.getenv("SHEETS_REMOVE_VALIDATIONS", "false").strip().lower() == "true":
-        limpeza_validacoes = _remover_validacoes_menu_suspenso(planilha_preflight)
-        limpeza_validacoes["habilitada"] = True
-    auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=True)
+        raise RuntimeError(
+            "Sincronização bloqueada: SHEETS_REMOVE_VALIDATIONS=true é proibido "
+            "no fluxo operacional porque removeria menus suspensos da planilha."
+        )
+    auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=False)
+    detalhes = auditoria.get("detalhes", [])
+    abas_que_exigem_migracao = [
+        item.get("aba", "desconhecida")
+        for item in detalhes
+        if item.get("alteracao_necessaria")
+    ]
+    abas_nao_classificadas = sorted(
+        set(auditoria.get("abas_nao_reconhecidas", []))
+        - ABAS_NAO_OPERACIONAIS_PERMITIDAS
+    )
+    if (
+        auditoria.get("abas_bloqueadas", 0)
+        or abas_que_exigem_migracao
+        or abas_nao_classificadas
+    ):
+        pendencias = abas_que_exigem_migracao[:10] + abas_nao_classificadas[:10]
+        raise RuntimeError(
+            "Sincronização bloqueada no preflight somente leitura. "
+            "Há abas ambíguas, que exigem migração estrutural ou sem classificação aprovada; "
+            "nenhum item do outbox foi consumido. "
+            f"Abas pendentes: {', '.join(pendencias) or 'ver relatório estrutural'}."
+        )
 
     resultado = {
         "processados": 0,

@@ -203,6 +203,65 @@ def open_spreadsheet(client):
     raise RuntimeError("Defina GOOGLE_SPREADSHEET_ID ou GOOGLE_SPREADSHEET_URL.")
 
 
+def _canonical_photo_header(value: str) -> str:
+    """Normaliza somente aliases conhecidos para detectar colunas ambíguas."""
+    raw = str(value or "").strip()
+    key = re.sub(r"[^a-z0-9]+", " ", raw.casefold()).strip()
+    key = re.sub(r"\s+", " ", key)
+    if key in {"n de patrimonio", "n patrimonio", "numero de patrimonio", "numero patrimonio"}:
+        return "Nº de Patrimônio"
+    match = re.fullmatch(r"foto\s+0*(\d+)", key)
+    if match:
+        return f"Foto {int(match.group(1)):02d}"
+    return raw
+
+
+def preflight_photo_headers(spreadsheet) -> dict:
+    """Valida todas as abas antes de tocar no outbox ou escrever no Sheets."""
+    technical_tabs = {
+        "_AUDITORIA_CABECALHOS",
+        "Projecao_Almoxarifado",
+        "Projecao_Almoxarifado_Resumo",
+    }
+    checked = 0
+    errors = []
+    expected = {"Nº de Patrimônio", *[f"Foto {i:02d}" for i in range(1, 11)]}
+    for worksheet in spreadsheet.worksheets():
+        name = str(worksheet.title or "").strip()
+        if name in technical_tabs:
+            continue
+        try:
+            values = worksheet.get_all_values()
+            if not values:
+                raise RuntimeError("aba sem cabeçalho")
+            header = [_canonical_photo_header(value) for value in values[0]]
+            positions = {}
+            for index, value in enumerate(header):
+                if value in expected:
+                    positions.setdefault(value, []).append(index + 1)
+            duplicates = {
+                key: cols for key, cols in positions.items() if len(cols) > 1
+            }
+            if duplicates:
+                details = "; ".join(
+                    f"{key} nas colunas {', '.join(map(str, cols))}"
+                    for key, cols in sorted(duplicates.items())
+                )
+                raise RuntimeError(f"cabeçalhos duplicados: {details}")
+            missing = sorted(expected - set(header))
+            if missing:
+                raise RuntimeError(f"colunas obrigatórias ausentes: {', '.join(missing)}")
+            checked += 1
+        except Exception as exc:
+            errors.append(f"{name}: {str(exc)[:300]}")
+    if errors:
+        raise RuntimeError(
+            "Preflight das abas/fotos bloqueou o worker antes de alterar o outbox: "
+            + " | ".join(errors[:10])
+        )
+    return {"abas_verificadas": checked, "abas_com_erro": 0}
+
+
 def claim_batch(conn, limit: int):
     with conn.cursor() as cur:
         cur.execute(
@@ -365,13 +424,16 @@ def main():
     max_attempts = max(1, int(os.getenv("OUTBOX_MAX_ATTEMPTS", "8")))
     conn = psycopg.connect(database_url())
     try:
+        sheets = sheets_client()
+        spreadsheet = open_spreadsheet(sheets)
+        # A auditoria ocorre antes de resetar locks, reconciliar ou consumir outbox.
+        preflight = preflight_photo_headers(spreadsheet)
+        print(json.dumps({"event": "sheets_photo_preflight", **preflight}, ensure_ascii=False))
         reset_stale(conn)
         with conn.cursor() as cur:
             cur.execute("SELECT public.reconcile_patrimonio_fotos_sheets_outbox(%s)", (limit * 5,))
             reconciled = int(cur.fetchone()[0] or 0)
         conn.commit()
-        sheets = sheets_client()
-        spreadsheet = open_spreadsheet(sheets)
         claimed = claim_batch(conn, limit)
 
         by_patrimonio = {}

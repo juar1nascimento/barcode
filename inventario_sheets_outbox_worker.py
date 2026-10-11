@@ -104,6 +104,9 @@ CANONICAL_REQUIRED = [
 ]
 HEADER_ALIASES = {
     "setor": "Setor",
+    # Tratado como alias para detectar ambiguidade com a coluna canônica Setor.
+    # A migração de dados legados precisa ser explícita; o worker não escolhe uma coluna.
+    "local setor": "Setor",
     "tipo de patrimonio": "Tipo de Patrimônio",
     "tipo patrimonio": "Tipo de Patrimônio",
     "n de patrimonio": "Nº de Patrimônio",
@@ -123,11 +126,20 @@ def _header_key(value: str) -> str:
 
 
 def _canonical_header_positions(header: list[str]) -> dict[str, int]:
-    positions = {}
+    """Resolve canonical columns and fail closed on ambiguous duplicate headers."""
+    positions: dict[str, int] = {}
     for index, value in enumerate(header):
         canonical = HEADER_ALIASES.get(_header_key(value), str(value or "").strip())
-        if canonical in CANONICAL_REQUIRED and canonical not in positions:
-            positions[canonical] = index
+        if canonical not in CANONICAL_REQUIRED:
+            continue
+        if canonical in positions:
+            first = positions[canonical] + 1
+            duplicate = index + 1
+            raise RuntimeError(
+                f"Cabeçalho canônico duplicado '{canonical}' nas colunas "
+                f"{first} e {duplicate}; sincronização bloqueada."
+            )
+        positions[canonical] = index
     return positions
 
 
@@ -244,11 +256,48 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
             )
 
 
+def preflight_inventory_sheets(spreadsheet) -> dict:
+    """Bloqueia abas ambíguas ou não classificadas antes de alterar o outbox."""
+    from google_sheets_schema import auditar_e_padronizar_abas_inventario
+
+    technical_tabs = {
+        "_AUDITORIA_CABECALHOS",
+        "Projecao_Almoxarifado",
+        "Projecao_Almoxarifado_Resumo",
+    }
+    report = auditar_e_padronizar_abas_inventario(spreadsheet, aplicar=False)
+    pending_changes = [
+        item.get("aba", "desconhecida")
+        for item in report.get("detalhes", [])
+        if item.get("alteracao_necessaria")
+    ]
+    unclassified = sorted(
+        set(report.get("abas_nao_reconhecidas", [])) - technical_tabs
+    )
+    if report.get("erros") or report.get("abas_bloqueadas", 0) or pending_changes or unclassified:
+        pending = pending_changes[:10] + unclassified[:10]
+        raise RuntimeError(
+            "Preflight estrutural bloqueou o worker antes de alterar o outbox. "
+            "Nenhum item foi consumido. Pendências: "
+            + (", ".join(pending) if pending else "ver relatório de auditoria")
+        )
+    return {
+        "abas_verificadas": report.get("abas_verificadas", 0),
+        "abas_bloqueadas": 0,
+        "abas_nao_classificadas": 0,
+    }
+
+
 def main():
     limit = max(1, int(os.getenv("OUTBOX_BATCH_SIZE", "20")))
     max_attempts = max(1, int(os.getenv("OUTBOX_MAX_ATTEMPTS", "8")))
     conn = psycopg.connect(env("DATABASE_URL"))
     try:
+        spreadsheet = open_spreadsheet(sheets_client())
+        preflight = preflight_inventory_sheets(spreadsheet)
+        print(json.dumps({"event": "sheets_inventory_preflight", **preflight}, ensure_ascii=False))
+
+        # Só recupera locks/reconcilia/consome o outbox após o preflight passar.
         reset_stale(conn)
         with conn.cursor() as cur:
             cur.execute(
@@ -258,7 +307,6 @@ def main():
             reconciled = int(cur.fetchone()[0] or 0)
         conn.commit()
 
-        spreadsheet = open_spreadsheet(sheets_client())
         claimed = claim_batch(conn, limit)
 
         synced = failed = 0
