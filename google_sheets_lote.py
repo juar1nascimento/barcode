@@ -80,6 +80,31 @@ def _carregar_lote_cache(unidades: tuple[str, ...]) -> dict[str, tuple[pd.DataFr
                     intervalo,
                     params={"majorDimension": "ROWS"},
                 )
+                # Se a aba canônica existe mas está vazia, ainda verifica o alias
+                # legado antes de concluir que a unidade não tem registros.
+                alias = aliases_por_unidade.get(unidade)
+                valores_individuais = (
+                    individual.get("values", [])
+                    if isinstance(individual, dict)
+                    else []
+                )
+                if not valores_individuais and alias:
+                    try:
+                        intervalo_alias = f"'{
+                            _escapar_nome_aba(alias)
+                        }'!A:Z".replace("\n", "")
+                        alternativa = planilha.values_get(
+                            intervalo_alias,
+                            params={"majorDimension": "ROWS"},
+                        )
+                        if isinstance(alternativa, dict) and alternativa.get("values"):
+                            individual = alternativa
+                            fontes_recuperadas.append((unidade, alias))
+                            value_ranges.append(individual)
+                            continue
+                    except Exception:
+                        # A aba canônica vazia continua sendo válida se o alias falhar.
+                        pass
                 value_ranges.append(individual if isinstance(individual, dict) else {})
                 fontes_recuperadas.append((unidade, nome))
                 continue
