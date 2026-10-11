@@ -241,35 +241,75 @@ def _carregar_dados_postgresql(unidade: str) -> Optional[Tuple[pd.DataFrame, str
 
 
 def conectar_google_sheets():
-    """Conecta ao Sheets via Streamlit Secrets ou CI env, sem registrar credenciais."""
-    import os
+    """Conecta ao Google Sheets usando Secrets do Streamlit ou variáveis de ambiente.
+
+    A autenticação é feita por service account. As credenciais nunca são
+    gravadas no repositório e a planilha precisa ser compartilhada com
+    client_email da conta de serviço, com permissão de Editor.
+    """
     import json
+    import os
+
+    # Não deixe a ausência de secrets.toml bloquear a alternativa por ambiente.
     try:
-        if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-            sec = dict(st.secrets["connections"]["gsheets"])
-        elif "gcp_service_account" in st.secrets:
-            sec = dict(st.secrets["gcp_service_account"])
-        elif os.getenv("GOOGLE_SHEETS_CREDENTIALS"):
-            sec = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
-        else:
+        secrets = dict(st.secrets)
+    except Exception:
+        secrets = {}
+
+    sec = {}
+    connections = secrets.get("connections", {})
+    if isinstance(connections, dict) and isinstance(connections.get("gsheets"), dict):
+        sec = dict(connections["gsheets"])
+    elif isinstance(secrets.get("gcp_service_account"), dict):
+        sec = dict(secrets["gcp_service_account"])
+
+    # Variáveis de ambiente são fallback; não sobrescrevem Secrets já configurados.
+    credenciais_json = (
+        os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+        or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    )
+    if not sec and credenciais_json:
+        try:
+            sec = json.loads(credenciais_json)
+        except (TypeError, ValueError):
             return None
 
+    # Aceita JSON completo de service account ou o formato achatado dos Secrets.
+    if isinstance(sec.get("credentials"), dict):
+        sec = {**sec, **sec["credentials"]}
+    if isinstance(sec.get("private_key"), str):
+        sec["private_key"] = sec["private_key"].replace("\\n", "\n")
+
+    keys = (
+        "type", "project_id", "private_key_id", "private_key", "client_email",
+        "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url",
+        "client_x509_cert_url",
+    )
+    creds_dict = {key: sec.get(key) for key in keys}
+    creds_dict["type"] = creds_dict.get("type") or "service_account"
+    obrigatorias = ("project_id", "private_key", "client_email", "token_uri")
+    if any(not str(creds_dict.get(key) or "").strip() for key in obrigatorias):
+        return None
+
+    try:
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
         ]
-        keys = (
-            "type", "project_id", "private_key_id", "private_key", "client_email",
-            "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url",
-            "client_x509_cert_url",
-        )
-        creds_dict = {k: sec.get(k) for k in keys}
-        creds_dict["type"] = creds_dict.get("type") or "service_account"
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
 
-        sheet_url = sec.get("spreadsheet") or os.getenv("GOOGLE_SHEET_URL") or st.secrets.get("spreadsheet_url")
-        sheet_id = (sec.get("spreadsheet_id") or os.getenv("GOOGLE_SPREADSHEET_ID") or os.getenv("GOOGLE_SHEET_ID") or st.secrets.get("spreadsheet_id"))
+        sheet_url = (
+            sec.get("spreadsheet")
+            or secrets.get("spreadsheet_url")
+            or os.getenv("GOOGLE_SHEET_URL")
+        )
+        sheet_id = (
+            sec.get("spreadsheet_id")
+            or secrets.get("spreadsheet_id")
+            or os.getenv("GOOGLE_SPREADSHEET_ID")
+            or os.getenv("GOOGLE_SHEET_ID")
+        )
         if not sheet_id and sheet_url:
             match = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", str(sheet_url))
             if match:
@@ -277,24 +317,15 @@ def conectar_google_sheets():
 
         if sheet_id:
             try:
-                planilha = client.open_by_key(str(sheet_id).strip())
-                return planilha
-            except Exception as erro_id:
+                return client.open_by_key(str(sheet_id).strip())
+            except Exception:
                 if not sheet_url:
-                    raise erro_id
-
+                    return None
         if sheet_url:
-            planilha = client.open_by_url(str(sheet_url).strip())
-            return planilha
-
-        erro = (
-            "Google Sheets não configurado: informe spreadsheet_id ou spreadsheet "
-            "em [connections.gsheets]/[gcp_service_account] nos Secrets."
-        )
+            return client.open_by_url(str(sheet_url).strip())
         return None
-
-    except Exception as e:
-        erro = f"Falha ao conectar ao Google Sheets: {str(e)[:500]}"
+    except Exception:
+        # Nunca registrar exceções que possam conter dados de autenticação.
         return None
 
 def _nome_aba(unidade: str) -> str:
