@@ -478,9 +478,7 @@ def renderizar_fotos_patrimonio(patrimonio_id: int) -> None:
                 # A persistência no Storage/PostgreSQL já foi concluída; falha do
                 # espelhamento não descarta a fotografia e permanece recuperável.
                 sheets_ok, sheets_msg = _sincronizar_fotos_google(patrimonio_id)
-                if sheets_ok:
-                    marcar_sincronizacao_fotos_ok(patrimonio_id)
-                else:
+                if not sheets_ok:
                     registrar_falha_sincronizacao_fotos(patrimonio_id, sheets_msg)
                 st.success(
                     f"✅ {mensagem} "
