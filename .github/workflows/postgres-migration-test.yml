@@ -51,3 +51,7 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f tests/sql/test_normalize_manufacturer_inventory_count.sql
+      - name: Run read-only count-function privilege preflight
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d gti_test -v ON_ERROR_STOP=1 -f tests/sql/preflight_count_function_privileges.sql
