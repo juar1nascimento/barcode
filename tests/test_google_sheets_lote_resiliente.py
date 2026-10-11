@@ -148,3 +148,25 @@ def test_lote_valido_tenta_alias_quando_aba_canonica_vem_vazia(monkeypatch):
     assert "URS Jacara_pe" in origem_jacaraipe
     assert len(df_ubs) == 1
     assert planilha.chamadas == ["'URS Jacara_pe'!A:Z"]
+
+
+class PlanilhaBatchFalhaCanonicoVazio(PlanilhaFalsa):
+    def values_get(self, intervalo, params=None):
+        self.chamadas.append(intervalo)
+        if "URS Jacaraípe" in intervalo:
+            return {"range": intervalo, "values": []}
+        if "URS Jacara_pe" in intervalo:
+            return {"range": intervalo, "values": [HEADERS, ROW]}
+        raise AssertionError(f"Fallback inesperado: {intervalo}")
+
+
+def test_batch_com_falha_tenta_alias_se_leitura_canonica_individual_vem_vazia(monkeypatch):
+    planilha = PlanilhaBatchFalhaCanonicoVazio()
+    monkeypatch.setattr(lote, "conectar_google_sheets", lambda: planilha)
+
+    resultado = lote.carregar_dados_excel_lote(["URS Jacaraípe"])
+
+    df, origem = resultado["URS Jacaraípe"]
+    assert len(df) == 1
+    assert "URS Jacara_pe" in origem
+    assert planilha.chamadas == ["'URS Jacaraípe'!A:Z", "'URS Jacara_pe'!A:Z"]
