@@ -21,7 +21,7 @@ Exemplo estrutural — substitua os valores no painel de Secrets, não neste arq
 type = "service_account"
 project_id = "SEU_PROJECT_ID"
 private_key_id = "SUA_PRIVATE_KEY_ID"
-private_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
+private_key = "COLE_A_CHAVE_PRIVADA_NO_SECRET_DO_STREAMLIT"
 client_email = "conta-de-servico@projeto.iam.gserviceaccount.com"
 client_id = "SEU_CLIENT_ID"
 token_uri = "https://oauth2.googleapis.com/token"
