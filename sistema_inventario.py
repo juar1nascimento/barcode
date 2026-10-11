@@ -26,6 +26,7 @@ FOTO_URL_EXPIRATION_SECONDS = 86_400
 FOTO_URL_REFRESH_INTERVAL = "50m"
 from consultorio_contexto import selecionar_setor
 from contagem_almoxarifado import registrar_contagem_se_almoxarifado
+from projecao_almoxarifado import renderizar_projecao_embutida
 
 # ==============================================================================
 # TIPOS DE PATRIMÔNIO - LISTA FECHADA E OBRIGATÓRIA

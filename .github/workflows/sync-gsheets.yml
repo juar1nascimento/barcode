@@ -2,6 +2,8 @@ name: Inventário GTI SESA - Google Sheets Sync
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
 
 permissions:
   contents: read
@@ -77,7 +79,7 @@ jobs:
 
   sync-fotos:
     name: Sync photos to Drive links
-    needs: validate
+    needs: [validate, sync-patrimonios]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:

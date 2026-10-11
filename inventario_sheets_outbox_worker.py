@@ -113,6 +113,8 @@ HEADER_ALIASES = {
     "fabricante": "Fabricante",
     "data cadastro": "Data Cadastro",
     "data de cadastro": "Data Cadastro",
+    "codigo de barras": "Código de Barras",
+    "codigo barras": "Código de Barras",
 }
 
 def _header_key(value: str) -> str:
@@ -126,7 +128,7 @@ def _canonical_header_positions(header: list[str]) -> dict[str, int]:
     positions = {}
     for index, value in enumerate(header):
         canonical = HEADER_ALIASES.get(_header_key(value), str(value or "").strip())
-        if canonical in CANONICAL_REQUIRED and canonical not in positions:
+        if (canonical in CANONICAL_REQUIRED or canonical == "Código de Barras") and canonical not in positions:
             positions[canonical] = index
     return positions
 
@@ -207,6 +209,10 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
         "Fabricante": fabricante,
         "Data Cadastro": data_texto,
     }
+    # Código de barras é opcional no contrato legado, mas deve ser sincronizado
+    # sempre que a aba possuir a coluna correspondente.
+    if "Código de Barras" in positions:
+        esperado["Código de Barras"] = str(_codigo or "").strip()
 
     numero_col = positions["Nº de Patrimônio"]
     row_number = None
