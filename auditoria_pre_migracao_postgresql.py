@@ -176,6 +176,17 @@ def renderizar_auditoria_pre_migracao() -> None:
         return
 
     totais = resultado["totais"]
+    falhas_leitura = [
+        r for r in resultado["unidades"]
+        if "FALHA DE LEITURA" in str(r.get("origem", ""))
+    ]
+    if falhas_leitura:
+        nomes_falha = ", ".join(r["unidade"] for r in falhas_leitura)
+        st.error(
+            "AUDITORIA INCOMPLETA — a leitura falhou para: "
+            f"{nomes_falha}. Os totais abaixo não devem ser usados para aprovar "
+            "migração até que essas abas sejam lidas com sucesso."
+        )
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Unidades", totais["unidades"])
     c2.metric("Linhas", totais["linhas"])
