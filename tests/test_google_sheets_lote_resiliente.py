@@ -170,3 +170,17 @@ def test_batch_com_falha_tenta_alias_se_leitura_canonica_individual_vem_vazia(mo
     assert len(df) == 1
     assert "URS Jacara_pe" in origem
     assert planilha.chamadas == ["'URS Jacaraípe'!A:Z", "'URS Jacara_pe'!A:Z"]
+
+
+def test_conexao_indisponivel_nao_parece_unidades_vazias(monkeypatch):
+    monkeypatch.setattr(lote, "conectar_google_sheets", lambda: None)
+
+    resultado = lote.carregar_dados_excel_lote(
+        ["URS Jacaraípe", "UBS André Carloni"]
+    )
+
+    for unidade in ("URS Jacaraípe", "UBS André Carloni"):
+        df, origem = resultado[unidade]
+        assert df.empty
+        assert "FALHA DE LEITURA" in origem
+        assert "conexão Google Sheets indisponível" in origem
