@@ -39,6 +39,18 @@ def _carregar_lote_cache(unidades: tuple[str, ...]) -> dict[str, tuple[pd.DataFr
     planilha = conectar_google_sheets()
     resultado: dict[str, tuple[pd.DataFrame, str]] = {}
     if not planilha:
+        # Uma conexão ausente/falha de autenticação não pode parecer uma
+        # planilha com 40 unidades vazias: sinaliza cada unidade como não lida.
+        origem_falha = (
+            "FALHA DE LEITURA: conexão Google Sheets indisponível; "
+            "verifique configuração, credenciais e permissões."
+        )
+        for unidade in unidades:
+            unidade_normalizada = _normalizar_unidade_aba(unidade)
+            resultado[unidade_normalizada] = (
+                pd.DataFrame(columns=COLUNAS_INVENTARIO),
+                origem_falha,
+            )
         return resultado
 
     ranges: list[str] = []
