@@ -160,9 +160,17 @@ def _carregar_lote_cache(unidades: tuple[str, ...]) -> dict[str, tuple[pd.DataFr
             resultado[unidade_normalizada] = (combinado, origem)
         else:
             nome = _nome_aba(unidade_normalizada)
+            falha = next(
+                (
+                    fonte for unidade_fonte, fonte in fontes
+                    if unidade_fonte == unidade_normalizada and fonte.startswith("FALHA DE LEITURA")
+                ),
+                None,
+            )
+            origem = f"Google Sheets ({falha})" if falha else f"Google Sheets ({nome})"
             resultado[unidade_normalizada] = (
                 pd.DataFrame(columns=COLUNAS_INVENTARIO),
-                f"Google Sheets ({nome})",
+                origem,
             )
 
     return resultado
