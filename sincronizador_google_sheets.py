@@ -426,11 +426,22 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
                 "Google Sheets indisponível para preflight estrutural.",
             )
         )
-    limpeza_validacoes = {"habilitada": False, "abas_processadas": [], "validacoes_removidas": 0}
+    limpeza_validacoes = {
+        "habilitada": False,
+        "abas_processadas": [],
+        "validacoes_removidas": 0,
+    }
     if os.getenv("SHEETS_REMOVE_VALIDATIONS", "false").strip().lower() == "true":
-        limpeza_validacoes = _remover_validacoes_menu_suspenso(planilha_preflight)
-        limpeza_validacoes["habilitada"] = True
+        raise RuntimeError(
+            "Sincronização bloqueada: SHEETS_REMOVE_VALIDATIONS=true é proibido "
+            "no fluxo operacional porque removeria menus suspensos da planilha."
+        )
     auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=True)
+    if auditoria.get("abas_bloqueadas", 0):
+        raise RuntimeError(
+            "Sincronização bloqueada: a auditoria estrutural encontrou abas "
+            "ambíguas ou com erros; nenhum item do outbox será consumido."
+        )
 
     resultado = {
         "processados": 0,
