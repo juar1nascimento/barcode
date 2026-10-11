@@ -1,58 +1,58 @@
 # GTI SESA — baixar somente fotos do Google Drive para o computador local
 
-Este procedimento é separado do espelhamento do inventário e tem escopo estrito: baixar somente arquivos cujo MIME type começa com \`image/\`. Não baixa planilhas, PDFs, documentos ou outros tipos. Não altera nem exclui arquivos da nuvem, e nunca apaga arquivos locais.
+Esta ferramenta é separada do espelhamento do inventário e baixa exclusivamente arquivos cujo MIME type começa com `image/`. Não baixa planilhas, PDFs ou outros tipos. Não altera nem exclui arquivos na nuvem e nunca apaga arquivos locais.
 
-## O que já existia e onde paramos
+## Ponto recuperado do histórico
 
-- O projeto já possui o agente de espelhamento local e a fila de fotos.
-- PR #39 foi integrado à \`main\`, mas PR #40 (download direto pela API e canário de uma foto) foi integrado somente à branch \`feat/local-drive-mirror-worker\`, não à \`main\`.
-- O worker da fila original tem um fluxo \`--live\` que pode excluir a origem do Drive depois de verificar a cópia. **Não use \`--live\` para este objetivo de cópia/backup.**
-- Esta ferramenta é deliberadamente independente da fila: ela percorre a pasta raiz configurada e baixa apenas imagens, preservando as subpastas Unidade → Patrimônio.
+- PR #39 adicionou a base do agente de espelhamento local.
+- PR #40 adicionou download direto pela API e um modo de canário na branch de desenvolvimento do worker.
+- O worker original possui um modo operacional que pode excluir a origem no Drive depois de validar a cópia. **Não use esse worker em modo `--live` para fazer backup de fotos.**
+- Este script é independente: percorre a pasta raiz configurada e preserva as subpastas Unidade → Patrimônio, baixando apenas imagens.
 
-## Pré-requisitos no computador que receberá as fotos
+## Pré-requisitos no computador de destino
 
-- Windows com Python 3.12+.
-- A pasta de destino deve ser um caminho local com espaço suficiente, por exemplo \`C:\\GTI-SESA\\Fotos\`.
-- A conta de serviço Google deve ter acesso de leitura à pasta raiz e às subpastas. Não torne o Drive público.
-- O JSON da conta de serviço fica fora do repositório, com acesso restrito ao usuário/serviço que executa a sincronização.
+- Windows com Python 3.12 ou superior.
+- Espaço local suficiente, por exemplo em `C:\GTI-SESA\Fotos`.
+- A conta de serviço Google precisa ter acesso de leitura à pasta raiz e às subpastas. Não torne a pasta pública.
+- O JSON da conta de serviço deve ficar fora do repositório, com acesso restrito.
 
-## Configuração de ambiente (PowerShell)
+## Configuração no PowerShell
 
-Na sessão do PowerShell que executará a sincronização, configure os valores reais localmente; não os coloque no GitHub:
+Na sessão que executará a sincronização, defina os valores reais localmente; não os publique no GitHub:
 
-\`\`\`powershell
-$env:GOOGLE_SERVICE_ACCOUNT_FILE = "C:\\caminho-seguro\\gti-drive-reader.json"
+```powershell
+$env:GOOGLE_SERVICE_ACCOUNT_FILE = "C:\caminho-seguro\gti-drive-reader.json"
 $env:GOOGLE_DRIVE_ROOT_ID = "ID_DA_PASTA_RAIZ_DO_INVENTARIO"
-$env:LOCAL_PHOTOS_ROOT = "C:\\GTI-SESA\\Fotos"
+$env:LOCAL_PHOTOS_ROOT = "C:\GTI-SESA\Fotos"
 python -m pip install google-api-python-client google-auth
-\`\`\`
+```
 
-Se a conta de serviço já estiver disponível como JSON em um gerenciador seguro, também pode ser usada a variável \`GOOGLE_SERVICE_ACCOUNT_JSON\` em vez do caminho do arquivo. Nunca compartilhe o conteúdo do JSON no chat ou no repositório.
+Se a credencial já estiver disponível em um gerenciador seguro como JSON, pode usar `GOOGLE_SERVICE_ACCOUNT_JSON` em vez do caminho do arquivo. Nunca compartilhe o conteúdo da credencial no chat ou no repositório.
 
-## Executar primeiro em simulação
+## 1. Simulação (não baixa)
 
 Na raiz do repositório:
 
-\`\`\`powershell
-python scripts\\download_drive_photos_local.py
-\`\`\`
+```powershell
+python scripts\download_drive_photos_local.py
+```
 
-A simulação lista o que seria baixado e não grava as imagens.
+A simulação lista as imagens que seriam baixadas e identifica as já existentes e iguais no computador.
 
-## Baixar somente as fotos
+## 2. Download efetivo de fotos
 
-Depois de conferir a pasta de origem e o destino local:
+Depois de conferir a pasta de origem e o destino:
 
-\`\`\`powershell
-python scripts\\download_drive_photos_local.py --download
-\`\`\`
+```powershell
+python scripts\download_drive_photos_local.py --download
+```
 
-O download usa arquivos temporários, valida tamanho e MD5 quando o Drive fornece esse hash, e só então troca o arquivo de destino. Arquivos já iguais são ignorados. Arquivos que não são imagens nunca são baixados. Não há exclusão da nuvem nem remoção de arquivos locais.
+O script baixa para um arquivo temporário, valida tamanho e MD5 quando o Drive fornece esse hash, e só então substitui o destino. Arquivos já iguais são ignorados. Outros tipos de arquivo não são baixados. Nenhum arquivo da nuvem é alterado ou excluído.
 
-## Sincronização recorrente
+## 3. Sincronização recorrente
 
-Depois que a primeira execução for validada no computador de destino, a mesma linha com \`--download\` pode ser agendada no Agendador de Tarefas do Windows. Execute com uma conta de sistema que tenha acesso ao JSON e à pasta local; mantenha as credenciais fora do repositório. Não configure a tarefa para executar o worker de fila com \`--live\`.
+Depois que a primeira execução for validada no computador, a mesma linha com `--download` pode ser agendada pelo Agendador de Tarefas do Windows. A tarefa precisa rodar com uma conta que consiga ler a credencial e gravar na pasta local. Não agende o worker original com `--live`.
 
 ## Limite operacional
 
-O código e a configuração podem ser preparados pelo repositório, mas a execução no computador local exige que o script seja instalado/acionado nesse computador e que a conta de serviço tenha leitura real da pasta raiz. Não é possível afirmar que as fotos já foram baixadas até existir um log da execução no computador de destino.
+O código está preparado no repositório, mas a execução real depende do computador de destino, da credencial local e do acesso de leitura à pasta raiz. Não se pode afirmar que fotos já foram baixadas sem um log produzido no próprio computador.
