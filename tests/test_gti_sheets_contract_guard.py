@@ -14,6 +14,7 @@ from google_sheets_schema import (
     _canonicalize_values,
     auditar_e_padronizar_abas_inventario,
 )
+from sheets_outbox_worker import preflight_photo_headers
 
 
 CANONICAL = [
@@ -212,3 +213,29 @@ def test_sync_preflight_allows_only_explicit_technical_tabs(monkeypatch):
 
     assert result["processados"] == 0
     assert claimed == ["patrimonios_sheets_outbox", "patrimonio_fotos_sheets_outbox"]
+
+
+
+def test_photo_preflight_accepts_unique_required_columns():
+    header = ["Nº de Patrimônio"] + [f"Foto {i:02d}" for i in range(1, 11)]
+    spreadsheet = FakeSpreadsheet(FakeWorksheet([header]))
+
+    report = preflight_photo_headers(spreadsheet)
+
+    assert report == {"abas_verificadas": 1, "abas_com_erro": 0}
+
+
+def test_photo_preflight_blocks_duplicate_legacy_photo_header():
+    header = ["Nº de Patrimônio"] + [f"Foto {i:02d}" for i in range(1, 11)] + ["Foto 1"]
+    spreadsheet = FakeSpreadsheet(FakeWorksheet([header]))
+
+    with pytest.raises(RuntimeError, match="cabeçalhos duplicados.*Foto 01"):
+        preflight_photo_headers(spreadsheet)
+
+
+def test_photo_preflight_blocks_missing_photo_columns():
+    header = ["Nº de Patrimônio"] + [f"Foto {i:02d}" for i in range(1, 10)]
+    spreadsheet = FakeSpreadsheet(FakeWorksheet([header]))
+
+    with pytest.raises(RuntimeError, match="colunas obrigatórias ausentes.*Foto 10"):
+        preflight_photo_headers(spreadsheet)
