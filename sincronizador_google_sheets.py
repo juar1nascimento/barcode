@@ -34,6 +34,14 @@ STALE_MINUTES = 15
 FOTO_PREFIXO_COLUNA = "Foto "
 FOTO_THUMBNAIL_SIZE = 96
 FOTO_MAX_COLUNAS = 12
+
+# Abas técnicas/derivadas permitidas; qualquer outra aba fora do cadastro
+# de unidades exige classificação explícita antes de consumir o outbox.
+ABAS_NAO_OPERACIONAIS_PERMITIDAS = {
+    "_AUDITORIA_CABECALHOS",
+    "Projecao_Almoxarifado",
+    "Projecao_Almoxarifado_Resumo",
+}
 SHEETS_RETRY_ATTEMPTS = 5
 
 
@@ -443,12 +451,21 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
         for item in detalhes
         if item.get("alteracao_necessaria")
     ]
-    if auditoria.get("abas_bloqueadas", 0) or abas_que_exigem_migracao:
+    abas_nao_classificadas = sorted(
+        set(auditoria.get("abas_nao_reconhecidas", []))
+        - ABAS_NAO_OPERACIONAIS_PERMITIDAS
+    )
+    if (
+        auditoria.get("abas_bloqueadas", 0)
+        or abas_que_exigem_migracao
+        or abas_nao_classificadas
+    ):
+        pendencias = abas_que_exigem_migracao[:10] + abas_nao_classificadas[:10]
         raise RuntimeError(
             "Sincronização bloqueada no preflight somente leitura. "
-            "Há abas ambíguas ou que exigem migração estrutural revisada; "
+            "Há abas ambíguas, que exigem migração estrutural ou sem classificação aprovada; "
             "nenhum item do outbox foi consumido. "
-            f"Abas pendentes: {', '.join(abas_que_exigem_migracao[:10]) or 'ver relatório estrutural'}."
+            f"Abas pendentes: {', '.join(pendencias) or 'ver relatório estrutural'}."
         )
 
     resultado = {
