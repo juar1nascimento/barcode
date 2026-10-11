@@ -9,6 +9,7 @@ import pytest
 
 from inventario_sheets_outbox_worker import (
     _canonical_header_positions,
+    preflight_inventory_sheets,
 )
 from google_sheets_schema import (
     _canonicalize_values,
@@ -239,3 +240,48 @@ def test_photo_preflight_blocks_missing_photo_columns():
 
     with pytest.raises(RuntimeError, match="colunas obrigatórias ausentes.*Foto 10"):
         preflight_photo_headers(spreadsheet)
+
+
+
+def test_inventory_preflight_blocks_unclassified_tabs(monkeypatch):
+    import google_sheets_schema
+
+    monkeypatch.setattr(
+        google_sheets_schema,
+        "auditar_e_padronizar_abas_inventario",
+        lambda spreadsheet, aplicar=False: {
+            "abas_verificadas": 40,
+            "abas_bloqueadas": 0,
+            "erros": [],
+            "detalhes": [],
+            "abas_nao_reconhecidas": ["UBS Unidade Nova"],
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="Nenhum item foi consumido"):
+        preflight_inventory_sheets(FakeSpreadsheet(FakeWorksheet([CANONICAL])))
+
+
+def test_inventory_preflight_accepts_explicit_technical_tabs(monkeypatch):
+    import google_sheets_schema
+
+    monkeypatch.setattr(
+        google_sheets_schema,
+        "auditar_e_padronizar_abas_inventario",
+        lambda spreadsheet, aplicar=False: {
+            "abas_verificadas": 40,
+            "abas_bloqueadas": 0,
+            "erros": [],
+            "detalhes": [],
+            "abas_nao_reconhecidas": [
+                "_AUDITORIA_CABECALHOS",
+                "Projecao_Almoxarifado",
+                "Projecao_Almoxarifado_Resumo",
+            ],
+        },
+    )
+
+    report = preflight_inventory_sheets(FakeSpreadsheet(FakeWorksheet([CANONICAL])))
+
+    assert report["abas_verificadas"] == 40
+    assert report["abas_bloqueadas"] == 0
