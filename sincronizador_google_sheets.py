@@ -324,7 +324,7 @@ def _normalizar_cabecalhos_fotos(aba) -> list[str]:
     headers = [str(v).strip() for v in (aba.row_values(1) or [])]
     alterados = False
     for indice, header in enumerate(headers):
-        match = re.fullmatch(r"Foto (\\d+)", header, flags=re.IGNORECASE)
+        match = re.fullmatch(r"Foto (\d+)", header, flags=re.IGNORECASE)
         if not match:
             continue
         ordem = int(match.group(1))
