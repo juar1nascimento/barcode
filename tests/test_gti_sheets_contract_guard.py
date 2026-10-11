@@ -155,3 +155,60 @@ def test_schema_audit_only_mode_reports_ambiguous_headers_without_writes():
     assert report["detalhes"][0]["conflitos"] == ["Data Cadastro"]
     assert worksheet.update_calls == 0
     assert spreadsheet.batch_update_calls == 0
+
+
+
+def test_sync_preflight_blocks_unclassified_tabs_before_claiming_outbox(monkeypatch):
+    import sincronizador_google_sheets as sync
+
+    monkeypatch.setenv("SHEETS_REMOVE_VALIDATIONS", "false")
+    monkeypatch.setattr(sync, "conectar_google_sheets", lambda: object())
+    monkeypatch.setattr(
+        sync,
+        "auditar_e_padronizar_abas_inventario",
+        lambda spreadsheet, aplicar=False: {
+            "abas_verificadas": 40,
+            "abas_bloqueadas": 0,
+            "erros": [],
+            "detalhes": [],
+            "abas_nao_reconhecidas": ["UBS Unidade Nova"],
+        },
+    )
+    monkeypatch.setattr(
+        sync,
+        "_claim",
+        lambda tabela, limit: pytest.fail(
+            f"outbox não deveria ser consumido: {tabela}"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="sem classificação aprovada"):
+        sync.processar_fila_google_sheets(limit=1)
+
+
+def test_sync_preflight_allows_only_explicit_technical_tabs(monkeypatch):
+    import sincronizador_google_sheets as sync
+
+    monkeypatch.setenv("SHEETS_REMOVE_VALIDATIONS", "false")
+    monkeypatch.setattr(sync, "conectar_google_sheets", lambda: object())
+    monkeypatch.setattr(
+        sync,
+        "auditar_e_padronizar_abas_inventario",
+        lambda spreadsheet, aplicar=False: {
+            "abas_verificadas": 40,
+            "abas_bloqueadas": 0,
+            "erros": [],
+            "detalhes": [],
+            "abas_nao_reconhecidas": [
+                "_AUDITORIA_CABECALHOS",
+                "Projecao_Almoxarifado",
+                "Projecao_Almoxarifado_Resumo",
+            ],
+        },
+    )
+    claimed = []
+    monkeypatch.setattr(sync, "_claim", lambda tabela, limit: claimed.append(tabela) or [])
+    result = sync.processar_fila_google_sheets(limit=1)
+
+    assert result["processados"] == 0
+    assert claimed == ["patrimonios_sheets_outbox", "patrimonio_fotos_sheets_outbox"]
