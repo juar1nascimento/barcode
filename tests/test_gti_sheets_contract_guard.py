@@ -285,3 +285,27 @@ def test_inventory_preflight_accepts_explicit_technical_tabs(monkeypatch):
 
     assert report["abas_verificadas"] == 40
     assert report["abas_bloqueadas"] == 0
+
+def test_legacy_photo_header_normalization_matches_numeric_suffix(monkeypatch):
+    import sincronizador_google_sheets as sync
+
+    class Worksheet:
+        def __init__(self):
+            self.headers = ["Foto 1", "Foto 02", "Foto 10", "Foto 13"]
+            self.updated = None
+
+        def row_values(self, row):
+            assert row == 1
+            return self.headers
+
+        def update(self, **kwargs):
+            self.updated = kwargs["values"][0]
+
+    worksheet = Worksheet()
+    monkeypatch.setattr(sync, "_sheets_call", lambda label, operation: operation())
+
+    headers = sync._normalizar_cabecalhos_fotos(worksheet)
+
+    assert headers == ["Foto 01", "Foto 02", "Foto 10", "Foto 13"]
+    assert worksheet.updated == headers
+
