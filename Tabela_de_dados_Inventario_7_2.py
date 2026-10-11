@@ -516,6 +516,141 @@ def salvar_no_excel(df: pd.DataFrame, unidade: str) -> bool:
     return sucesso_sheets
 
 
+def _sincronizar_patrimonio_google_imediato(patrimonio_id: int, unidade: str) -> tuple[bool, str]:
+    """Espelha um único patrimônio no Sheets logo após o commit no PostgreSQL.
+
+    A gravação principal não depende do Google. Em caso de indisponibilidade,
+    o registro permanece salvo no PostgreSQL/outbox para recuperação posterior.
+    Não limpa nem reestrutura a aba e preserva colunas alheias ao inventário.
+    """
+    conn = None
+    try:
+        conn = conectar_postgresql()
+        if conn is None:
+            return False, "PostgreSQL indisponível para preparar o espelhamento."
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT p.numero_patrimonio, p.codigo_barras,
+                          COALESCE(NULLIF(p.tipo_custom, ''), p.tipo),
+                          COALESCE(s.nome, ''), COALESCE(p.fabricante, ''),
+                          p.data_cadastro
+                     FROM public.patrimonios p
+                     JOIN public.unidades u ON u.id = p.unidade_id
+                     LEFT JOIN public.setores s ON s.id = p.setor_id
+                    WHERE p.id = %s AND u.nome = %s
+                    LIMIT 1""",
+                (int(patrimonio_id), _normalizar_unidade_aba(unidade)),
+            )
+            registro = cur.fetchone()
+        if not registro:
+            return False, "Patrimônio não localizado para espelhamento imediato."
+        numero, codigo, tipo, setor, fabricante, data_cadastro = registro
+        planilha = conectar_google_sheets()
+        if planilha is None:
+            return False, "Credenciais/planilha Google indisponíveis no ambiente Streamlit."
+        aba = planilha.worksheet(_nome_aba(_normalizar_unidade_aba(unidade)))
+        valores = aba.get_all_values()
+        if not valores:
+            return False, "A aba de destino está vazia; nenhuma alteração estrutural foi feita."
+
+        cabecalho = [str(v or "").strip() for v in valores[0]]
+        def chave_coluna(valor):
+            import unicodedata
+            texto = unicodedata.normalize("NFKD", str(valor or ""))
+            texto = "".join(c for c in texto if not unicodedata.combining(c))
+            return re.sub(r"[^a-z0-9]+", " ", texto.casefold()).strip()
+
+        aliases = {
+            "setor": "Setor",
+            "tipo de patrimonio": "Tipo de Patrimônio",
+            "tipo patrimonio": "Tipo de Patrimônio",
+            "n de patrimonio": "Nº de Patrimônio",
+            "numero de patrimonio": "Nº de Patrimônio",
+            "n patrimonio": "Nº de Patrimônio",
+            "fabricante": "Fabricante",
+            "data cadastro": "Data Cadastro",
+            "data de cadastro": "Data Cadastro",
+            "codigo de barras": "Código de Barras",
+            "codigo barras": "Código de Barras",
+        }
+        posicoes = {}
+        for indice, titulo in enumerate(cabecalho):
+            canonico = aliases.get(chave_coluna(titulo), titulo)
+            if canonico not in posicoes:
+                posicoes[canonico] = indice
+        obrigatorias = ("Setor", "Tipo de Patrimônio", "Nº de Patrimônio", "Fabricante", "Data Cadastro")
+        ausentes = [nome for nome in obrigatorias if nome not in posicoes]
+        if ausentes:
+            return False, "Cabeçalhos obrigatórios ausentes: " + ", ".join(ausentes)
+
+        data_texto = (
+            data_cadastro.isoformat(sep=" ")
+            if hasattr(data_cadastro, "isoformat")
+            else str(data_cadastro or "").strip()
+        )
+        esperado = {
+            "Setor": str(setor or "").strip(),
+            "Tipo de Patrimônio": str(tipo or "").strip(),
+            "Nº de Patrimônio": str(numero or "").strip(),
+            "Fabricante": str(fabricante or "").strip(),
+            "Data Cadastro": data_texto,
+        }
+        if "Código de Barras" in posicoes:
+            esperado["Código de Barras"] = str(codigo or "").strip()
+
+        numero_idx = posicoes["Nº de Patrimônio"]
+        codigo_idx = posicoes.get("Código de Barras")
+        alvo = str(numero or "").strip().casefold()
+        codigo_alvo = str(codigo or "").strip().casefold()
+        linha_destino = None
+        for linha_idx, linha in enumerate(valores[1:], start=2):
+            atual_numero = str(linha[numero_idx] if len(linha) > numero_idx else "").strip().casefold()
+            atual_codigo = str(linha[codigo_idx] if codigo_idx is not None and len(linha) > codigo_idx else "").strip().casefold()
+            if (alvo and atual_numero == alvo) or (codigo_alvo and atual_codigo == codigo_alvo):
+                linha_destino = linha_idx
+                break
+
+        def letra_coluna(numero_coluna):
+            letras = ""
+            while numero_coluna:
+                numero_coluna, resto = divmod(numero_coluna - 1, 26)
+                letras = chr(65 + resto) + letras
+            return letras
+
+        if linha_destino is None:
+            nova_linha = [""] * len(cabecalho)
+            for nome, valor in esperado.items():
+                nova_linha[posicoes[nome]] = valor
+            aba.append_rows([nova_linha], value_input_option="RAW")
+            linha_destino = len(valores) + 1
+        else:
+            atualizacoes = [
+                {"range": f"{letra_coluna(posicoes[nome] + 1)}{linha_destino}", "values": [[valor]]}
+                for nome, valor in esperado.items()
+            ]
+            aba.batch_update(atualizacoes, value_input_option="RAW")
+
+        confirmada = aba.get(
+            f"A{linha_destino}:{letra_coluna(max(len(cabecalho), 1))}{linha_destino}",
+            value_render_option="UNFORMATTED_VALUE",
+        )
+        linha = list(confirmada[0]) if confirmada else []
+        for nome, valor in esperado.items():
+            indice = posicoes[nome]
+            recebido = str(linha[indice]).strip() if indice < len(linha) else ""
+            if recebido != str(valor).strip():
+                return False, f"Google Sheets não confirmou o campo {nome}."
+        return True, "Espelhamento imediato confirmado no Google Sheets."
+    except Exception:
+        return False, "Falha no espelhamento imediato; o registro principal permanece no PostgreSQL."
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 @_serializar_persistencia
 def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, unidade: str, fabricante: str = "", numero_patrimonio: str = "") -> bool:
     codigo = normalizar_codigo_patrimonio(codigo_barras)
@@ -562,9 +697,18 @@ def registrar_patrimonio(codigo_barras: str, tipo_patrimonio: str, setor: str, u
         st.session_state["ultimo_patrimonio_numero"] = numero
         st.session_state["ultimo_patrimonio_unidade"] = unidade_limpa
 
-    # Google Sheets permanece fora do fluxo operacional durante esta fase.
-    st.session_state.pop("sheets_sync_pendente", None)
-    st.session_state.pop("sheets_sync_ultimo_erro", None)
+    # Espelhamento imediato: o operador não precisa aguardar o cron.
+    # A gravação no PostgreSQL já foi confirmada; falha do Sheets não perde o cadastro.
+    sheets_ok, sheets_msg = (False, "ID PostgreSQL indisponível para espelhamento.")
+    if pg_id is not None:
+        sheets_ok, sheets_msg = _sincronizar_patrimonio_google_imediato(int(pg_id), unidade_limpa)
+    if sheets_ok:
+        st.session_state.pop("sheets_sync_pendente", None)
+        st.session_state.pop("sheets_sync_ultimo_erro", None)
+        st.session_state["sheets_sync_ultimo_sucesso"] = sheets_msg
+    else:
+        st.session_state["sheets_sync_pendente"] = True
+        st.session_state["sheets_sync_ultimo_erro"] = sheets_msg
     return True
 
 
