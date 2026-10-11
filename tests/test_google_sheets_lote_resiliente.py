@@ -72,3 +72,46 @@ def test_falha_total_de_uma_unidade_fica_explicita(monkeypatch):
     assert df_jacaraipe.empty
     assert "FALHA DE LEITURA" in origem_jacaraipe
     assert len(df_ubs) == 1
+
+class PlanilhaLoteSucesso(PlanilhaFalsa):
+    def values_batch_get(self, ranges, params=None):
+        self.batch_ranges = list(ranges)
+        return {
+            "valueRanges": [
+                {"range": intervalo, "values": [HEADERS, ROW]}
+                for intervalo in ranges
+            ]
+        }
+
+
+class PlanilhaLoteIncompleto(PlanilhaFalsa):
+    def values_batch_get(self, ranges, params=None):
+        self.batch_ranges = list(ranges)
+        return {"valueRanges": []}
+
+
+def test_lote_valido_nao_faz_chamadas_individuais(monkeypatch):
+    planilha = PlanilhaLoteSucesso()
+    monkeypatch.setattr(lote, "conectar_google_sheets", lambda: planilha)
+
+    resultado = lote.carregar_dados_excel_lote(
+        ["UBS André Carloni", "UBS Feu Rosa"]
+    )
+
+    assert len(resultado["UBS André Carloni"][0]) == 1
+    assert len(resultado["UBS Feu Rosa"][0]) == 1
+    assert len(planilha.batch_ranges) == 2
+    assert planilha.chamadas == []
+
+
+def test_resposta_lote_incompleta_dispara_fallback_individual(monkeypatch):
+    planilha = PlanilhaLoteIncompleto()
+    monkeypatch.setattr(lote, "conectar_google_sheets", lambda: planilha)
+
+    resultado = lote.carregar_dados_excel_lote(
+        ["UBS André Carloni", "UBS Feu Rosa"]
+    )
+
+    assert len(resultado["UBS André Carloni"][0]) == 1
+    assert len(resultado["UBS Feu Rosa"][0]) == 1
+    assert len(planilha.chamadas) == 2
