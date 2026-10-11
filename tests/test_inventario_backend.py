@@ -346,7 +346,7 @@ def test_falha_google_com_postgresql_ok_mantem_cadastro_e_pendente(monkeypatch):
         "UBS Teste",
         "Dell",
     ) is True
-    assert backend.st.session_state.get("sheets_sync_pendente") is not True
+    assert backend.st.session_state.get("sheets_sync_pendente") is True
     assert not avisos
     assert backend.st.session_state["ultimo_patrimonio_id"] == 123
 
