@@ -10,7 +10,10 @@ import pytest
 from inventario_sheets_outbox_worker import (
     _canonical_header_positions,
 )
-from google_sheets_schema import _canonicalize_values
+from google_sheets_schema import (
+    _canonicalize_values,
+    auditar_e_padronizar_abas_inventario,
+)
 
 
 CANONICAL = [
@@ -59,6 +62,43 @@ def test_schema_reports_local_setor_as_ambiguous():
     ])
     assert "Setor" in info["conflicts"]
 
+
+
+class FakeWorksheet:
+    title = "URS Novo Horizonte"
+
+    def __init__(self, values):
+        self.values = values
+        self.update_calls = 0
+
+    def get_all_values(self, value_render_option=None):
+        return self.values
+
+    def update(self, **kwargs):
+        self.update_calls += 1
+
+
+class FakeSpreadsheet:
+    def __init__(self, worksheet):
+        self.worksheet = worksheet
+        self.batch_update_calls = 0
+
+    def worksheets(self):
+        return [self.worksheet]
+
+    def batch_update(self, payload):
+        self.batch_update_calls += 1
+
+
+def test_schema_audit_only_mode_performs_no_sheet_writes():
+    worksheet = FakeWorksheet([CANONICAL, ["TI", "Computador", "X-1", "Dell", "2026-01-02"]])
+    spreadsheet = FakeSpreadsheet(worksheet)
+
+    report = auditar_e_padronizar_abas_inventario(spreadsheet, aplicar=False)
+
+    assert report["abas_verificadas"] == 1
+    assert worksheet.update_calls == 0
+    assert spreadsheet.batch_update_calls == 0
 
 def test_manual_sync_workflow_never_enables_validation_removal():
     workflow = Path(".github/workflows/inventario-sync.yml").read_text(
