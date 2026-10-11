@@ -104,6 +104,9 @@ CANONICAL_REQUIRED = [
 ]
 HEADER_ALIASES = {
     "setor": "Setor",
+    # Tratado como alias para detectar ambiguidade com a coluna canônica Setor.
+    # A migração de dados legados precisa ser explícita; o worker não escolhe uma coluna.
+    "local setor": "Setor",
     "tipo de patrimonio": "Tipo de Patrimônio",
     "tipo patrimonio": "Tipo de Patrimônio",
     "n de patrimonio": "Nº de Patrimônio",
@@ -123,11 +126,20 @@ def _header_key(value: str) -> str:
 
 
 def _canonical_header_positions(header: list[str]) -> dict[str, int]:
-    positions = {}
+    """Resolve canonical columns and fail closed on ambiguous duplicate headers."""
+    positions: dict[str, int] = {}
     for index, value in enumerate(header):
         canonical = HEADER_ALIASES.get(_header_key(value), str(value or "").strip())
-        if canonical in CANONICAL_REQUIRED and canonical not in positions:
-            positions[canonical] = index
+        if canonical not in CANONICAL_REQUIRED:
+            continue
+        if canonical in positions:
+            first = positions[canonical] + 1
+            duplicate = index + 1
+            raise RuntimeError(
+                f"Cabeçalho canônico duplicado '{canonical}' nas colunas "
+                f"{first} e {duplicate}; sincronização bloqueada."
+            )
+        positions[canonical] = index
     return positions
 
 
