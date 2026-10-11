@@ -207,10 +207,10 @@ def _canonical_photo_header(value: str) -> str:
     """Normaliza somente aliases conhecidos para detectar colunas ambíguas."""
     raw = str(value or "").strip()
     key = re.sub(r"[^a-z0-9]+", " ", raw.casefold()).strip()
-    key = re.sub(r"\\s+", " ", key)
+    key = re.sub(r"\s+", " ", key)
     if key in {"n de patrimonio", "n patrimonio", "numero de patrimonio", "numero patrimonio"}:
         return "Nº de Patrimônio"
-    match = re.fullmatch(r"foto\\s+0*(\\d+)", key)
+    match = re.fullmatch(r"foto\s+0*(\d+)", key)
     if match:
         return f"Foto {int(match.group(1)):02d}"
     return raw
