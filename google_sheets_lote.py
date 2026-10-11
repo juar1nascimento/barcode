@@ -90,9 +90,7 @@ def _carregar_lote_cache(unidades: tuple[str, ...]) -> dict[str, tuple[pd.DataFr
                 )
                 if not valores_individuais and alias:
                     try:
-                        intervalo_alias = f"'{
-                            _escapar_nome_aba(alias)
-                        }'!A:Z".replace("\n", "")
+                        intervalo_alias = f"'{_escapar_nome_aba(alias)}'!A:Z"
                         alternativa = planilha.values_get(
                             intervalo_alias,
                             params={"majorDimension": "ROWS"},
