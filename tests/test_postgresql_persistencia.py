@@ -285,3 +285,50 @@ def test_excluir_patrimonio_nao_expoe_erro_interno(monkeypatch):
     assert "senha" not in message.lower()
     assert "Não foi possível excluir" in message
     conn.rollback.assert_called_once()
+
+
+def test_salvar_patrimonio_enfileira_evento_outbox(monkeypatch):
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchone.return_value = (123,)
+    monkeypatch.setattr(db, "conectar", lambda: conn)
+    monkeypatch.setattr(db, "garantir_unidade", lambda cur, unidade: 1)
+    monkeypatch.setattr(db, "garantir_setor", lambda cur, unidade_id, setor: 2)
+
+    ok, ids, _ = db.salvar_patrimonios_em_lote([{
+        "numero_patrimonio": "TESTE-OUTBOX-001",
+        "tipo": "Computador",
+        "setor": "Recepcao",
+        "unidade": "Unidade de Teste",
+    }])
+
+    assert ok is True
+    assert ids == [123]
+    outbox_calls = [c for c in cur.execute.call_args_list if "patrimonios_sheets_outbox" in str(c.args[0])]
+    assert len(outbox_calls) == 1
+    assert outbox_calls[0].args[1] == (123,)
+    conn.commit.assert_called_once()
+    conn.rollback.assert_not_called()
+
+
+def test_salvar_patrimonio_reverte_se_outbox_falhar(monkeypatch):
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchone.return_value = (124,)
+    cur.execute.side_effect = [None, None, None, RuntimeError("falha simulada no outbox")]
+    monkeypatch.setattr(db, "conectar", lambda: conn)
+    monkeypatch.setattr(db, "garantir_unidade", lambda cur, unidade: 1)
+    monkeypatch.setattr(db, "garantir_setor", lambda cur, unidade_id, setor: 2)
+
+    ok, ids, mensagem = db.salvar_patrimonios_em_lote([{
+        "numero_patrimonio": "TESTE-OUTBOX-002",
+        "tipo": "Computador",
+        "setor": "Recepcao",
+        "unidade": "Unidade de Teste",
+    }])
+
+    assert ok is False
+    assert ids == []
+    assert "revertido" in mensagem.lower()
+    conn.rollback.assert_called_once()
+    conn.commit.assert_not_called()
