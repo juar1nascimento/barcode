@@ -76,11 +76,11 @@ EOF
 
 cat > "$UNIT_DIR/gti-sesa-photo-mirror.timer" <<'EOF'
 [Unit]
-Description=Executa o espelhamento de fotos GTI SESA a cada 15 minutos
+Description=Executa o espelhamento de fotos GTI SESA a cada 5 minutos
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=15min
+OnUnitActiveSec=5min
 Persistent=true
 Unit=gti-sesa-photo-mirror.service
 
@@ -107,7 +107,7 @@ set +a
 
 if [[ "$ENABLE" -eq 1 ]]; then
   systemctl --user enable --now gti-sesa-photo-mirror.timer
-  echo "Timer habilitado: execução a cada 15 minutos."
+  echo "Timer habilitado: execução a cada 5 minutos."
   echo "Ver logs: journalctl --user -u gti-sesa-photo-mirror.service -n 100 --no-pager"
 else
   echo "Timer ainda NÃO habilitado."
