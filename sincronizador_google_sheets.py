@@ -139,7 +139,7 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                     SELECT id
                       FROM {tabela}
                      WHERE (
-                         status='pending'
+                         status IN ('pending', 'failed')
                          AND proxima_tentativa_em <= now()
                          AND tentativas < %s
                      ) OR (
@@ -209,6 +209,11 @@ def _buscar_patrimonio(patrimonio_id: int) -> dict:
 
 
 def _espelhar_patrimonio(item: dict) -> None:
+    """Espelha um patrimônio e só retorna após confirmar a linha no Sheets.
+
+    Falha fechada diante de duplicatas: não escolhe arbitrariamente a primeira
+    linha, pois isso poderia atualizar um patrimônio diferente do esperado.
+    """
     patrimonio = _buscar_patrimonio(item["patrimonio_id"])
     planilha = conectar_google_sheets()
     if not planilha:
@@ -231,13 +236,65 @@ def _espelhar_patrimonio(item: dict) -> None:
         patrimonio["data"],
         patrimonio["codigo"],
     ]
-    atuais = _sheets_call("get_all_values", aba.get_all_values)
-    for indice, linha in enumerate(atuais[1:], start=2):
-        if len(linha) > 2 and _chave_texto(linha[2]) == _chave_texto(patrimonio["numero"]):
-            _sheets_call("update_patrimonio", lambda: aba.update(values=[valores], range_name=f"A{indice}:{_coluna(len(COLUNAS_INVENTARIO))}{indice}", value_input_option="RAW"))
-            return
+    chave = _chave_texto(patrimonio["numero"])
 
-    _sheets_call("append_patrimonio", lambda: aba.append_row(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS"))
+    atuais = _sheets_call("get_all_values_before_write", aba.get_all_values)
+    linhas_correspondentes = [
+        indice
+        for indice, linha in enumerate(atuais[1:], start=2)
+        if len(linha) > 2 and _chave_texto(linha[2]) == chave
+    ]
+    if len(linhas_correspondentes) > 1:
+        raise RuntimeError(
+            f"Contrato violado: patrimônio {patrimonio['numero']} aparece "
+            f"{len(linhas_correspondentes)} vezes na aba {aba.title}; escrita bloqueada."
+        )
+
+    if linhas_correspondentes:
+        indice = linhas_correspondentes[0]
+        _sheets_call(
+            "update_patrimonio",
+            lambda: aba.update(
+                values=[valores],
+                range_name=f"A{indice}:{_coluna(len(COLUNAS_INVENTARIO))}{indice}",
+                value_input_option="RAW",
+            ),
+        )
+    else:
+        _sheets_call(
+            "append_patrimonio",
+            lambda: aba.append_row(
+                valores,
+                value_input_option="RAW",
+                insert_data_option="INSERT_ROWS",
+            ),
+        )
+
+    # A API de escrita retornar sucesso não basta: reler a aba e verificar
+    # unicidade + os seis campos antes de permitir marcar o outbox como synced.
+    confirmados = _sheets_call("get_all_values_readback", aba.get_all_values)
+    linhas_confirmadas = [
+        linha
+        for linha in confirmados[1:]
+        if len(linha) > 2 and _chave_texto(linha[2]) == chave
+    ]
+    if len(linhas_confirmadas) != 1:
+        raise RuntimeError(
+            f"Readback inconclusivo: patrimônio {patrimonio['numero']} "
+            f"aparece {len(linhas_confirmadas)} vezes na aba {aba.title} após a escrita."
+        )
+
+    linha_confirmada = linhas_confirmadas[0]
+    esperado = [str(valor or "").strip() for valor in valores]
+    obtido = [
+        str(linha_confirmada[i] if i < len(linha_confirmada) else "").strip()
+        for i in range(len(valores))
+    ]
+    if obtido != esperado:
+        raise RuntimeError(
+            f"Readback divergente para patrimônio {patrimonio['numero']} "
+            f"na aba {aba.title}; outbox não será marcado como sincronizado."
+        )
 
 
 def _buscar_foto(foto_id: int) -> dict:
