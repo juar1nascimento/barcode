@@ -319,3 +319,80 @@ def test_legacy_photo_header_normalization_matches_numeric_suffix(monkeypatch):
     assert headers == ["Foto 01", "Foto 02", "Foto 10", "Foto 13"]
     assert worksheet.updated == headers
 
+
+
+class FakeInventoryWorksheet:
+    title = "URS Teste"
+
+    def __init__(self, values):
+        self.values = [list(row) for row in values]
+
+    def get_all_values(self):
+        return [list(row) for row in self.values]
+
+    def append_row(self, values, **kwargs):
+        self.values.append(list(values))
+
+    def update(self, *, values, range_name, **kwargs):
+        import re
+        match = re.fullmatch(r"A(\\d+):([A-Z]+)(\\d+)", range_name)
+        assert match is not None
+        row_number = int(match.group(1))
+        while len(self.values) < row_number:
+            self.values.append([])
+        self.values[row_number - 1] = list(values[0])
+
+
+def _prepare_inventory_mirror(monkeypatch, worksheet):
+    import sincronizador_google_sheets as sync
+
+    monkeypatch.setattr(
+        sync, "_buscar_patrimonio",
+        lambda patrimonio_id: {
+            "id": patrimonio_id, "numero": "GTI-TEST-01", "codigo": "BC-01",
+            "tipo": "Computador", "fabricante": "Dell", "data": "2026-10-12",
+            "unidade": "URS Teste", "setor": "TI",
+        },
+    )
+    monkeypatch.setattr(sync, "conectar_google_sheets", lambda: object())
+    monkeypatch.setattr(sync, "_obter_aba_gravacao", lambda *args: worksheet)
+    monkeypatch.setattr(sync, "_normalizar_unidade_aba", lambda value: value)
+    monkeypatch.setattr(sync, "_garantir_coluna_patrimonio_texto", lambda aba: None)
+    monkeypatch.setattr(sync, "_garantir_cabecalho_moderno", lambda aba: True)
+    monkeypatch.setattr(sync, "_sheets_call", lambda label, operation: operation())
+
+
+def test_inventory_mirror_confirms_row_after_append(monkeypatch):
+    import sincronizador_google_sheets as sync
+
+    worksheet = FakeInventoryWorksheet([CANONICAL + ["Código de Barras"]])
+    _prepare_inventory_mirror(monkeypatch, worksheet)
+
+    sync._espelhar_patrimonio({"patrimonio_id": 123})
+
+    assert len(worksheet.values) == 2
+    assert worksheet.values[1][:6] == ["TI", "Computador", "GTI-TEST-01", "Dell", "2026-10-12", "BC-01"]
+
+
+def test_inventory_mirror_fails_when_readback_values_do_not_match(monkeypatch):
+    import sincronizador_google_sheets as sync
+
+    worksheet = FakeInventoryWorksheet([
+        CANONICAL + ["Código de Barras"],
+        ["TI", "Computador", "GTI-TEST-01", "Outro fabricante", "2026-10-12", "BC-01"],
+    ])
+    _prepare_inventory_mirror(monkeypatch, worksheet)
+
+    with pytest.raises(RuntimeError, match="não confirmou o campo"):
+        sync._espelhar_patrimonio({"patrimonio_id": 123})
+
+
+def test_inventory_mirror_fails_when_duplicate_rows_match_number(monkeypatch):
+    import sincronizador_google_sheets as sync
+
+    row = ["TI", "Computador", "GTI-TEST-01", "Dell", "2026-10-12", "BC-01"]
+    worksheet = FakeInventoryWorksheet([CANONICAL + ["Código de Barras"], row, row])
+    _prepare_inventory_mirror(monkeypatch, worksheet)
+
+    with pytest.raises(RuntimeError, match="não confirmou uma única linha"):
+        sync._espelhar_patrimonio({"patrimonio_id": 123})
