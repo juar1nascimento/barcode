@@ -256,21 +256,39 @@ def conectar_google_sheets():
     except Exception:
         secrets = {}
 
-    sec = {}
+    # Os Secrets podem separar credenciais (gcp_service_account) e destino
+    # (connections.gsheets). Combine-os sem descartar a conta de serviço.
+    gcp_sec = secrets.get("gcp_service_account", {})
+    if not isinstance(gcp_sec, dict):
+        gcp_sec = {}
     connections = secrets.get("connections", {})
-    if isinstance(connections, dict) and isinstance(connections.get("gsheets"), dict):
-        sec = dict(connections["gsheets"])
-    elif isinstance(secrets.get("gcp_service_account"), dict):
-        sec = dict(secrets["gcp_service_account"])
+    gsheets_sec = (
+        connections.get("gsheets", {})
+        if isinstance(connections, dict)
+        else {}
+    )
+    if not isinstance(gsheets_sec, dict):
+        gsheets_sec = {}
+    sec = {**gcp_sec, **gsheets_sec}
 
-    # Variáveis de ambiente são fallback; não sobrescrevem Secrets já configurados.
+    # Use as variáveis de ambiente quando os Secrets não contêm credenciais
+    # completas, mesmo que a seção gsheets contenha apenas o destino da planilha.
+    campos_credenciais = ("project_id", "private_key", "client_email", "token_uri")
+    credenciais_incompletas = any(
+        not str(sec.get(campo) or "").strip() for campo in campos_credenciais
+    )
     credenciais_json = (
         os.getenv("GOOGLE_SHEETS_CREDENTIALS")
         or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     )
-    if not sec and credenciais_json:
+    if credenciais_incompletas and credenciais_json:
         try:
-            sec = json.loads(credenciais_json)
+            credenciais_env = json.loads(credenciais_json)
+            if not isinstance(credenciais_env, dict):
+                raise ValueError("JSON deve conter um objeto")
+            # Secrets explícitos mantêm prioridade; ambiente completa apenas
+            # campos ausentes e nunca sobrescreve valores já configurados.
+            sec = {**credenciais_env, **sec}
         except (TypeError, ValueError):
             st.session_state["sheets_sync_conexao_erro"] = (
                 "JSON das credenciais Google inválido (JSONDecodeError/ValueError). "
