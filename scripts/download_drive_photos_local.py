@@ -200,9 +200,10 @@ def walk_drive(service, folder_id: str, relative: Path, root: Path,
             # Non-destructive mirror: never replace a pre-existing local file whose
             # contents differ from the Drive object. Preserve it and report conflict.
             stats["conflicts_preserved"] += 1
+            drive_id = item.get("id", "unknown")
             print(
                 f"CONFLITO LOCAL (preservado; sem sobrescrita) | {relative / name} "
-                f"| drive_id={item.get("id")}"
+                f"| drive_id={drive_id}"
             )
             continue
 
