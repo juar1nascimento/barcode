@@ -26,6 +26,8 @@ jobs:
       GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+      OUTBOX_BATCH_SIZE: "20"
+      OUTBOX_MAX_ATTEMPTS: "12"
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -47,33 +49,6 @@ jobs:
       - name: Validate no hardcoded secret patterns
         run: |
           ! git grep -nE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@|AIza[0-9A-Za-z_-]{20,}|sb_secret_[A-Za-z0-9_-]+' -- ':!tests/**' ':!.github/workflows/**'
-
-  sync-patrimonios:
-    name: Sync patrimonies
-    needs: validate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      GTI_DB_HOST: ${{ secrets.GTI_DB_HOST }}
-      GTI_DB_NAME: ${{ secrets.GTI_DB_NAME }}
-      GTI_DB_USER: ${{ secrets.GTI_DB_USER }}
-      GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
-      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
-      GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
-      OUTBOX_BATCH_SIZE: "20"
-      OUTBOX_MAX_ATTEMPTS: "12"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - name: Configure Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install dependencies
-        run: python -m pip install -r requirements.txt
       - name: Prepare PostgreSQL connection
         run: python scripts/prepare_gti_database.py
       - name: Process patrimony outbox
@@ -81,7 +56,7 @@ jobs:
 
   sync-fotos:
     name: Sync photos to Drive links
-    needs: [validate, sync-patrimonios]
+    needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
