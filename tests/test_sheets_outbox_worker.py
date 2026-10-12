@@ -41,3 +41,46 @@ def test_sheets_call_does_not_retry_permanent_client_error(monkeypatch):
         worker._sheets_call("test_bad_request", callback, attempts=4)
 
     assert calls["count"] == 1
+
+
+
+def test_defer_dependency_requeues_without_consuming_attempts():
+    class FakeCursor:
+        def __init__(self):
+            self.query = ""
+            self.params = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params):
+            self.query = query
+            self.params = params
+
+    class FakeConnection:
+        def __init__(self):
+            self.fake_cursor = FakeCursor()
+            self.commits = 0
+
+        def cursor(self):
+            return self.fake_cursor
+
+        def commit(self):
+            self.commits += 1
+
+    conn = FakeConnection()
+    worker.defer_dependency(conn, 17, "Drive URL not ready")
+
+    query = " ".join(conn.fake_cursor.query.split())
+    assert "SET status='pending'" in query
+    assert "tentativas=GREATEST(tentativas - 1, 0)" in query
+    assert "interval '5 minutes'" in query
+    assert conn.fake_cursor.params == ("Drive URL not ready", 17)
+    assert conn.commits == 1
+
+
+def test_missing_drive_url_is_classified_as_dependency_not_permanent_failure():
+    assert issubclass(worker.DependencyNotReady, RuntimeError)
