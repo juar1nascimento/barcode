@@ -197,6 +197,14 @@ def walk_drive(service, folder_id: str, relative: Path, root: Path,
                 stats["already_current"] += 1
                 print(f"OK LOCAL | {relative / name}")
                 continue
+            # Non-destructive mirror: never replace a pre-existing local file whose
+            # contents differ from the Drive object. Preserve it and report conflict.
+            stats["conflicts_preserved"] += 1
+            print(
+                f"CONFLITO LOCAL (preservado; sem sobrescrita) | {relative / name} "
+                f"| drive_id={item.get("id")}"
+            )
+            continue
 
         if not download:
             stats["would_download"] += 1
@@ -234,7 +242,7 @@ def main() -> int:
     if root_meta.get("mimeType") != "application/vnd.google-apps.folder":
         raise RuntimeError("GOOGLE_DRIVE_ROOT_ID não aponta para uma pasta do Drive.")
 
-    stats = {"images_found": 0, "already_current": 0, "would_download": 0, "downloaded": 0}
+    stats = {"images_found": 0, "already_current": 0, "would_download": 0, "downloaded": 0, "conflicts_preserved": 0}
     print(f"Origem Drive: {root_meta.get('name')} (ID ocultado)")
     print(f"Destino local: {root}")
     print("Filtro: somente MIME type image/*; nenhum outro tipo será baixado.")
