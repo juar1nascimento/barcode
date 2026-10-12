@@ -30,6 +30,11 @@ PHOTO_URL_REFRESH_THRESHOLD_SECONDS = 7_200
 SHEETS_RENEWAL_MAX_ROWS = max(1, int(os.getenv("SHEETS_RENEWAL_MAX_ROWS", "5000")))
 
 
+class DependencyNotReady(RuntimeError):
+    """A prerequisite is still being delivered by another asynchronous worker."""
+
+
+
 def env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
@@ -284,6 +289,23 @@ def mark(conn, outbox_id: int, status: str, error: str | None = None, max_attemp
     conn.commit()
 
 
+def defer_dependency(conn, outbox_id: int, error: str) -> None:
+    """Requeue a photo whose Drive URL is not ready without burning retry attempts."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE public.patrimonio_fotos_sheets_outbox
+                  SET status='pending',
+                      processando_em=NULL,
+                      tentativas=GREATEST(tentativas - 1, 0),
+                      proxima_tentativa_em=now() + interval '5 minutes',
+                      ultimo_erro=%s,
+                      atualizado_em=now()
+                WHERE id=%s""",
+            (str(error or "dependencia ainda não disponível")[:2000], outbox_id),
+        )
+    conn.commit()
+
+
 def reset_stale(conn):
     with conn.cursor() as cur:
         cur.execute(
@@ -354,7 +376,10 @@ def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
     for ordem, drive_url, _drive_name in fotos[:10]:
         drive_url = str(drive_url or "").strip()
         if not drive_url:
-            raise RuntimeError(f"Foto {ordem} do patrimônio {patrimonio_id} ainda não possui URL do Google Drive.")
+            raise DependencyNotReady(
+                f"Foto {ordem} do patrimônio {patrimonio_id} ainda não possui URL do Google Drive; "
+                "evento reagendado sem consumir tentativas."
+            )
         index = int(ordem) - 1
         if index < 0 or index >= 10:
             raise RuntimeError(f"Ordem de foto inválida: {ordem}.")
@@ -403,7 +428,7 @@ def main():
         for outbox_id, patrimonio_id, _foto_id in claimed:
             by_patrimonio.setdefault(int(patrimonio_id), []).append(int(outbox_id))
 
-        synced = failed = 0
+        synced = failed = deferred = 0
         for patrimonio_id, event_ids in by_patrimonio.items():
             started = time.monotonic()
             try:
@@ -418,6 +443,21 @@ def main():
                     "result": "synced",
                     "events_consolidated": len(event_ids),
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                }, ensure_ascii=False))
+            except DependencyNotReady as exc:
+                error = _safe_error(exc)
+                for outbox_id in event_ids:
+                    defer_dependency(conn, outbox_id, error)
+                deferred += len(event_ids)
+                print(json.dumps({
+                    "event": "sheets_outbox_sync",
+                    "patrimonio_id": patrimonio_id,
+                    "outbox_ids": event_ids,
+                    "result": "deferred",
+                    "events_consolidated": len(event_ids),
+                    "retry_after_seconds": 300,
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "error": error[:500],
                 }, ensure_ascii=False))
             except Exception as exc:
                 error = _safe_error(exc)
@@ -440,6 +480,7 @@ def main():
             "claimed": len(claimed),
             "patrimonios_processados": len(by_patrimonio),
             "synced": synced,
+            "deferred": deferred,
             "failed": failed,
             "max_attempts": max_attempts,
         }, ensure_ascii=False))
