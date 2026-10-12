@@ -91,23 +91,27 @@ adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
 
 
 def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
-    """Exibe upload/histórico da foto do último patrimônio gravado nesta unidade."""
-    patrimonio_unidade = st.session_state.get("ultimo_patrimonio_unidade", "")
-    if patrimonio_unidade != unidade:
-        return
+    """Permite anexar/consultar fotos no último registro ou selecionar outro da unidade."""
+    unidade_sessao = st.session_state.get("ultimo_patrimonio_unidade", "")
+    patrimonio_id = (
+        st.session_state.get("ultimo_patrimonio_id")
+        if unidade_sessao == unidade
+        else None
+    )
+    numero = (
+        str(st.session_state.get("ultimo_patrimonio_numero", "") or "").strip()
+        if unidade_sessao == unidade
+        else ""
+    )
 
-    patrimonio_id = st.session_state.get("ultimo_patrimonio_id")
-    if not patrimonio_id:
-        # O fluxo de cadastro guardava o número, mas não o ID retornado pelo banco.
-        # Resolve o ID no PostgreSQL para que o formulário de fotos apareça após salvar.
-        numero = str(st.session_state.get("ultimo_patrimonio_numero", "") or "").strip()
-        if not numero:
+    conn = None
+    try:
+        conn = conectar_postgresql()
+        if conn is None:
+            st.info("O cadastro de fotografias depende da conexão PostgreSQL.")
             return
-        conn = None
-        try:
-            conn = conectar_postgresql()
-            if conn is None:
-                return
+
+        if not patrimonio_id and numero:
             with conn.cursor() as cur:
                 cur.execute(
                     """SELECT p.id
@@ -120,22 +124,57 @@ def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
                     (numero, unidade),
                 )
                 row = cur.fetchone()
-            if not row:
+            if row:
+                patrimonio_id = int(row[0])
+
+        if not patrimonio_id:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT p.id, p.numero_patrimonio, p.tipo
+                         FROM public.patrimonios p
+                         JOIN public.unidades u ON u.id = p.unidade_id
+                        WHERE u.nome = %s
+                          AND COALESCE(p.ativo, TRUE)
+                        ORDER BY p.id DESC
+                        LIMIT 50""",
+                    (unidade,),
+                )
+                registros = cur.fetchall()
+            if not registros:
                 return
-            patrimonio_id = int(row[0])
-            st.session_state["ultimo_patrimonio_id"] = patrimonio_id
-        except Exception:
-            return
-        finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+
+            opcoes = {
+                f"{str(r[1])} — {str(r[2])}": int(r[0])
+                for r in registros
+            }
+            escolhido = st.selectbox(
+                "Selecione o patrimônio para anexar/consultar fotos",
+                options=list(opcoes.keys()),
+                index=0,
+                key=f"selecionar_patrimonio_foto_{unidade}",
+            )
+            patrimonio_id = opcoes.get(escolhido)
+            if patrimonio_id:
+                st.session_state["ultimo_patrimonio_id"] = patrimonio_id
+                st.session_state["ultimo_patrimonio_numero"] = str(
+                    registros[list(opcoes.keys()).index(escolhido)][1]
+                )
+                st.session_state["ultimo_patrimonio_unidade"] = unidade
+    except Exception:
+        st.warning("Não foi possível localizar o patrimônio para anexar fotografias.")
+        return
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    if not patrimonio_id:
+        return
 
     st.divider()
     renderizar_fotos_patrimonio(int(patrimonio_id))
-
 
 
 def _url_publica_foto_site(bucket: str, path: str) -> str:
