@@ -549,7 +549,15 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
                         numero, codigo, fabricante,
                     ),
                 )
-                ids.append(cur.fetchone()[0])
+                patrimonio_id = cur.fetchone()[0]
+                # O evento de espelhamento faz parte da mesma transação do cadastro.
+                # Assim, o patrimônio não pode ser confirmado sem deixar rastreio na fila.
+                cur.execute(
+                    """INSERT INTO public.patrimonios_sheets_outbox (patrimonio_id, evento)
+                       VALUES (%s, 'upsert')""",
+                    (patrimonio_id,),
+                )
+                ids.append(patrimonio_id)
         conn.commit()
         return True, ids, "Lote gravado integralmente no PostgreSQL."
     except Exception as exc:
