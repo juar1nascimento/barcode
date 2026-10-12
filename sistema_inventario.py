@@ -144,7 +144,7 @@ def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
                 return
 
             opcoes = {
-                f"{str(r[1])} — {str(r[2])}": int(r[0])
+                f"{str(r[1])} — {str(r[2])}": (int(r[0]), str(r[1]))
                 for r in registros
             }
             escolhido = st.selectbox(
@@ -153,12 +153,11 @@ def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
                 index=0,
                 key=f"selecionar_patrimonio_foto_{unidade}",
             )
-            patrimonio_id = opcoes.get(escolhido)
-            if patrimonio_id:
+            selecionado = opcoes.get(escolhido)
+            patrimonio_id = int(selecionado[0]) if selecionado else None
+            if selecionado:
                 st.session_state["ultimo_patrimonio_id"] = patrimonio_id
-                st.session_state["ultimo_patrimonio_numero"] = str(
-                    registros[list(opcoes.keys()).index(escolhido)][1]
-                )
+                st.session_state["ultimo_patrimonio_numero"] = selecionado[1]
                 st.session_state["ultimo_patrimonio_unidade"] = unidade
     except Exception:
         st.warning("Não foi possível localizar o patrimônio para anexar fotografias.")
