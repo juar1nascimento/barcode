@@ -2,8 +2,10 @@ name: Inventário GTI SESA - Google Sheets Sync
 
 on:
   workflow_dispatch:
+  # Roda cinco minutos após cada janela do Drive Worker (07/22/37/52 UTC).
+  # O worker de fotos também reencaminha com segurança quando o Drive ainda não concluiu.
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "12,27,42,57 * * * *"
   push:
     branches: [main]
     paths:
