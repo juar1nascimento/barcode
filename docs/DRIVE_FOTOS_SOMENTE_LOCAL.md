@@ -53,6 +53,50 @@ O script baixa para um arquivo temporário, valida tamanho e MD5 quando o Drive 
 
 Depois que a primeira execução for validada no computador, a mesma linha com `--download` pode ser agendada pelo Agendador de Tarefas do Windows. A tarefa precisa rodar com uma conta que consiga ler a credencial e gravar na pasta local. Não agende o worker original com `--live`.
 
+
+## Linux/Ubuntu — instalação automática não destrutiva
+
+O destino padrão Linux deste projeto é `$HOME/GTI-SESA/Fotos`. O instalador cria um ambiente Python isolado e um timer de usuário do systemd para executar o espelhamento a cada 15 minutos. Ele reaproveita `scripts/download_drive_photos_local.py`, que usa escopo Google Drive somente leitura e percorre a raiz configurada, preservando a hierarquia das pastas.
+
+### Instalação no computador Ubuntu
+
+Na raiz do repositório `~/barcode-download-worker` (ou na pasta local em que o repositório foi clonado):
+
+```bash
+bash scripts/install_local_photo_mirror_linux.sh
+```
+
+O instalador espera a credencial JSON em `~/.config/gti-sesa/drive-reader.json`. Se ela ainda não estiver nessa localização, copie o arquivo de credencial existente para esse caminho localmente, com permissões restritas; nunca o coloque no GitHub ou no chat. O instalador cria `~/.config/gti-sesa/local-photo-mirror.env` com a raiz do Drive já definida no projeto e o destino `$HOME/GTI-SESA/Fotos`, instala as dependências numa `.venv` e executa uma simulação. A primeira execução não ativa o timer.
+
+Depois de revisar a prévia e confirmar que a conta de serviço tem acesso de leitura à pasta do Drive, habilite a rotina:
+
+```bash
+bash scripts/install_local_photo_mirror_linux.sh --enable
+```
+
+### Operação e logs
+
+```bash
+systemctl --user status gti-sesa-photo-mirror.timer
+journalctl --user -u gti-sesa-photo-mirror.service -n 100 --no-pager
+```
+
+O timer roda a cada 15 minutos enquanto a sessão de usuário/sistema permitir os timers de usuário. Para parar a automação:
+
+```bash
+systemctl --user disable --now gti-sesa-photo-mirror.timer
+```
+
+### Garantias e limites
+
+- Somente arquivos com MIME type `image/*` são baixados.
+- A credencial usa escopo `drive.readonly`; o worker não move, renomeia nem exclui nada no Drive.
+- Cada download vai primeiro para um arquivo temporário e só é finalizado após validação de tamanho e MD5 quando o Drive disponibiliza esse hash.
+- Se já existir um arquivo local com o mesmo caminho, mas conteúdo/tamanho diferente, a rotina agora preserva o arquivo local e registra `CONFLITO LOCAL`; não o sobrescreve nem apaga.
+- Arquivos locais não são removidos automaticamente.
+- O computador precisa estar ligado, com rede disponível, e a conta de serviço deve ter acesso à pasta raiz do Drive.
+- O chat pode preparar e versionar os componentes, mas não consegue instalar o serviço, acessar a credencial privada nem gravar diretamente no disco do Ubuntu. A instalação final precisa ser executada no próprio computador.
+
 ## Limite operacional
 
 O código está preparado no repositório, mas a execução real depende do computador de destino, da credencial local e do acesso de leitura à pasta raiz. Não se pode afirmar que fotos já foram baixadas sem um log produzido no próprio computador.
