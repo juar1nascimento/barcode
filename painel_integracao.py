@@ -109,12 +109,21 @@ def renderizar_painel_integracao():
     st.caption("O PostgreSQL continua sendo a fonte operacional; este processamento apenas consome a fila de espelhamento.")
     if st.button("▶️ Processar fila agora", type="primary", use_container_width=True):
         with st.spinner("Processando eventos pendentes..."):
-            resultado = processar_fila_google_sheets(limit=25)
-        st.success(
-            f"Processamento concluído: {resultado['sucesso']} sucesso(s), "
-            f"{resultado['falhas']} falha(s), {resultado['processados']} evento(s) analisado(s)."
-        )
-        st.rerun()
+            try:
+                resultado = processar_fila_google_sheets(limit=25)
+            except RuntimeError as exc:
+                # Falhas operacionais esperadas devem aparecer no painel, sem derrubar o app.
+                st.error(f"Sincronização interrompida: {exc}")
+                st.info(
+                    "Nenhuma confirmação de sincronização deve ser presumida. "
+                    "Consulte os detalhes do erro e a saúde da fila antes de tentar novamente."
+                )
+            else:
+                st.success(
+                    f"Processamento concluído: {resultado['sucesso']} sucesso(s), "
+                    f"{resultado['falhas']} falha(s), {resultado['processados']} evento(s) analisado(s)."
+                )
+                st.rerun()
 
     st.divider()
 
