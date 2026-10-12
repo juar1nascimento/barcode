@@ -315,7 +315,7 @@ def test_salvar_patrimonio_reverte_se_outbox_falhar(monkeypatch):
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
     cur.fetchone.return_value = (124,)
-    cur.execute.side_effect = [None, None, None, RuntimeError("falha simulada no outbox")]
+    cur.execute.side_effect = [None, RuntimeError("falha simulada no outbox")]
     monkeypatch.setattr(db, "conectar", lambda: conn)
     monkeypatch.setattr(db, "garantir_unidade", lambda cur, unidade: 1)
     monkeypatch.setattr(db, "garantir_setor", lambda cur, unidade_id, setor: 2)
