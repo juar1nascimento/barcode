@@ -193,6 +193,31 @@ def _safe_error(error: Exception | str) -> str:
     return value[:500]
 
 
+def _sheets_call(operation: str, callback, attempts: int = 4):
+    """Execute uma chamada à API Sheets com retry limitado para falhas transitórias."""
+    if attempts < 1:
+        raise ValueError("attempts deve ser maior que zero.")
+    retryable_statuses = {429, 500, 502, 503, 504}
+    for attempt in range(attempts):
+        try:
+            return callback()
+        except Exception as exc:
+            response = getattr(exc, "response", None)
+            status = getattr(response, "status_code", None)
+            retryable = (
+                status in retryable_statuses
+                or isinstance(
+                    exc,
+                    (requests.exceptions.Timeout, requests.exceptions.ConnectionError),
+                )
+            )
+            if not retryable or attempt + 1 >= attempts:
+                raise RuntimeError(
+                    f"Google Sheets operation {operation} failed: {_safe_error(exc)}"
+                ) from exc
+            time.sleep(min(2 ** attempt, 8))
+
+
 def open_spreadsheet(client):
     spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID", "").strip()
     spreadsheet_url = os.getenv("GOOGLE_SPREADSHEET_URL", "").strip()
