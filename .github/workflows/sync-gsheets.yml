@@ -6,12 +6,6 @@ on:
   # O worker de fotos também reencaminha com segurança quando o Drive ainda não concluiu.
   schedule:
     - cron: "12,27,42,57 * * * *"
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/sync-gsheets.yml"
-      - "sheets_outbox_worker.py"
-      - "tests/test_sheets_outbox_worker.py"
 
 permissions:
   contents: read
