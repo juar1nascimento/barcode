@@ -443,6 +443,8 @@ def main():
             "failed": failed,
             "max_attempts": max_attempts,
         }, ensure_ascii=False))
+        if failed:
+            raise SystemExit(2)
     finally:
         conn.close()
 
