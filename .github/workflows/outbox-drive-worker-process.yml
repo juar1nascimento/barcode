@@ -2,6 +2,14 @@ name: Inventário GTI SESA - Drive Worker Process
 
 on:
   workflow_dispatch:
+  # Processa um item por execução, com concorrência serializada e preflight antes de qualquer gravação.
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  # Dispara um canário automático apenas quando esta configuração é alterada.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/outbox-drive-worker-process.yml"
 
 permissions:
   contents: read
@@ -54,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          http_status="$(curl --silent --show-error             --request POST             --url "${SUPABASE_URL}/functions/v1/outbox-drive-worker"             --header "Authorization: Bearer ${SUPABASE_SECRET_KEY}"             --header "Content-Type: application/json"             --data '{"mode":"process","limit":1}'             --output /tmp/worker-response.json             --write-out '%{http_code}')"
+          http_status="$(curl --silent --show-error --request POST --url "${SUPABASE_URL}/functions/v1/outbox-drive-worker" --header "Authorization: Bearer ${SUPABASE_SECRET_KEY}" --header "Content-Type: application/json" --data '{"mode":"process","limit":1}' --output /tmp/worker-response.json --write-out '%{http_code}')"
 
           echo "HTTP_STATUS=${http_status}"
           cat /tmp/worker-response.json
