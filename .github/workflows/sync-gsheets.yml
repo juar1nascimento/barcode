@@ -145,7 +145,10 @@ jobs:
           cat /tmp/gti-drive-process.json
           test "${process_status}" -ge 200 && test "${process_status}" -lt 300
           jq -e '.ok == true and .mode == "process" and .claimed_changes <= 1 and .synced_changes <= 1' /tmp/gti-drive-process.json
-          jq -e '([.results[]? | select(.status == "failed")] | length) == 0' /tmp/gti-drive-process.json
+          jq -r '"DRIVE_RESULT: claimed=" + ((.claimed_changes // 0)|tostring) + " synced=" + ((.synced_changes // 0)|tostring) + " failed=" + (([.results[]? | select(.status == "failed")]|length)|tostring)' /tmp/gti-drive-process.json
+          if jq -e '([.results[]? | select(.status == "failed")] | length) > 0' /tmp/gti-drive-process.json >/dev/null; then
+            echo "::warning::O Drive Worker reportou falha em um item; o worker do Sheets ainda tentará sincronizar links já disponíveis e reagendará dependências pendentes."
+          fi
 
       - name: Process photo outbox
         run: python sheets_outbox_worker.py
