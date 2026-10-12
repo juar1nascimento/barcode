@@ -377,7 +377,12 @@ def test_inventory_mirror_confirms_row_after_append(monkeypatch):
 def test_inventory_mirror_fails_when_readback_values_do_not_match(monkeypatch):
     import sincronizador_google_sheets as sync
 
-    worksheet = FakeInventoryWorksheet([
+    class NonPersistingWorksheet(FakeInventoryWorksheet):
+        def update(self, *, values, range_name, **kwargs):
+            # Simula uma API que não persiste a alteração; a releitura deve detectar.
+            return None
+
+    worksheet = NonPersistingWorksheet([
         CANONICAL + ["Código de Barras"],
         ["TI", "Computador", "GTI-TEST-01", "Outro fabricante", "2026-10-12", "BC-01"],
     ])
