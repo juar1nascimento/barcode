@@ -38,6 +38,8 @@ UNIDADES_INVENTARIO = tuple(
 # Compatibilidade somente de cabeçalho. Valores de dados não são inventados.
 HEADER_ALIASES = {
     "setor": "Setor",
+    # Alias temporário para bloquear normalização automática de estruturas ambíguas.
+    "local setor": "Setor",
     "tipo de patrimonio": "Tipo de Patrimônio",
     "tipo patrimonio": "Tipo de Patrimônio",
     "n de patrimonio": "Nº de Patrimônio",
@@ -231,14 +233,17 @@ def auditar_e_padronizar_abas_inventario(spreadsheet, *, aplicar: bool = True) -
             elif not info["changed"]:
                 relatorio["abas_ok"] += 1
 
-            structure_requests.extend(_structure_requests(worksheet, len(normalized[0])))
+            if aplicar:
+                structure_requests.extend(_structure_requests(worksheet, len(normalized[0])))
             detalhe["status"] = "corrigida" if info["changed"] and aplicar else "ok"
             relatorio["detalhes"].append(detalhe)
         except Exception as exc:
             relatorio["erros"].append(f"{nome}: {str(exc)[:500]}")
             relatorio["abas_bloqueadas"] += 1
 
-    if not relatorio["erros"] and structure_requests:
+    # aplicar=False é estritamente somente leitura: não escreve valores,
+    # formatação, propriedades da aba ou qualquer outro metadado.
+    if aplicar and not relatorio["erros"] and structure_requests:
         # Uma única batch_update reduz drasticamente a quantidade de escritas,
         # mas o Google Sheets pode devolver 429 quando a janela de quota ainda
         # está saturada por execuções anteriores. Nesse caso, aguarda-se uma

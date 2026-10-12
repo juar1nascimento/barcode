@@ -34,6 +34,14 @@ STALE_MINUTES = 15
 FOTO_PREFIXO_COLUNA = "Foto "
 FOTO_THUMBNAIL_SIZE = 96
 FOTO_MAX_COLUNAS = 12
+
+# Abas técnicas/derivadas permitidas; qualquer outra aba fora do cadastro
+# de unidades exige classificação explícita antes de consumir o outbox.
+ABAS_NAO_OPERACIONAIS_PERMITIDAS = {
+    "_AUDITORIA_CABECALHOS",
+    "Projecao_Almoxarifado",
+    "Projecao_Almoxarifado_Resumo",
+}
 SHEETS_RETRY_ATTEMPTS = 5
 
 
@@ -232,12 +240,40 @@ def _espelhar_patrimonio(item: dict) -> None:
         patrimonio["codigo"],
     ]
     atuais = _sheets_call("get_all_values", aba.get_all_values)
+    linha_destino = None
     for indice, linha in enumerate(atuais[1:], start=2):
         if len(linha) > 2 and _chave_texto(linha[2]) == _chave_texto(patrimonio["numero"]):
+            linha_destino = indice
             _sheets_call("update_patrimonio", lambda: aba.update(values=[valores], range_name=f"A{indice}:{_coluna(len(COLUNAS_INVENTARIO))}{indice}", value_input_option="RAW"))
-            return
+            break
 
-    _sheets_call("append_patrimonio", lambda: aba.append_row(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS"))
+    if linha_destino is None:
+        _sheets_call("append_patrimonio", lambda: aba.append_row(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS"))
+
+    # Não marcar o evento como sincronizado apenas porque a API aceitou a escrita:
+    # reler a aba, localizar o patrimônio e validar os campos operacionais gravados.
+    confirmacao = _sheets_call("confirmar_patrimonio", aba.get_all_values)
+    numero_chave = _chave_texto(patrimonio["numero"])
+    linhas_correspondentes = [
+        linha for linha in confirmacao[1:]
+        if len(linha) > 2 and _chave_texto(linha[2]) == numero_chave
+    ]
+    if len(linhas_correspondentes) != 1:
+        raise RuntimeError(
+            "Google Sheets não confirmou uma única linha para o patrimônio "
+            f"{patrimonio['numero']} na aba {patrimonio['unidade']}."
+        )
+
+    linha_confirmada = linhas_correspondentes[0]
+    for coluna, esperado in enumerate(valores):
+        atual = str(linha_confirmada[coluna] if coluna < len(linha_confirmada) else "").strip()
+        esperado_texto = str(esperado or "").strip()
+        if atual != esperado_texto:
+            raise RuntimeError(
+                "Google Sheets não confirmou o campo "
+                f"{coluna + 1} do patrimônio {patrimonio['numero']} "
+                f"na aba {patrimonio['unidade']}."
+            )
 
 
 def _buscar_foto(foto_id: int) -> dict:
@@ -316,7 +352,7 @@ def _normalizar_cabecalhos_fotos(aba) -> list[str]:
     headers = [str(v).strip() for v in (aba.row_values(1) or [])]
     alterados = False
     for indice, header in enumerate(headers):
-        match = re.fullmatch(r"Foto (\\d+)", header, flags=re.IGNORECASE)
+        match = re.fullmatch(r"Foto (\d+)", header, flags=re.IGNORECASE)
         if not match:
             continue
         ordem = int(match.group(1))
@@ -426,11 +462,39 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
                 "Google Sheets indisponível para preflight estrutural.",
             )
         )
-    limpeza_validacoes = {"habilitada": False, "abas_processadas": [], "validacoes_removidas": 0}
+    limpeza_validacoes = {
+        "habilitada": False,
+        "abas_processadas": [],
+        "validacoes_removidas": 0,
+    }
     if os.getenv("SHEETS_REMOVE_VALIDATIONS", "false").strip().lower() == "true":
-        limpeza_validacoes = _remover_validacoes_menu_suspenso(planilha_preflight)
-        limpeza_validacoes["habilitada"] = True
-    auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=True)
+        raise RuntimeError(
+            "Sincronização bloqueada: SHEETS_REMOVE_VALIDATIONS=true é proibido "
+            "no fluxo operacional porque removeria menus suspensos da planilha."
+        )
+    auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=False)
+    detalhes = auditoria.get("detalhes", [])
+    abas_que_exigem_migracao = [
+        item.get("aba", "desconhecida")
+        for item in detalhes
+        if item.get("alteracao_necessaria")
+    ]
+    abas_nao_classificadas = sorted(
+        set(auditoria.get("abas_nao_reconhecidas", []))
+        - ABAS_NAO_OPERACIONAIS_PERMITIDAS
+    )
+    if (
+        auditoria.get("abas_bloqueadas", 0)
+        or abas_que_exigem_migracao
+        or abas_nao_classificadas
+    ):
+        pendencias = abas_que_exigem_migracao[:10] + abas_nao_classificadas[:10]
+        raise RuntimeError(
+            "Sincronização bloqueada no preflight somente leitura. "
+            "Há abas ambíguas, que exigem migração estrutural ou sem classificação aprovada; "
+            "nenhum item do outbox foi consumido. "
+            f"Abas pendentes: {', '.join(pendencias) or 'ver relatório estrutural'}."
+        )
 
     resultado = {
         "processados": 0,
