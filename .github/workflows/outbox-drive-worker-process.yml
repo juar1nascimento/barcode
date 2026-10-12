@@ -2,7 +2,7 @@ name: Inventário GTI SESA - Drive Worker Process
 
 on:
   workflow_dispatch:
-  # Processa um item por execução, com concorrência serializada e preflight antes de qualquer gravação.
+  # Processa um item por execução; o worker aplica fallback apenas para a raiz de unidades previamente validada.
   schedule:
     - cron: "7,22,37,52 * * * *"
   # Dispara um canário automático apenas quando esta configuração é alterada.
