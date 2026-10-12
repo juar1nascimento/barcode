@@ -91,11 +91,47 @@ adicionar_e_salvar = adicionar_e_salvar_sem_sobrescrever
 
 
 def _renderizar_fotos_ultimo_patrimonio(unidade: str) -> None:
-    """Exibe as fotografias do último patrimônio gravado nesta unidade."""
-    patrimonio_id = st.session_state.get("ultimo_patrimonio_id")
+    """Exibe upload/histórico da foto do último patrimônio gravado nesta unidade."""
     patrimonio_unidade = st.session_state.get("ultimo_patrimonio_unidade", "")
-    if not patrimonio_id or patrimonio_unidade != unidade:
+    if patrimonio_unidade != unidade:
         return
+
+    patrimonio_id = st.session_state.get("ultimo_patrimonio_id")
+    if not patrimonio_id:
+        # O fluxo de cadastro guardava o número, mas não o ID retornado pelo banco.
+        # Resolve o ID no PostgreSQL para que o formulário de fotos apareça após salvar.
+        numero = str(st.session_state.get("ultimo_patrimonio_numero", "") or "").strip()
+        if not numero:
+            return
+        conn = None
+        try:
+            conn = conectar_postgresql()
+            if conn is None:
+                return
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT p.id
+                         FROM public.patrimonios p
+                         JOIN public.unidades u ON u.id = p.unidade_id
+                        WHERE p.numero_patrimonio = %s
+                          AND u.nome = %s
+                        ORDER BY p.id DESC
+                        LIMIT 1""",
+                    (numero, unidade),
+                )
+                row = cur.fetchone()
+            if not row:
+                return
+            patrimonio_id = int(row[0])
+            st.session_state["ultimo_patrimonio_id"] = patrimonio_id
+        except Exception:
+            return
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     st.divider()
     renderizar_fotos_patrimonio(int(patrimonio_id))
