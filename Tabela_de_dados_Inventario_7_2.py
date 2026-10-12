@@ -256,22 +256,53 @@ def conectar_google_sheets():
     except Exception:
         secrets = {}
 
-    sec = {}
+    # Os Secrets podem separar credenciais (gcp_service_account) e destino
+    # (connections.gsheets). Combine-os sem descartar a conta de serviço.
+    gcp_sec = secrets.get("gcp_service_account", {})
+    if not isinstance(gcp_sec, dict):
+        gcp_sec = {}
     connections = secrets.get("connections", {})
-    if isinstance(connections, dict) and isinstance(connections.get("gsheets"), dict):
-        sec = dict(connections["gsheets"])
-    elif isinstance(secrets.get("gcp_service_account"), dict):
-        sec = dict(secrets["gcp_service_account"])
+    gsheets_sec = (
+        connections.get("gsheets", {})
+        if isinstance(connections, dict)
+        else {}
+    )
+    if not isinstance(gsheets_sec, dict):
+        gsheets_sec = {}
+    sec = {**gcp_sec, **gsheets_sec}
 
-    # Variáveis de ambiente são fallback; não sobrescrevem Secrets já configurados.
+    # Use as variáveis de ambiente quando os Secrets não contêm credenciais
+    # completas, mesmo que a seção gsheets contenha apenas o destino da planilha.
+    campos_credenciais = ("project_id", "private_key", "client_email", "token_uri")
+    credenciais_incompletas = any(
+        not str(sec.get(campo) or "").strip() for campo in campos_credenciais
+    )
     credenciais_json = (
         os.getenv("GOOGLE_SHEETS_CREDENTIALS")
         or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     )
-    if not sec and credenciais_json:
+    if credenciais_incompletas and credenciais_json:
         try:
-            sec = json.loads(credenciais_json)
+            credenciais_env = json.loads(credenciais_json)
+            if not isinstance(credenciais_env, dict):
+                raise ValueError("JSON deve conter um objeto")
+            # Secrets explícitos mantêm prioridade; ambiente completa apenas
+            # campos ausentes/vazios e nunca sobrescreve valores configurados.
+            sec_secrets = sec
+            sec = {
+                **credenciais_env,
+                **{
+                    chave: valor
+                    for chave, valor in sec_secrets.items()
+                    if valor is not None
+                    and (not isinstance(valor, str) or valor.strip())
+                },
+            }
         except (TypeError, ValueError):
+            st.session_state["sheets_sync_conexao_erro"] = (
+                "JSON das credenciais Google inválido (JSONDecodeError/ValueError). "
+                "Revise GOOGLE_SHEETS_CREDENTIALS ou GOOGLE_SERVICE_ACCOUNT_JSON."
+            )
             return None
 
     # Aceita JSON completo de service account ou o formato achatado dos Secrets.
@@ -288,7 +319,13 @@ def conectar_google_sheets():
     creds_dict = {key: sec.get(key) for key in keys}
     creds_dict["type"] = creds_dict.get("type") or "service_account"
     obrigatorias = ("project_id", "private_key", "client_email", "token_uri")
-    if any(not str(creds_dict.get(key) or "").strip() for key in obrigatorias):
+    ausentes = [key for key in obrigatorias if not str(creds_dict.get(key) or "").strip()]
+    if ausentes:
+        st.session_state["sheets_sync_conexao_erro"] = (
+            "Credenciais Google ausentes/incompletas. Campos obrigatórios ausentes: "
+            + ", ".join(ausentes)
+            + ". Configure os Secrets do Streamlit ou as variáveis de ambiente."
+        )
         return None
 
     try:
@@ -317,15 +354,41 @@ def conectar_google_sheets():
 
         if sheet_id:
             try:
-                return client.open_by_key(str(sheet_id).strip())
-            except Exception:
+                planilha = client.open_by_key(str(sheet_id).strip())
+                st.session_state.pop("sheets_sync_conexao_erro", None)
+                return planilha
+            except Exception as exc:
                 if not sheet_url:
+                    st.session_state["sheets_sync_conexao_erro"] = (
+                        "Não foi possível abrir a planilha por ID ("
+                        + type(exc).__name__
+                        + "). Verifique o ID e compartilhe a planilha com a conta de serviço como Editora."
+                    )
                     return None
         if sheet_url:
-            return client.open_by_url(str(sheet_url).strip())
+            try:
+                planilha = client.open_by_url(str(sheet_url).strip())
+                st.session_state.pop("sheets_sync_conexao_erro", None)
+                return planilha
+            except Exception as exc:
+                st.session_state["sheets_sync_conexao_erro"] = (
+                    "Não foi possível abrir a planilha por URL ("
+                    + type(exc).__name__
+                    + "). Verifique a URL, o acesso da conta de serviço e se as APIs do Google estão habilitadas."
+                )
+                return None
+        st.session_state["sheets_sync_conexao_erro"] = (
+            "Credenciais Google carregadas, mas falta spreadsheet_id/spreadsheet_url "
+            "ou GOOGLE_SPREADSHEET_ID/GOOGLE_SHEET_ID/GOOGLE_SHEET_URL."
+        )
         return None
-    except Exception:
-        # Nunca registrar exceções que possam conter dados de autenticação.
+    except Exception as exc:
+        # Exibe somente o tipo da exceção, nunca a mensagem que pode conter segredos.
+        st.session_state["sheets_sync_conexao_erro"] = (
+            "Falha na autenticação/configuração Google ("
+            + type(exc).__name__
+            + "). Confira os Secrets e a chave privada da conta de serviço."
+        )
         return None
 
 def _nome_aba(unidade: str) -> str:

@@ -422,8 +422,8 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
     if not planilha_preflight:
         raise RuntimeError(
             st.session_state.get(
-                "sheets_sync_ultimo_erro",
-                "Google Sheets indisponível para preflight estrutural.",
+                "sheets_sync_conexao_erro",
+                "Google Sheets indisponível para preflight estrutural. Confira credenciais, ID/URL e permissão de Editor da conta de serviço.",
             )
         )
     limpeza_validacoes = {"habilitada": False, "abas_processadas": [], "validacoes_removidas": 0}
