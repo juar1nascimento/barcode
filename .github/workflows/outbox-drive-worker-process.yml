@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   process:
-    name: Process one Drive outbox item
+    name: Process up to five Drive outbox items
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          http_status="$(curl --silent --show-error --request POST --url "${SUPABASE_URL}/functions/v1/outbox-drive-worker" --header "Authorization: Bearer ${SUPABASE_SECRET_KEY}" --header "Content-Type: application/json" --data '{"mode":"process","limit":1}' --output /tmp/worker-response.json --write-out '%{http_code}')"
+          http_status="$(curl --silent --show-error --request POST --url "${SUPABASE_URL}/functions/v1/outbox-drive-worker" --header "Authorization: Bearer ${SUPABASE_SECRET_KEY}" --header "Content-Type: application/json" --data '{"mode":"process","limit":5}' --output /tmp/worker-response.json --write-out '%{http_code}')"
 
           echo "HTTP_STATUS=${http_status}"
           cat /tmp/worker-response.json
@@ -76,7 +76,7 @@ jobs:
             exit 1
           fi
 
-          jq -e '.ok == true and .mode == "process" and .claimed_changes <= 1 and .synced_changes <= 1' /tmp/worker-response.json
+          jq -e '.ok == true and .mode == "process" and .claimed_changes <= 5 and .synced_changes <= 5' /tmp/worker-response.json
 
       - name: Verify no worker-reported failure
         shell: bash
