@@ -287,8 +287,17 @@ def conectar_google_sheets():
             if not isinstance(credenciais_env, dict):
                 raise ValueError("JSON deve conter um objeto")
             # Secrets explícitos mantêm prioridade; ambiente completa apenas
-            # campos ausentes e nunca sobrescreve valores já configurados.
-            sec = {**credenciais_env, **sec}
+            # campos ausentes/vazios e nunca sobrescreve valores configurados.
+            sec_secrets = sec
+            sec = {
+                **credenciais_env,
+                **{
+                    chave: valor
+                    for chave, valor in sec_secrets.items()
+                    if valor is not None
+                    and (not isinstance(valor, str) or valor.strip())
+                },
+            }
         except (TypeError, ValueError):
             st.session_state["sheets_sync_conexao_erro"] = (
                 "JSON das credenciais Google inválido (JSONDecodeError/ValueError). "
