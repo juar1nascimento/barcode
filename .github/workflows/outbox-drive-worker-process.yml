@@ -2,14 +2,9 @@ name: Inventário GTI SESA - Drive Worker Process
 
 on:
   workflow_dispatch:
-  # Processa um item por execução; o worker aplica fallback apenas para a raiz de unidades previamente validada.
+  # Polling de baixa latência: até cinco eventos por execução, a cada cinco minutos.
   schedule:
-    - cron: "7,22,37,52 * * * *"
-  # Dispara um canário automático apenas quando esta configuração é alterada.
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/outbox-drive-worker-process.yml"
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: read
@@ -20,7 +15,7 @@ concurrency:
 
 jobs:
   process:
-    name: Process up to five Drive outbox items
+    name: Process up to five Drive outbox items every five minutes
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
