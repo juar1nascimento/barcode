@@ -1,6 +1,8 @@
 """Painel operacional da sincronização de fotos com Google Sheets."""
 from __future__ import annotations
 
+import re
+
 import streamlit as st
 
 from postgresql_persistencia import conectar
@@ -79,6 +81,21 @@ def _reprocessar(ids: list[int]) -> int:
         conn.close()
 
 
+def _erro_seguro_sincronizacao(erro: Exception) -> str:
+    """Limita o erro exibido no painel e mascara credenciais comuns."""
+    mensagem = str(erro or "").strip()
+    mensagem = re.sub(r"(?i)(postgres(?:ql)?://)[^\s]+", r"\1[REDACTED]", mensagem)
+    mensagem = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]", mensagem)
+    mensagem = re.sub(r"(?i)(token|key|secret|password|private_key)(\s*[=:]\s*)[^\s,;]+", r"\1\2[REDACTED]", mensagem)
+    mensagem = re.sub(
+        r"-----BEGIN [^-]+-----.*?-----END [^-]+-----",
+        "[REDACTED PRIVATE KEY]",
+        mensagem,
+        flags=re.DOTALL,
+    )
+    return mensagem[:500] or "Erro sem mensagem. Consulte os logs do Streamlit Cloud."
+
+
 def renderizar_painel_integracao():
     st.title("🩺 Saúde da integração de fotografias")
     st.caption(
@@ -86,7 +103,11 @@ def renderizar_painel_integracao():
         "Nenhuma credencial é exibida nesta tela."
     )
 
-    health = _health()
+    try:
+        health = _health()
+    except Exception:
+        st.error("Não foi possível consultar a saúde da fila no PostgreSQL. Consulte os logs do aplicativo.")
+        return
     if health is None:
         st.error("PostgreSQL indisponível ou view de saúde não configurada.")
         return
@@ -109,12 +130,24 @@ def renderizar_painel_integracao():
     st.caption("O PostgreSQL continua sendo a fonte operacional; este processamento apenas consome a fila de espelhamento.")
     if st.button("▶️ Processar fila agora", type="primary", use_container_width=True):
         with st.spinner("Processando eventos pendentes..."):
-            resultado = processar_fila_google_sheets(limit=25)
-        st.success(
-            f"Processamento concluído: {resultado['sucesso']} sucesso(s), "
-            f"{resultado['falhas']} falha(s), {resultado['processados']} evento(s) analisado(s)."
-        )
-        st.rerun()
+            try:
+                resultado = processar_fila_google_sheets(limit=25)
+            except Exception as exc:
+                st.error(
+                    "A sincronização não foi concluída. Os registros permanecem no PostgreSQL; "
+                    "verifique a causa abaixo antes de reprocessar a fila."
+                )
+                st.code(_erro_seguro_sincronizacao(exc))
+                st.info(
+                    "Nenhum sucesso de sincronização deve ser presumido. "
+                    "Corrija a causa e tente novamente; não reenvie eventos em massa enquanto a conexão falhar."
+                )
+            else:
+                st.success(
+                    f"Processamento concluído: {resultado['sucesso']} sucesso(s), "
+                    f"{resultado['falhas']} falha(s), {resultado['processados']} evento(s) analisado(s)."
+                )
+                st.rerun()
 
     st.divider()
 
@@ -126,7 +159,11 @@ def renderizar_painel_integracao():
     with c2:
         st.write("**Último erro:**", erro or "Nenhum erro registrado")
 
-    reconciliacao = _reconciliacao()
+    try:
+        reconciliacao = _reconciliacao()
+    except Exception:
+        reconciliacao = []
+        st.warning("Não foi possível carregar a reconciliação de patrimônios.")
     if reconciliacao:
         st.info(f"🔄 {len(reconciliacao)} patrimônio(s) com eventos aguardando processamento.")
         st.dataframe(
@@ -144,7 +181,11 @@ def renderizar_painel_integracao():
             hide_index=True,
         )
 
-    falhas = _falhas()
+    try:
+        falhas = _falhas()
+    except Exception:
+        falhas = []
+        st.warning("Não foi possível carregar os detalhes dos eventos falhos.")
     if not falhas:
         st.success("✅ Nenhuma falha pendente na fila.")
     else:
@@ -162,9 +203,13 @@ def renderizar_painel_integracao():
             if not ids:
                 st.info("Selecione pelo menos um evento.")
             else:
-                total = _reprocessar(ids)
-                st.success(f"{total} evento(s) devolvido(s) para a fila.")
-                st.rerun()
+                try:
+                    total = _reprocessar(ids)
+                except Exception:
+                    st.error("Não foi possível devolver os eventos selecionados à fila. Consulte os logs.")
+                else:
+                    st.success(f"{total} evento(s) devolvido(s) para a fila.")
+                    st.rerun()
 
         st.dataframe(
             [
