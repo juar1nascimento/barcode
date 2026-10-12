@@ -141,7 +141,10 @@ def renderizar_teste_upload_foto() -> None:
         )
         return
 
-    assert patrimonio_id is not None
+    if patrimonio_id is None:
+        st.error("Configuração do patrimônio de teste inválida. Upload bloqueado.")
+        return
+
     st.warning(
         "Modo de teste habilitado. O upload será recusado se o número do "
         f"patrimônio não começar com {PREFIXO_PATRIMONIO_TESTE}."
