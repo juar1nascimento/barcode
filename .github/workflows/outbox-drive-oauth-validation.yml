@@ -81,17 +81,48 @@ jobs:
             drive_response="$(curl --fail-with-body --silent --show-error               --request GET               --url "https://www.googleapis.com/drive/v3/drives/${drive_id}?fields=id,capabilities(canAddChildren,canModifyContent)"               --header "Authorization: Bearer ${token}")"
             drive_add="$(printf '%s' "${drive_response}" | jq -r '.capabilities.canAddChildren // false')"
             drive_modify="$(printf '%s' "${drive_response}" | jq -r '.capabilities.canModifyContent // false')"
-            test "${drive_add}" = "true" || {
-              echo "::error::Shared Drive sem permissão de adicionar arquivos."
-              exit 1
-            }
-            test "${drive_modify}" = "true" || {
-              echo "::error::Shared Drive sem permissão de modificar conteúdo."
-              exit 1
-            }
+            test "${drive_add}" = "true"
+            test "${drive_modify}" = "true"
             echo "VALIDATION_OK: OAuth e pasta destino acessíveis; Shared Drive compatível; nenhuma escrita realizada."
           else
             echo "VALIDATION_OK: OAuth e pasta destino acessíveis; pasta em My Drive; nenhuma escrita realizada."
+          fi
+
+      - name: Audit exact unit-folder routing without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat "${RUNNER_TEMP}/gti_drive_token")"
+          expected_root="1N2hzxmtS9Brijx6vcP-nD-zS6sA8LRzS"
+          units=("Almoxarifado Central SESA" "UBS Carapina Grande" "Almoxarifado GTI-SESA-SEDE" "UBS Barcelona")
+
+          check_root() {
+            local label="$1"
+            local root_id="$2"
+            local root_meta
+            root_meta="$(curl --silent --show-error --get               --data-urlencode "supportsAllDrives=true"               --data-urlencode "fields=id,name,mimeType"               --url "https://www.googleapis.com/drive/v3/files/${root_id}"               --header "Authorization: Bearer ${token}")" || return 1
+            if [ "$(printf '%s' "${root_meta}" | jq -r '.mimeType // empty')" != "application/vnd.google-apps.folder" ]; then
+              echo "ROUTING_ROOT ${label}: invalid_or_unavailable"
+              return 0
+            fi
+            echo "ROUTING_ROOT ${label}: folder_accessible"
+            for unit in "${units[@]}"; do
+              local result count
+              result="$(curl --silent --show-error --get                 --data-urlencode "q='${root_id}' in parents and name='${unit}' and mimeType='application/vnd.google-apps.folder' and trashed=false"                 --data-urlencode "spaces=drive"                 --data-urlencode "supportsAllDrives=true"                 --data-urlencode "includeItemsFromAllDrives=true"                 --data-urlencode "pageSize=100"                 --data-urlencode "fields=files(id,name,mimeType)"                 --url "https://www.googleapis.com/drive/v3/files"                 --header "Authorization: Bearer ${token}")"
+              count="$(printf '%s' "${result}" | jq '.files | length')"
+              if [ "${count}" = "1" ]; then
+                echo "ROUTING ${label} unit_present: ${unit}"
+              elif [ "${count}" = "0" ]; then
+                echo "ROUTING ${label} unit_missing: ${unit}"
+              else
+                echo "ROUTING ${label} unit_ambiguous: ${unit} count=${count}"
+              fi
+            done
+          }
+
+          check_root configured "${GOOGLE_DRIVE_FOLDER_ID}"
+          if [ "${GOOGLE_DRIVE_FOLDER_ID}" != "${expected_root}" ]; then
+            check_root previously_verified "${expected_root}"
           fi
 
       - name: Remove temporary OAuth token
