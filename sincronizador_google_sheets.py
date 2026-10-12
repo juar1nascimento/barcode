@@ -240,12 +240,40 @@ def _espelhar_patrimonio(item: dict) -> None:
         patrimonio["codigo"],
     ]
     atuais = _sheets_call("get_all_values", aba.get_all_values)
+    linha_destino = None
     for indice, linha in enumerate(atuais[1:], start=2):
         if len(linha) > 2 and _chave_texto(linha[2]) == _chave_texto(patrimonio["numero"]):
+            linha_destino = indice
             _sheets_call("update_patrimonio", lambda: aba.update(values=[valores], range_name=f"A{indice}:{_coluna(len(COLUNAS_INVENTARIO))}{indice}", value_input_option="RAW"))
-            return
+            break
 
-    _sheets_call("append_patrimonio", lambda: aba.append_row(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS"))
+    if linha_destino is None:
+        _sheets_call("append_patrimonio", lambda: aba.append_row(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS"))
+
+    # Não marcar o evento como sincronizado apenas porque a API aceitou a escrita:
+    # reler a aba, localizar o patrimônio e validar os campos operacionais gravados.
+    confirmacao = _sheets_call("confirmar_patrimonio", aba.get_all_values)
+    numero_chave = _chave_texto(patrimonio["numero"])
+    linhas_correspondentes = [
+        linha for linha in confirmacao[1:]
+        if len(linha) > 2 and _chave_texto(linha[2]) == numero_chave
+    ]
+    if len(linhas_correspondentes) != 1:
+        raise RuntimeError(
+            "Google Sheets não confirmou uma única linha para o patrimônio "
+            f"{patrimonio['numero']} na aba {patrimonio['unidade']}."
+        )
+
+    linha_confirmada = linhas_correspondentes[0]
+    for coluna, esperado in enumerate(valores):
+        atual = str(linha_confirmada[coluna] if coluna < len(linha_confirmada) else "").strip()
+        esperado_texto = str(esperado or "").strip()
+        if atual != esperado_texto:
+            raise RuntimeError(
+                "Google Sheets não confirmou o campo "
+                f"{coluna + 1} do patrimônio {patrimonio['numero']} "
+                f"na aba {patrimonio['unidade']}."
+            )
 
 
 def _buscar_foto(foto_id: int) -> dict:
