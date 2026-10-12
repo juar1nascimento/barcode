@@ -549,7 +549,17 @@ def salvar_patrimonios_em_lote(registros) -> Tuple[bool, list[int], str]:
                         numero, codigo, fabricante,
                     ),
                 )
-                ids.append(cur.fetchone()[0])
+                patrimonio_id = cur.fetchone()[0]
+                # Mantém a persistência e o evento de espelhamento na mesma transação.
+                # Se a inserção no outbox falhar, o patrimônio também será revertido.
+                cur.execute(
+                    """INSERT INTO public.patrimonios_sheets_outbox
+                         (patrimonio_id, evento)
+                       VALUES (%s, 'upsert')
+                       ON CONFLICT (patrimonio_id, evento) DO NOTHING""",
+                    (patrimonio_id,),
+                )
+                ids.append(patrimonio_id)
         conn.commit()
         return True, ids, "Lote gravado integralmente no PostgreSQL."
     except Exception as exc:
