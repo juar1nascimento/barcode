@@ -33,7 +33,7 @@ def inspecionar_evento(event_id: int) -> dict[str, Any]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, patrimonio_id, status, tentativas,
+                SELECT id, patrimonio_id, evento, status, tentativas,
                        (proxima_tentativa_em IS NULL OR proxima_tentativa_em <= now()) AS elegivel_por_tempo
                   FROM public.patrimonios_sheets_outbox
                  WHERE id = %s
@@ -46,13 +46,15 @@ def inspecionar_evento(event_id: int) -> dict[str, Any]:
         return {
             "event_id": int(row[0]),
             "patrimonio_id": int(row[1]),
-            "status": str(row[2]),
-            "tentativas": int(row[3] or 0),
-            "elegivel_por_tempo": bool(row[4]),
+            "evento": str(row[2]),
+            "status": str(row[3]),
+            "tentativas": int(row[4] or 0),
+            "elegivel_por_tempo": bool(row[5]),
             "elegivel": (
-                str(row[2]) in {"pending", "failed"}
-                and bool(row[4])
-                and int(row[3] or 0) < MAX_TENTATIVAS
+                str(row[2]) == "upsert"
+                and str(row[3]) in {"pending", "failed"}
+                and bool(row[5])
+                and int(row[4] or 0) < MAX_TENTATIVAS
             ),
         }
     finally:
@@ -74,6 +76,7 @@ def executar_evento_unico(event_id: int) -> dict[str, Any]:
                        tentativas = COALESCE(tentativas, 0) + 1,
                        atualizado_em = now()
                  WHERE id = %s
+                   AND evento = 'upsert'
                    AND status IN ('pending', 'failed')
                    AND (proxima_tentativa_em IS NULL OR proxima_tentativa_em <= now())
                    AND COALESCE(tentativas, 0) < %s
