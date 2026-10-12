@@ -335,7 +335,7 @@ class FakeInventoryWorksheet:
 
     def update(self, *, values, range_name, **kwargs):
         import re
-        match = re.fullmatch(r"A(\\d+):([A-Z]+)(\\d+)", range_name)
+        match = re.fullmatch(r"A(\d+):([A-Z]+)(\d+)", range_name)
         assert match is not None
         row_number = int(match.group(1))
         while len(self.values) < row_number:
