@@ -327,7 +327,9 @@ def conectar_google_sheets():
 
         if sheet_id:
             try:
-                return client.open_by_key(str(sheet_id).strip())
+                planilha = client.open_by_key(str(sheet_id).strip())
+                st.session_state.pop("sheets_sync_conexao_erro", None)
+                return planilha
             except Exception as exc:
                 if not sheet_url:
                     st.session_state["sheets_sync_conexao_erro"] = (
