@@ -139,7 +139,7 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                     SELECT id
                       FROM {tabela}
                      WHERE (
-                         status='pending'
+                         status IN ('pending', 'failed')
                          AND proxima_tentativa_em <= now()
                          AND tentativas < %s
                      ) OR (
