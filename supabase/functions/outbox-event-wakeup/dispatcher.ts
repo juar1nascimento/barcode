@@ -39,7 +39,7 @@ export function createWorkerDispatcher(
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5_000);
+    const timer = setTimeout(() => controller.abort(), 60_000);
     try {
       const response = await fetcher(`${base}/functions/v1/outbox-drive-worker`, {
         method: "POST",
