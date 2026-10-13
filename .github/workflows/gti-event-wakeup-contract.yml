@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "supabase/functions/outbox-event-wakeup/**"
+      - "supabase/functions/outbox-drive-worker/**"
       - ".github/workflows/gti-event-wakeup-contract.yml"
   push:
     branches: [main]
