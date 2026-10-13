@@ -115,3 +115,14 @@
 ## Estado inicial deste documento
 
 Este arquivo consolida informações recuperadas do histórico do ChatGPT e inspeções pontuais do GitHub em 2026-10-13. Ele não foi construído por uma auditoria completa dos serviços externos. Onde o estado real não foi consultado nesta sessão, está explicitamente marcado como pendente/não confirmado.
+
+
+## Atualização do gate de concorrência — 2026-10-13
+
+Foi acrescentada uma proposta técnica separada para a coordenação compartilhada da criação de pastas do Drive:
+- [GTI_SESA_GATE_CONCORRENCIA_DRIVE.md](GTI_SESA_GATE_CONCORRENCIA_DRIVE.md)
+- Discussão de acompanhamento: [Issue #67](https://github.com/juar1nascimento/barcode/issues/67)
+
+A proposta recomenda lease durável no PostgreSQL por unidade + patrimônio, validação posterior da pasta e falha fechada diante de ambiguidade. Também documenta que lease não é transação distribuída com o Google Drive: a expiração durante uma requisição HTTP ainda é um limite que deve ser tratado e não pode ser descrito como unicidade matemática garantida.
+
+**Estado:** somente documentação; nenhuma migration, alteração do worker, teste, auditoria, chamada real ao Drive, processamento de outbox ou implantação foi executado. PR #66 continua bloqueada até implementação e revisão independente.
