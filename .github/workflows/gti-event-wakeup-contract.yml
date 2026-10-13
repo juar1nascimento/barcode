@@ -34,6 +34,6 @@ jobs:
         with:
           deno-version: v2.x
       - name: Type-check contract and tests
-        run: deno check supabase/functions/outbox-event-wakeup/contract.ts supabase/functions/outbox-event-wakeup/contract_test.ts
+        run: deno check supabase/functions/outbox-event-wakeup/contract.ts supabase/functions/outbox-event-wakeup/contract_test.ts supabase/functions/outbox-event-wakeup/handler.ts supabase/functions/outbox-event-wakeup/handler_test.ts supabase/functions/outbox-event-wakeup/index.ts
       - name: Run contract tests
-        run: deno test supabase/functions/outbox-event-wakeup/contract_test.ts
+        run: deno test supabase/functions/outbox-event-wakeup/contract_test.ts supabase/functions/outbox-event-wakeup/handler_test.ts
