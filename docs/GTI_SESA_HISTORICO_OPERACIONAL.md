@@ -133,3 +133,15 @@ A proposta recomenda lease durável no PostgreSQL por unidade + patrimônio, val
 Ao preparar o próximo gate de concorrência, a leitura do GitHub encontrou uma divergência relevante: PR #56 (migrations dos triggers/outboxes) está **aberto e não mesclado**, e os dois arquivos de migration citados em registros anteriores não estão presentes na pasta `supabase/migrations` de `main` na revisão consultada. Isso não prova que as alterações não estejam em produção; prova apenas que o repositório atual não oferece essa fonte versionada em `main`.
 
 Consequência segura: não implementar ainda uma chamada nova de lease/RPC no worker nem uma migration que dependa de estado de schema presumido. Primeiro reconciliar PR #56, a árvore de migrations e, em um gate futuro autorizado, a presença das funções/tabelas no catálogo do projeto por leitura somente. Nenhuma consulta de produção foi feita neste passo.
+
+
+## Revisão estática da PR #56 — 2026-10-13
+
+Leitura dos dois arquivos SQL no branch `chore/gti-outbox-triggers-prod-migration-20261012` (somente leitura; sem executar SQL):
+
+- `20261012213050_gti_auto_enqueue_outboxes.sql` cria/recria funções de enqueue e triggers para patrimônio/fotos. Na função inicial de fotos, o ramo que compara campos de armazenamento também diferencia o destino com base em `drive_file_id`, podendo encaminhar para Sheets quando o registro já tem identificador Drive.
+- `20261012213108_fix_gti_photo_outbox_trigger_routing.sql` substitui a função de fotos: em INSERT, direciona conforme os metadados de Drive existentes; em alterações de conteúdo/armazenamento, enfileira Drive; em alterações de metadados de Drive, enfileira Sheets quando há identificador e URL.
+- A segunda migration é uma correção de roteamento posterior à primeira; ambas precisam ser entendidas na ordem e seu histórico aplicado precisa ser reconciliado antes de se declarar o comportamento atual.
+- Os checks da PR consultados mostram um check GitHub Actions concluído com sucesso e um check CodeQL com conclusão `neutral` por configuração de análise ausente. O status agregado consultado estava `pending`; portanto não registrar a PR como integralmente aprovada.
+
+**Limites:** esta é revisão estática dos arquivos versionados no branch da PR, não validação de SQL, nem prova de que as migrations foram ou não executadas em produção. Nenhum teste, auditoria, query Supabase, escrita, merge ou deploy foi realizado.
