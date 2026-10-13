@@ -413,3 +413,45 @@ Ao retomar o trabalho, começar por:
 - [Histórico operacional](GTI_SESA_HISTORICO_OPERACIONAL.md)
 - [Análise do painel analítico](GTI_SESA_ANALISE_PAINEL_ANALITICO.md)
 - [Gate de concorrência Drive](GTI_SESA_GATE_CONCORRENCIA_DRIVE.md)
+
+
+## 14. Snapshot de produção somente leitura — 2026-10-13
+
+**Escopo executado:** consultas somente leitura ao projeto Supabase gti-inventario (vgabxdprocwmpmhoxrgt), leitura de migrations/tabelas/Edge Function implantada e inspeção estática dos caminhos Sheets. Nenhum dado foi alterado; nenhuma fila foi processada; nenhum upload, deploy ou alteração de secrets/flags ocorreu.
+
+### 14.1 Estado do banco e das filas
+
+- Projeto Supabase: estado reportado pela API como ACTIVE_HEALTHY; PostgreSQL 17.6.1.
+- A lista de migrations aplicadas inclui 20261012213050_gti_auto_enqueue_outboxes e 20261012213108_fix_gti_photo_outbox_trigger_routing. Isso confirma que ambas constam no histórico de migrations do projeto consultado.
+- O catálogo de triggers consultado mostrou trg_gti_patrimonio_sheets_outbox em INSERT/UPDATE de patrimonios e três triggers de foto em patrimonio_fotos, direcionando à função gti_enqueue_foto_outboxes() ou gti_enqueue_patrimonio_sheets_outbox(), conforme o evento.
+- Contagens observadas: 40 unidades; 25 registros em patrimonios; 16 registros em patrimonio_fotos.
+- Outboxes: inventário→Sheets = 26 eventos synced; fotos→Sheets = 16 synced; fotos→Drive = 16 synced. A consulta de distribuição de estados retornou apenas synced nas três filas; não foram encontrados eventos failed, dead_letter ou error nas filas consultadas.
+- Os 16 registros de foto tinham drive_file_id, drive_web_url e drive_sha256 preenchidos. A junção por storage_bucket/storage_path encontrou 16 de 16 objetos correspondentes no Storage, sem ausências.
+- O bucket patrimonio-fotos está configurado como privado (public=false) e com limite de arquivo de 1 MiB. Nenhuma URL assinada foi impressa nem inspecionada individualmente.
+
+**Limite da evidência:** synced comprova o estado gravado na outbox, não uma leitura visual independente da linha no Google Sheets nem uma consulta atual da existência de cada arquivo no Drive. O checksum foi observado nos metadados; não foi recalculado baixando os 16 arquivos nesta etapa.
+
+### 14.2 Divergência crítica no worker implantado
+
+A Edge Function outbox-drive-worker está ativa na versão 22. A leitura do código implantado encontrou a constante VERIFIED_GTI_DRIVE_ROOT e um fallback: se a pasta da unidade não for encontrada sob a raiz configurada, o worker tenta resolver a pasta usando uma raiz fixa no código. Esse comportamento não corresponde à regra documental de usar somente a raiz configurada e nunca desviar silenciosamente para outra raiz.
+
+A versão implantada também não corresponde integralmente ao código da branch de trabalho: a fonte implantada não contém o modo wakeup descrito nas propostas recentes, e seu roteamento usa o fallback acima. Os logs recentes mostram requisições POST com HTTP 200, mas esse código de resposta isolado não comprova upload; pode corresponder a dry_run ou validação.
+
+**Bloqueio:** antes de processar novos eventos de fotos no Drive, remover o fallback implícito e resolver a coordenação concorrente da criação de pastas por patrimônio. A PR #66 continua sem aprovação operacional até atender à Issue #67; não implantar nem ativar wake-up nesta etapa.
+
+### 14.3 Contrato de imagem no Google Sheets
+
+A inspeção estática da branch main encontrou dois caminhos distintos:
+- fotos_patrimonio.py escreve fórmulas IMAGE(URL) usando URL assinada do Storage com validade de 86.400 segundos (24 horas). Como o bucket está privado, a imagem pode deixar de carregar quando a URL expirar.
+- sincronizador_google_sheets.py exige drive_web_url e grava fórmula HYPERLINK(URL;nome) (separador conforme a planilha). Esse caminho cria um link para o arquivo no Drive, não uma imagem embutida na célula.
+
+Portanto, o estado synced da outbox de fotos para Sheets deve ser interpretado como gravação da referência/link pelo sincronizador, não como prova de que a miniatura IMAGE permaneça visível indefinidamente. A decisão entre link corporativo estável e imagem embutida persistente precisa ser consolidada sem tornar o bucket público nem expor fotos patrimoniais.
+
+### 14.4 Gate seguinte — sem ação manual repetida
+
+1. Corrigir no código versionado a divergência entre worker implantado e a regra de roteamento documentada; eliminar fallback de raiz.
+2. Implementar coordenação durável por patrimônio e revalidação da pasta após criação, atendendo à Issue #67.
+3. Adicionar testes isolados/mocks para ausência, ambiguidade, falha de criação, lease ocupada/expirada e concorrência; sem chamadas reais ao Drive.
+4. Revisar o contrato de apresentação da foto no Sheets para evitar depender de URL assinada de 24 horas.
+5. Revisar CI e obter revisão independente. Somente após aprovação, abrir um gate separado de implantação e um teste controlado de evento sintético. Nenhum passo de produção é autorizado implicitamente por este snapshot.
+
