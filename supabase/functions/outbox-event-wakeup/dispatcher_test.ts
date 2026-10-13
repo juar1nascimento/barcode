@@ -11,7 +11,7 @@ const signal: WakeupSignal = {
 
 Deno.test("dispatcher is disabled by default and makes no request", async () => {
   let calls = 0;
-  const dispatch = createWorkerDispatcher({}, async () => {
+  const dispatch = createWorkerDispatcher({ enabled: false }, async () => {
     calls++;
     return Response.json({ ok: true, mode: "process", claimed_changes: 0 });
   });
