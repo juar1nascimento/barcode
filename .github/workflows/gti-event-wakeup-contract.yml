@@ -1,0 +1,39 @@
+name: GTI SESA - Event wake-up contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/functions/outbox-event-wakeup/**"
+      - ".github/workflows/gti-event-wakeup-contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/functions/outbox-event-wakeup/**"
+      - ".github/workflows/gti-event-wakeup-contract.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gti-event-wakeup-contract-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-tests:
+    name: Deno contract tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check contract and tests
+        run: deno check supabase/functions/outbox-event-wakeup/contract.ts supabase/functions/outbox-event-wakeup/contract_test.ts
+      - name: Run contract tests
+        run: deno test supabase/functions/outbox-event-wakeup/contract_test.ts
