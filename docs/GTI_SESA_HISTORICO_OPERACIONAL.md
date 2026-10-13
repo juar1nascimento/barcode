@@ -71,7 +71,7 @@
 
 ### 2026-10-12 — schema, outboxes e planilha
 - Auditoria local identificou divergência entre schema base e objetos esperados; sem PostgreSQL local pronto para replay e sem variáveis de conexão; nenhuma migration foi executada nessa tentativa.
-- PR #56 documenta duas migrations de triggers de outbox que o histórico afirma terem sido aplicadas e verificadas em produção em 2026-10-12.
+- PR #56 está aberto e não mesclado segundo os metadados atuais do GitHub. Os arquivos `20261012213050_gti_auto_enqueue_outboxes.sql` e `20261012213108_fix_gti_photo_outbox_trigger_routing.sql` não estão na pasta `supabase/migrations` de `main` na revisão consultada. Conversas anteriores relataram que as migrations foram aplicadas/verificadas em produção em 2026-10-12, mas isso não é comprovado pelo estado do repositório. Exigir reconciliação entre PR, arquivos versionados e catálogo real somente leitura antes de depender desses objetos.
 - Em `Tabela_Patrimonios`, foi relatado que 40 abas receberam `Código de Barras`, 3 não precisaram de alteração e nenhum dado foi sobrescrito.
 - PR #57 (rascunho, não mesclado segundo o histórico) adiciona readback, bloqueio de patrimônio duplicado e reprocessamento de falhas. O gate de produção ainda dependia de um evento isolado, confirmação da permissão da planilha, releitura da linha e confirmação de PostgreSQL/outbox em `synced`.
 
@@ -126,3 +126,10 @@ Foi acrescentada uma proposta técnica separada para a coordenação compartilha
 A proposta recomenda lease durável no PostgreSQL por unidade + patrimônio, validação posterior da pasta e falha fechada diante de ambiguidade. Também documenta que lease não é transação distribuída com o Google Drive: a expiração durante uma requisição HTTP ainda é um limite que deve ser tratado e não pode ser descrito como unicidade matemática garantida.
 
 **Estado:** somente documentação; nenhuma migration, alteração do worker, teste, auditoria, chamada real ao Drive, processamento de outbox ou implantação foi executado. PR #66 continua bloqueada até implementação e revisão independente.
+
+
+## Correção de baseline do repositório — 2026-10-13
+
+Ao preparar o próximo gate de concorrência, a leitura do GitHub encontrou uma divergência relevante: PR #56 (migrations dos triggers/outboxes) está **aberto e não mesclado**, e os dois arquivos de migration citados em registros anteriores não estão presentes na pasta `supabase/migrations` de `main` na revisão consultada. Isso não prova que as alterações não estejam em produção; prova apenas que o repositório atual não oferece essa fonte versionada em `main`.
+
+Consequência segura: não implementar ainda uma chamada nova de lease/RPC no worker nem uma migration que dependa de estado de schema presumido. Primeiro reconciliar PR #56, a árvore de migrations e, em um gate futuro autorizado, a presença das funções/tabelas no catálogo do projeto por leitura somente. Nenhuma consulta de produção foi feita neste passo.
