@@ -1,0 +1,35 @@
+name: GTI SESA - Isolated wake-up integration
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/functions/outbox-event-wakeup/**"
+      - "supabase/functions/outbox-drive-worker/wakeup_auth.ts"
+      - ".github/workflows/gti-wakeup-isolated-integration.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gti-wakeup-isolated-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-integration:
+    name: In-memory isolated integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check isolated integration
+        run: deno check supabase/functions/outbox-event-wakeup/isolated_integration_test.ts
+      - name: Run isolated integration tests
+        run: deno test --no-check supabase/functions/outbox-event-wakeup/isolated_integration_test.ts

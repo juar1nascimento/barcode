@@ -53,10 +53,7 @@ async function readBoundedBody(req: Request): Promise<string | null> {
   }
 }
 
-/**
- * Receiver boundary only. Production index intentionally supplies no dispatcher
- * until the worker-wakeup integration receives its own approved gate.
- */
+/** Receiver boundary: gateway auth is separate from the dedicated wake-up secret. */
 export async function handleWakeupRequest(
   req: Request,
   expectedSecret: string | undefined,
@@ -65,7 +62,7 @@ export async function handleWakeupRequest(
   if (req.method !== "POST") {
     return json({ ok: false, error: "method_not_allowed" }, 405);
   }
-  if (!isWakeupAuthorized(req.headers.get("authorization"), expectedSecret)) {
+  if (!isWakeupAuthorized(`Bearer ${req.headers.get("x-gti-wakeup-secret") ?? ""}`, expectedSecret)) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
   const raw = await readBoundedBody(req);

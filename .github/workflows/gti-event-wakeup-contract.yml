@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "supabase/functions/outbox-event-wakeup/**"
+      - "supabase/functions/outbox-drive-worker/**"
       - ".github/workflows/gti-event-wakeup-contract.yml"
   push:
     branches: [main]
@@ -34,6 +35,6 @@ jobs:
         with:
           deno-version: v2.x
       - name: Type-check contract and tests
-        run: deno check supabase/functions/outbox-event-wakeup/contract.ts supabase/functions/outbox-event-wakeup/contract_test.ts supabase/functions/outbox-event-wakeup/handler.ts supabase/functions/outbox-event-wakeup/handler_test.ts supabase/functions/outbox-event-wakeup/index.ts
+        run: deno check supabase/functions/outbox-event-wakeup/contract.ts supabase/functions/outbox-event-wakeup/contract_test.ts supabase/functions/outbox-event-wakeup/handler.ts supabase/functions/outbox-event-wakeup/handler_test.ts supabase/functions/outbox-event-wakeup/index.ts supabase/functions/outbox-event-wakeup/dispatcher.ts supabase/functions/outbox-event-wakeup/dispatcher_test.ts supabase/functions/outbox-drive-worker/index.ts supabase/functions/outbox-drive-worker/wakeup_auth.ts supabase/functions/outbox-drive-worker/wakeup_auth_test.ts
       - name: Run contract tests
-        run: deno test supabase/functions/outbox-event-wakeup/contract_test.ts supabase/functions/outbox-event-wakeup/handler_test.ts
+        run: deno test supabase/functions/outbox-event-wakeup/contract_test.ts supabase/functions/outbox-event-wakeup/handler_test.ts supabase/functions/outbox-event-wakeup/dispatcher_test.ts supabase/functions/outbox-drive-worker/wakeup_auth_test.ts

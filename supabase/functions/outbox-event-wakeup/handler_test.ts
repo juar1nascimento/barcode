@@ -12,7 +12,8 @@ function request(method = "POST", body = payload, token = secret) {
   return new Request("https://example.test/outbox-event-wakeup", {
     method,
     headers: {
-      authorization: token === null ? "" : "Bearer " + token,
+      authorization: "Bearer test-gateway-service-key",
+      "x-gti-wakeup-secret": token === null ? "" : token,
       "content-type": "application/json",
     },
     body: method === "GET" ? undefined : body,
