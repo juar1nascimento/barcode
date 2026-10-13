@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { constantTimeSecretMatch } from "./wakeup_auth.ts";
 
 const BUCKET="patrimonio-fotos",MAX_BATCH=25,MAX_ATTEMPTS=8;
 type O={id:number;patrimonio_id:number;foto_id:number;evento:string;status:string;tentativas:number;proxima_tentativa_em:string|null};
@@ -22,8 +23,16 @@ Deno.serve(async(req:Request)=>{
  const url=Deno.env.get("SUPABASE_URL"),key=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");if(!url||!key)return json({error:"worker_configuration_missing"},500);
  const admin=createClient(url,key,{auth:{autoRefreshToken:false,persistSession:false}});
  let body:any={};try{body=await req.json()}catch{}
- const mode=body.mode??"dry_run",limit=Math.min(Math.max(Number(body.limit??10)||10,1),MAX_BATCH);
- if(!["dry_run","process","validate_drive"].includes(mode))return json({ok:false,error:"invalid_mode"},400);
+ let mode=body.mode??"dry_run";
+ let limit=Math.min(Math.max(Number(body.limit??10)||10,1),MAX_BATCH);
+ const wakeupRequested=mode==="wakeup";
+ if(!["dry_run","process","validate_drive","wakeup"].includes(mode))return json({ok:false,error:"invalid_mode"},400);
+ if(wakeupRequested){
+   if(!constantTimeSecretMatch(req.headers.get("x-gti-wakeup-secret"),Deno.env.get("GTI_OUTBOX_WAKEUP_SECRET")))return json({ok:false,error:"unauthorized"},401);
+   if(Deno.env.get("GTI_OUTBOX_WAKEUP_WORKER_ENABLED")!=="true")return json({ok:false,error:"wakeup_worker_disabled",claimed_changes:0,synced_changes:0},409);
+   mode="process";
+   limit=Math.min(limit,5);
+ }
  const enabled=Deno.env.get("DRIVE_PROCESSING_ENABLED")==="true",oauthId=Deno.env.get("GOOGLE_DRIVE_OAUTH_CLIENT_ID")||"",oauthSecret=Deno.env.get("GOOGLE_DRIVE_OAUTH_CLIENT_SECRET")||"",refresh=Deno.env.get("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN")||"",root=Deno.env.get("GOOGLE_DRIVE_FOLDER_ID")||"";
  if(mode==="process"&&(!enabled||!oauthId||!oauthSecret||!refresh||!root))return json({ok:false,error:"drive_processing_not_configured",configuration:{processing_enabled:enabled,oauth_configured:Boolean(oauthId&&oauthSecret&&refresh),destination_configured:Boolean(root)},claimed_changes:0,synced_changes:0},409);
  if(mode==="validate_drive"){
