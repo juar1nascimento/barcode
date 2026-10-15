@@ -62,6 +62,21 @@ Deno.test("ambiguous folder lookup fails closed without creating", async () => {
   assert(creates === 0, "ambiguous destination must never trigger creation");
 });
 
+Deno.test("Drive create HTTP failure fails closed without a post-create lookup", async () => {
+  const labels: string[] = [];
+  await expectRejects(
+    () => ensureExactPatrimonioFolder(async (label) => {
+      labels.push(label);
+      if (label === "patrimonio") throw new Error("drive_folder_missing:patrimonio");
+      return "unexpected";
+    }, async () => {
+      throw new Error("drive_folder_create_failed:patrimonio:403");
+    }),
+    "drive_folder_create_failed:patrimonio:403",
+  );
+  assert(labels.join(",") === "patrimonio", "failed create must not trigger post-create lookup");
+});
+
 Deno.test("missing create response id fails closed", async () => {
   await expectRejects(
     () => ensureExactPatrimonioFolder(async () => {
