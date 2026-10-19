@@ -53,6 +53,9 @@ export async function withDriveFolderLease<T>(
 
   try {
     const result = await operation(assertHeld);
+    // Do not return a successful result while a heartbeat renewal is still unresolved.
+    // The in-flight renewal may be the first signal that this worker lost the lease.
+    if (renewalInFlight) await renewalInFlight;
     assertHeld();
     return result;
   } finally {
