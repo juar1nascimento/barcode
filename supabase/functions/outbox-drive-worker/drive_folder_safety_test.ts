@@ -1,5 +1,7 @@
 import {
+  assertOutboxPatrimonioMatches,
   ensureExactPatrimonioFolder,
+  selectUniqueDriveMatch,
   withDriveFolderLease,
 } from "./drive_folder_safety.ts";
 
@@ -133,4 +135,27 @@ Deno.test("lease is released when the protected operation throws", async () => {
     "simulated_operation_failure",
   );
   assert(!held, "lease must be released after an operation failure");
+});
+
+Deno.test("outbox event and photo must reference the same patrimonio", () => {
+  assertOutboxPatrimonioMatches(22, 22);
+  let rejected = false;
+  try {
+    assertOutboxPatrimonioMatches(22, 23);
+  } catch (error) {
+    rejected = String(error).includes("outbox_patrimonio_mismatch");
+  }
+  assert(rejected, "mismatched patrimonio IDs must fail closed");
+});
+
+Deno.test("duplicate Drive matches fail closed instead of choosing the first", () => {
+  assert(selectUniqueDriveMatch([{ id: "one" }])?.id === "one", "single match should be reused");
+  assert(selectUniqueDriveMatch([]) === null, "no match should permit upload attempt");
+  let rejected = false;
+  try {
+    selectUniqueDriveMatch([{ id: "one" }, { id: "two" }]);
+  } catch (error) {
+    rejected = String(error).includes("drive_duplicate_outbox_match");
+  }
+  assert(rejected, "multiple matches must fail closed");
 });
