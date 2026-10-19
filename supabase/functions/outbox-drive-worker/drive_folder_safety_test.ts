@@ -98,6 +98,7 @@ Deno.test("database lease serializes two concurrent operations for one patrimoni
       held = true;
       return true;
     },
+    renew: async (_id: number, _token: string, _seconds: number) => held,
     release: async (_id: number, _token: string) => {
       held = false;
     },
@@ -109,7 +110,7 @@ Deno.test("database lease serializes two concurrent operations for one patrimoni
     active--;
   };
   await Promise.all([
-    withDriveFolderLease(22, lease, operation, { attempts: 40, delayMs: 1 }),
+    withDriveFolderLease(22, lease, operation, { attempts: 40, delayMs: 1, heartbeatMs: 2 }),
     withDriveFolderLease(22, lease, operation, { attempts: 40, delayMs: 1 }),
   ]);
   assert(maxActive === 1, `operations overlapped; max active was ${maxActive}`);
@@ -124,6 +125,7 @@ Deno.test("lease is released when the protected operation throws", async () => {
       held = true;
       return true;
     },
+    renew: async () => held,
     release: async () => {
       held = false;
     },
@@ -158,4 +160,39 @@ Deno.test("duplicate Drive matches fail closed instead of choosing the first", (
     rejected = String(error).includes("drive_duplicate_outbox_match");
   }
   assert(rejected, "multiple matches must fail closed");
+});
+
+
+Deno.test("lease heartbeat renews a long-running folder operation", async () => {
+  let held = false;
+  let renewals = 0;
+  const lease = {
+    acquire: async () => { if (held) return false; held = true; return true; },
+    renew: async () => { renewals++; return held; },
+    release: async () => { held = false; },
+  };
+  await withDriveFolderLease(24, lease, async (assertHeld) => {
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assertHeld();
+  }, { attempts: 1, heartbeatMs: 2 });
+  assert(renewals > 0, "long operation should trigger lease renewal");
+  assert(!held, "lease should be released after renewal");
+});
+
+Deno.test("lost lease prevents the next protected folder operation", async () => {
+  let held = false;
+  const lease = {
+    acquire: async () => { held = true; return true; },
+    renew: async () => false,
+    release: async () => { held = false; },
+  };
+  await expectRejects(
+    () => withDriveFolderLease(25, lease, async (assertHeld) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assertHeld();
+      throw new Error("must_not_reach");
+    }, { attempts: 1, heartbeatMs: 1 }),
+    "drive_folder_lease_lost",
+  );
+  assert(!held, "lease should be released after loss is detected");
 });
