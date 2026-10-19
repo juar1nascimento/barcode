@@ -124,6 +124,27 @@ jobs:
           $test$;
           SQL
 
+      - name: Verify simultaneous acquisition from two PostgreSQL sessions
+        run: |
+          set -euo pipefail
+          psql -Atq -v ON_ERROR_STOP=1 -c "SELECT public.gti_acquire_drive_folder_lease(987654323, '66666666-6666-4666-8666-666666666666', 60)" > /tmp/lease_a.out &
+          pid_a=$!
+          psql -Atq -v ON_ERROR_STOP=1 -c "SELECT public.gti_acquire_drive_folder_lease(987654323, '77777777-7777-4777-8777-777777777777', 60)" > /tmp/lease_b.out &
+          pid_b=$!
+          wait "$pid_a"
+          wait "$pid_b"
+          result_a="$(tr -d '[:space:]' < /tmp/lease_a.out)"
+          result_b="$(tr -d '[:space:]' < /tmp/lease_b.out)"
+          if ! { [[ "$result_a" == "t" && "$result_b" == "f" ]] || [[ "$result_a" == "f" && "$result_b" == "t" ]]; }; then
+            echo "Expected exactly one lease owner; session A='$result_a', session B='$result_b'"
+            exit 1
+          fi
+          if [[ "$result_a" == "t" ]]; then
+            psql -v ON_ERROR_STOP=1 -c "SELECT public.gti_release_drive_folder_lease(987654323, '66666666-6666-4666-8666-666666666666')" >/dev/null
+          else
+            psql -v ON_ERROR_STOP=1 -c "SELECT public.gti_release_drive_folder_lease(987654323, '77777777-7777-4777-8777-777777777777')" >/dev/null
+          fi
+
       - name: Verify restricted function execution grants
         run: |
           psql -v ON_ERROR_STOP=1 <<'SQL'
