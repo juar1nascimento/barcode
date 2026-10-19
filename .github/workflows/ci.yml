@@ -28,6 +28,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Configure Deno
+        uses: denoland/setup-deno@v2.0.3
+        with:
+          deno-version: v2.x
+      - name: Test Drive worker folder safety
+        run: deno test supabase/functions/outbox-drive-worker/drive_folder_safety_test.ts
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
