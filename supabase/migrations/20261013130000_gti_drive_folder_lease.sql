@@ -51,6 +51,36 @@ begin
 end;
 $$;
 
+
+create or replace function public.gti_renew_drive_folder_lease(
+  p_patrimonio_id bigint,
+  p_lease_token uuid,
+  p_lease_seconds integer default 120
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_renewed boolean := false;
+begin
+  if p_patrimonio_id is null or p_patrimonio_id <= 0 then raise exception 'invalid_patrimonio_id'; end if;
+  if p_lease_token is null then raise exception 'invalid_lease_token'; end if;
+  if p_lease_seconds is null or p_lease_seconds < 30 or p_lease_seconds > 300 then raise exception 'invalid_lease_seconds'; end if;
+
+  update public.gti_drive_folder_leases
+     set lease_until = clock_timestamp() + make_interval(secs => p_lease_seconds),
+         updated_at = clock_timestamp()
+   where patrimonio_id = p_patrimonio_id
+     and lease_token = p_lease_token
+     and lease_until > clock_timestamp()
+  returning true into v_renewed;
+
+  return coalesce(v_renewed, false);
+end;
+$;
+
 create or replace function public.gti_release_drive_folder_lease(
   p_patrimonio_id bigint,
   p_lease_token uuid
@@ -69,6 +99,8 @@ end;
 $$;
 
 revoke all on function public.gti_acquire_drive_folder_lease(bigint, uuid, integer) from public, anon, authenticated;
+revoke all on function public.gti_renew_drive_folder_lease(bigint, uuid, integer) from public, anon, authenticated;
 revoke all on function public.gti_release_drive_folder_lease(bigint, uuid) from public, anon, authenticated;
 grant execute on function public.gti_acquire_drive_folder_lease(bigint, uuid, integer) to service_role;
+grant execute on function public.gti_renew_drive_folder_lease(bigint, uuid, integer) to service_role;
 grant execute on function public.gti_release_drive_folder_lease(bigint, uuid) to service_role;
