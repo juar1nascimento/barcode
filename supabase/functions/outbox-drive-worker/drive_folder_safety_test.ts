@@ -197,6 +197,30 @@ Deno.test("lost lease prevents the next protected folder operation", async () =>
   assert(!held, "lease should be released after loss is detected");
 });
 
+Deno.test("in-flight lease renewal failure blocks successful operation finalization", async () => {
+  let held = true;
+  let signalRenewalStarted!: () => void;
+  const renewalStarted = new Promise<void>((resolve) => { signalRenewalStarted = resolve; });
+  const lease = {
+    acquire: async () => true,
+    renew: async () => {
+      signalRenewalStarted();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      held = false;
+      return false;
+    },
+    release: async () => { held = false; },
+  };
+  await expectRejects(
+    () => withDriveFolderLease(26, lease, async () => {
+      await renewalStarted;
+      return "must_not_finalize";
+    }, { attempts: 1, heartbeatMs: 1 }),
+    "drive_folder_lease_lost",
+  );
+  assert(!held, "lease should be released after failed in-flight renewal");
+});
+
 Deno.test("lease loss during folder creation blocks post-create lookup and finalization path", async () => {
   let leaseHeld = true;
   let creates = 0;
