@@ -82,6 +82,48 @@ jobs:
           $test$;
           SQL
 
+      - name: Verify expiry recovery and token-guarded release
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $test$
+          DECLARE
+            v_id bigint := 987654322;
+            v_token uuid := '33333333-3333-4333-8333-333333333333';
+            v_new_token uuid := '44444444-4444-4444-8444-444444444444';
+            v_wrong_token uuid := '55555555-5555-4555-8555-555555555555';
+          BEGIN
+            IF NOT public.gti_acquire_drive_folder_lease(v_id, v_token, 60) THEN
+              RAISE EXCEPTION 'initial lease acquisition failed';
+            END IF;
+            IF public.gti_release_drive_folder_lease(v_id, v_wrong_token) THEN
+              RAISE EXCEPTION 'release accepted a mismatched token';
+            END IF;
+            IF NOT public.gti_renew_drive_folder_lease(v_id, v_token, 60) THEN
+              RAISE EXCEPTION 'wrong-token release changed the current lease';
+            END IF;
+
+            UPDATE public.gti_drive_folder_leases
+               SET lease_until = clock_timestamp() - interval '1 second'
+             WHERE patrimonio_id = v_id AND lease_token = v_token;
+            IF NOT FOUND THEN
+              RAISE EXCEPTION 'could not expire the test lease';
+            END IF;
+            IF NOT public.gti_acquire_drive_folder_lease(v_id, v_new_token, 60) THEN
+              RAISE EXCEPTION 'expired lease could not be reacquired';
+            END IF;
+            IF public.gti_release_drive_folder_lease(v_id, v_token) THEN
+              RAISE EXCEPTION 'former owner released the replacement lease';
+            END IF;
+            IF NOT public.gti_renew_drive_folder_lease(v_id, v_new_token, 60) THEN
+              RAISE EXCEPTION 'former owner affected the replacement lease';
+            END IF;
+            IF NOT public.gti_release_drive_folder_lease(v_id, v_new_token) THEN
+              RAISE EXCEPTION 'replacement lease release failed';
+            END IF;
+          END
+          $test$;
+          SQL
+
       - name: Verify restricted function execution grants
         run: |
           psql -v ON_ERROR_STOP=1 <<'SQL'
