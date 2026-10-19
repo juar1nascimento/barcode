@@ -196,3 +196,24 @@ Deno.test("lost lease prevents the next protected folder operation", async () =>
   );
   assert(!held, "lease should be released after loss is detected");
 });
+
+Deno.test("lease loss during folder creation blocks post-create lookup and finalization path", async () => {
+  let leaseHeld = true;
+  let creates = 0;
+  let postCreateLookups = 0;
+  await expectRejects(
+    () => ensureExactPatrimonioFolder(async (label) => {
+      if (label === "patrimonio_after_create") postCreateLookups++;
+      return "folder-id";
+    }, async () => {
+      creates++;
+      leaseHeld = false;
+      return "created-folder-id";
+    }, () => {
+      if (!leaseHeld) throw new Error("drive_folder_lease_lost");
+    }),
+    "drive_folder_lease_lost",
+  );
+  assert(creates === 1, "folder creation should be attempted once");
+  assert(postCreateLookups === 0, "lost lease must block post-create lookup");
+});
