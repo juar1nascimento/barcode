@@ -52,3 +52,8 @@ export async function ensureExactPatrimonioFolder(
   // Re-query by exact parent/name after creation. Zero or multiple matches fail closed.
   return await lookup("patrimonio_after_create");
 }
+
+export function selectUniqueDriveMatch<T>(files: T[]): T | null {
+  if (files.length > 1) throw new Error("drive_duplicate_outbox_match");
+  return files[0] ?? null;
+}
