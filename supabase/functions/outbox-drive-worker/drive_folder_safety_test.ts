@@ -203,6 +203,7 @@ Deno.test("lease loss during folder creation blocks post-create lookup and final
   let postCreateLookups = 0;
   await expectRejects(
     () => ensureExactPatrimonioFolder(async (label) => {
+      if (label === "patrimonio") throw new Error("drive_folder_missing:patrimonio");
       if (label === "patrimonio_after_create") postCreateLookups++;
       return "folder-id";
     }, async () => {
