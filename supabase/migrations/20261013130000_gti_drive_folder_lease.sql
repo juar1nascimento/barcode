@@ -61,7 +61,7 @@ returns boolean
 language plpgsql
 security definer
 set search_path = public
-as $
+as $$
 declare
   v_renewed boolean := false;
 begin
@@ -79,7 +79,7 @@ begin
 
   return coalesce(v_renewed, false);
 end;
-$;
+$$;
 
 create or replace function public.gti_release_drive_folder_lease(
   p_patrimonio_id bigint,
