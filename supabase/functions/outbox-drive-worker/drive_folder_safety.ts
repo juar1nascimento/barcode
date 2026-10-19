@@ -57,3 +57,15 @@ export function selectUniqueDriveMatch<T>(files: T[]): T | null {
   if (files.length > 1) throw new Error("drive_duplicate_outbox_match");
   return files[0] ?? null;
 }
+
+export function assertOutboxPatrimonioMatches(outboxPatrimonioId: number, fotoPatrimonioId: number): void {
+  if (
+    !Number.isSafeInteger(outboxPatrimonioId) ||
+    !Number.isSafeInteger(fotoPatrimonioId) ||
+    outboxPatrimonioId <= 0 ||
+    fotoPatrimonioId <= 0 ||
+    outboxPatrimonioId !== fotoPatrimonioId
+  ) {
+    throw new Error("outbox_patrimonio_mismatch");
+  }
+}
