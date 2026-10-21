@@ -1,0 +1,54 @@
+name: GTI SESA - Isolated photo regression (Pillow 13)
+
+on:
+  push:
+    branches:
+      - test/streamlit-pillow13-compat
+    paths:
+      - "supabase_storage.py"
+      - "tests/test_storage_photo_processing.py"
+      - ".github/workflows/photo-isolated.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gti-photo-isolated-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  photo-regression:
+    name: Pillow 13 photo normalization tests (isolated)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout experimental branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install only isolated test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "Pillow==13.0.0" "pytest==8.4.2" "requests==2.32.5"
+
+      - name: Provide minimal Streamlit import stub
+        run: |
+          mkdir -p /tmp/gti-test-stubs
+          cat > /tmp/gti-test-stubs/streamlit.py <<'PY'
+          class _Secrets(dict):
+              pass
+
+          secrets = _Secrets()
+          PY
+
+      - name: Run photo normalization regressions only
+        env:
+          PYTHONPATH: /tmp/gti-test-stubs:.
+        run: |
+          python -m pytest -q tests/test_storage_photo_processing.py
