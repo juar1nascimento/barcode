@@ -1,6 +1,9 @@
 import pytest
 
-from sincronizador_google_sheets import _localizar_linha_patrimonio
+from sincronizador_google_sheets import (
+    _localizar_linha_patrimonio,
+    _obter_aba_existente_para_sync,
+)
 
 
 class FakeWorksheet:
@@ -54,3 +57,26 @@ def test_bloqueia_numero_que_aponta_para_outro_id():
         _localizar_linha_patrimonio(
             FakeWorksheet(), {"id": 505, "numero": "PAT-04"}, values
         )
+
+
+class WorksheetNotFound(Exception):
+    pass
+
+
+class FakeSpreadsheetMissingWorksheet:
+    def __init__(self):
+        self.add_called = False
+
+    def worksheet(self, name):
+        raise WorksheetNotFound(name)
+
+    def add_worksheet(self, **kwargs):
+        self.add_called = True
+        raise AssertionError("A sincronização não deve criar abas automaticamente.")
+
+
+def test_bloqueia_aba_ausente_sem_tentar_cria_la():
+    spreadsheet = FakeSpreadsheetMissingWorksheet()
+    with pytest.raises(RuntimeError, match="criação e validação estrutural controladas"):
+        _obter_aba_existente_para_sync(spreadsheet, "UBS Ausente")
+    assert spreadsheet.add_called is False
