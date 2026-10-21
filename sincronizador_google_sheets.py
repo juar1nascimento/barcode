@@ -23,7 +23,6 @@ from Tabela_de_dados_Inventario_7_2 import (
     _garantir_cabecalho_moderno,
     _garantir_coluna_patrimonio_texto,
     _normalizar_unidade_aba,
-    _obter_aba_gravacao,
     _chave_texto,
     conectar_google_sheets,
 )
@@ -53,6 +52,19 @@ def _sheets_call(label: str, operation):
             time.sleep(atraso)
     raise RuntimeError(f"Falha transitória no Google Sheets: {label}")
 
+
+
+def _obter_aba_existente_para_sync(planilha, nome_aba: str):
+    """Usa apenas abas existentes; a criação de abas exige correção controlada."""
+    try:
+        return planilha.worksheet(nome_aba)
+    except Exception as exc:
+        if type(exc).__name__ == "WorksheetNotFound":
+            raise RuntimeError(
+                f"Aba {nome_aba!r} não existe; sincronização bloqueada até criação "
+                "e validação estrutural controladas."
+            ) from exc
+        raise
 
 def _remover_validacoes_menu_suspenso(planilha) -> dict:
     """Remove validações de dados de todas as abas, eliminando menus suspensos.
@@ -261,10 +273,8 @@ def _espelhar_patrimonio(item: dict) -> None:
     if not planilha:
         raise RuntimeError(st.session_state.get("sheets_sync_ultimo_erro", "Google Sheets indisponível."))
 
-    aba = _obter_aba_gravacao(
-        planilha,
-        _normalizar_unidade_aba(patrimonio["unidade"]),
-        2,
+    aba = _obter_aba_existente_para_sync(
+        planilha, _normalizar_unidade_aba(patrimonio["unidade"])
     )
     _garantir_coluna_patrimonio_texto(aba)
     if not _garantir_cabecalho_moderno(aba):
@@ -405,10 +415,8 @@ def _espelhar_foto(item: dict) -> None:
     if not planilha:
         raise RuntimeError(st.session_state.get("sheets_sync_ultimo_erro", "Google Sheets indisponível."))
 
-    aba = _obter_aba_gravacao(
-        planilha,
-        _normalizar_unidade_aba(foto["unidade"]),
-        2,
+    aba = _obter_aba_existente_para_sync(
+        planilha, _normalizar_unidade_aba(foto["unidade"])
     )
     _garantir_coluna_patrimonio_texto(aba)
     if not _garantir_cabecalho_moderno(aba):
