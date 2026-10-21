@@ -208,6 +208,53 @@ def _buscar_patrimonio(patrimonio_id: int) -> dict:
         conn.close()
 
 
+def _localizar_linha_patrimonio(aba, patrimonio: dict, valores=None) -> int | None:
+    """Localiza por ID estável; usa número somente como fallback inequívoco."""
+    atuais = valores if valores is not None else _sheets_call("get_all_values", aba.get_all_values)
+    if not atuais:
+        return None
+
+    cabecalho = [str(v).strip() for v in atuais[0]]
+    pos_id = cabecalho.index("ID Patrimônio") if "ID Patrimônio" in cabecalho else None
+    pos_numero = cabecalho.index("Nº de Patrimônio") if "Nº de Patrimônio" in cabecalho else None
+    if pos_numero is None:
+        raise RuntimeError("Aba sem coluna Nº de Patrimônio; sincronização bloqueada.")
+
+    id_esperado = str(patrimonio["id"])
+    if pos_id is not None:
+        por_id = [
+            idx for idx, linha in enumerate(atuais[1:], start=2)
+            if len(linha) > pos_id and str(linha[pos_id]).strip() == id_esperado
+        ]
+        if len(por_id) > 1:
+            raise RuntimeError(f"ID Patrimônio {id_esperado} duplicado na planilha; sincronização bloqueada.")
+        if por_id:
+            return por_id[0]
+
+    numero_esperado = _chave_texto(patrimonio["numero"])
+    por_numero = [
+        (idx, linha) for idx, linha in enumerate(atuais[1:], start=2)
+        if len(linha) > pos_numero and _chave_texto(linha[pos_numero]) == numero_esperado
+    ]
+    if len(por_numero) > 1:
+        raise RuntimeError(
+            f"Número de patrimônio {patrimonio['numero']} aparece em múltiplas linhas "
+            f"da aba {aba.title}; sincronização bloqueada."
+        )
+    if not por_numero:
+        return None
+
+    row_idx, linha = por_numero[0]
+    if pos_id is not None and len(linha) > pos_id:
+        id_existente = str(linha[pos_id] or "").strip()
+        if id_existente and id_existente != id_esperado:
+            raise RuntimeError(
+                f"Número de patrimônio {patrimonio['numero']} aponta para ID {id_existente}, "
+                f"mas o PostgreSQL informa ID {id_esperado}; sincronização bloqueada."
+            )
+    return row_idx
+
+
 def _espelhar_patrimonio(item: dict) -> None:
     patrimonio = _buscar_patrimonio(item["patrimonio_id"])
     planilha = conectar_google_sheets()
@@ -223,6 +270,14 @@ def _espelhar_patrimonio(item: dict) -> None:
     if not _garantir_cabecalho_moderno(aba):
         raise RuntimeError("Cabeçalho da aba não corresponde ao schema canônico do inventário.")
 
+    atuais = _sheets_call("get_all_values", aba.get_all_values)
+    if not atuais:
+        raise RuntimeError("Aba sem cabeçalho; sincronização bloqueada para evitar escrita estrutural.")
+
+    cabecalho = [str(v).strip() for v in atuais[0]]
+    if "ID Patrimônio" not in cabecalho:
+        raise RuntimeError("Aba sem coluna ID Patrimônio; correção estrutural controlada necessária.")
+
     valores = [
         patrimonio["setor"],
         patrimonio["tipo"],
@@ -230,15 +285,28 @@ def _espelhar_patrimonio(item: dict) -> None:
         patrimonio["fabricante"],
         patrimonio["data"],
         patrimonio["codigo"],
+        str(patrimonio["id"]),
     ]
-    atuais = _sheets_call("get_all_values", aba.get_all_values)
-    for indice, linha in enumerate(atuais[1:], start=2):
-        if len(linha) > 2 and _chave_texto(linha[2]) == _chave_texto(patrimonio["numero"]):
-            _sheets_call("update_patrimonio", lambda: aba.update(values=[valores], range_name=f"A{indice}:{_coluna(len(COLUNAS_INVENTARIO))}{indice}", value_input_option="RAW"))
-            return
+    linha = _localizar_linha_patrimonio(aba, patrimonio, atuais)
+    if linha is not None:
+        _sheets_call(
+            "update_patrimonio",
+            lambda: aba.update(
+                values=[valores],
+                range_name=f"A{linha}:{_coluna(len(valores))}{linha}",
+                value_input_option="RAW",
+            ),
+        )
+        return
 
-    _sheets_call("append_patrimonio", lambda: aba.append_row(valores, value_input_option="RAW", insert_data_option="INSERT_ROWS"))
-
+    _sheets_call(
+        "append_patrimonio",
+        lambda: aba.append_row(
+            valores,
+            value_input_option="RAW",
+            insert_data_option="INSERT_ROWS",
+        ),
+    )
 
 def _buscar_foto(foto_id: int) -> dict:
     conn = conectar()
@@ -355,20 +423,13 @@ def _espelhar_foto(item: dict) -> None:
     if coluna <= 5:
         raise RuntimeError("Coluna de foto inválida.")
 
-    atuais = aba.get_all_values()
-    linha_planilha = None
-    for indice, linha in enumerate(atuais[1:], start=2):
-        if len(linha) > 2 and _chave_texto(linha[2]) == _chave_texto(patrimonio["numero"]):
-            linha_planilha = indice
-            break
+    atuais = _sheets_call("get_all_values", aba.get_all_values)
+    linha_planilha = _localizar_linha_patrimonio(aba, patrimonio, atuais)
 
     if linha_planilha is None:
         _espelhar_patrimonio({"patrimonio_id": foto["patrimonio_id"]})
-        atuais = aba.get_all_values()
-        for indice, linha in enumerate(atuais[1:], start=2):
-            if len(linha) > 2 and _chave_texto(linha[2]) == _chave_texto(patrimonio["numero"]):
-                linha_planilha = indice
-                break
+        atuais = _sheets_call("get_all_values", aba.get_all_values)
+        linha_planilha = _localizar_linha_patrimonio(aba, patrimonio, atuais)
 
     if linha_planilha is None:
         raise RuntimeError(f"Linha do patrimônio {patrimonio['numero']} não encontrada no Sheets.")
@@ -430,7 +491,18 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
     if os.getenv("SHEETS_REMOVE_VALIDATIONS", "false").strip().lower() == "true":
         limpeza_validacoes = _remover_validacoes_menu_suspenso(planilha_preflight)
         limpeza_validacoes["habilitada"] = True
-    auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=True)
+    # Preflight estritamente somente leitura: nunca reescrever abas automaticamente.
+    auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=False)
+    pendencias_estruturais = [
+        detalhe.get("aba")
+        for detalhe in auditoria.get("detalhes", [])
+        if detalhe.get("correcao_necessaria") or detalhe.get("conflitos")
+    ]
+    if pendencias_estruturais or auditoria.get("abas_bloqueadas"):
+        raise RuntimeError(
+            "Sincronização bloqueada: há pendências estruturais que exigem correção controlada. "
+            f"Abas: {', '.join(pendencias_estruturais[:20]) or 'ver relatório de auditoria'}"
+        )
 
     resultado = {
         "processados": 0,
