@@ -48,7 +48,7 @@ def normalizar_cabecalho(valor: Any) -> str:
     chave = normalizar_texto(valor)
     if chave in SHEET_NUMBER_ALIASES:
         return SHEET_NUMBER_HEADER
-    match = re.fullmatch(r"foto\\s*(\\d{1,2})", chave)
+    match = re.fullmatch(r"foto\s*(\d{1,2})", chave)
     if match and 1 <= int(match.group(1)) <= 10:
         return f"Foto {int(match.group(1)):02d}"
     return str(valor or "").strip()
