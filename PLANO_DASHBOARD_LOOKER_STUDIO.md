@@ -199,3 +199,18 @@ Não somar contagens distintas após junções de um-para-muitos sem pré-agrega
 - Looker Studio — [Conectar ao Google Sheets](https://cloud.google.com/looker/docs/studio/connect-to-google-sheets): uma fonte se conecta a uma worksheet; dados tabulares, cabeçalho único e tipos coerentes.
 - Looker Studio — [Gerenciar atualização dos dados](https://docs.cloud.google.com/looker/docs/studio/manage-data-freshness): Sheets oferece intervalo de 15 minutos como mínimo padrão.
 - Looker Studio — [Função IMAGE](https://cloud.google.com/looker/docs/studio/image): imagens em tabelas, requisitos de URL confiável e limitações de credenciais do visualizador.
+
+## 11. Achado de segurança bloqueante — fotos
+
+A revisão do código identificou um ponto que precisa de decisão explícita antes de habilitar a galeria:
+
+- `supabase_migration_fotos_google_sheets.sql` contém `UPDATE storage.buckets SET public = true WHERE id = 'patrimonio-fotos'`.
+- `sheets_outbox_worker.py` gera URLs assinadas com expiração de 24 horas e grava fórmulas `HYPERLINK/IMAGE` no Sheets. O módulo `fotos_patrimonio.py` também gera URLs assinadas de 24 horas para exibição na planilha.
+
+**Risco:** tornar o bucket público altera o modelo de acesso dos arquivos. URLs assinadas expirantes também não são um contrato confiável de imagem permanente para um relatório analítico em cache. Não é seguro resolver a galeria abrindo o bucket inteiro ao público apenas para permitir miniaturas.
+
+**Bloqueio deste gate:** não aplicar nem reaplicar a migration, não alterar o bucket, não gerar links públicos e não publicar URLs de fotos reais no Looker Studio. Primeiro confirmar a classificação institucional das fotos e revisar o estado atual do bucket com acesso somente leitura.
+
+**Alternativa preferida:** manter o Storage privado e, se a miniatura autenticada não puder ser consumida com segurança pelo Looker Studio, apresentar os metadados e links autorizados no relatório e abrir a galeria no SIGS autenticado. Qualquer proxy de miniaturas deve validar a sessão e autorização por arquivo, ter limites de requisição e não expor tokens na URL persistida.
+
+Esse achado não prova que o bucket de produção esteja público agora; prova que o arquivo de migration versionado contém uma instrução para torná-lo público. O estado real de produção ainda precisa ser verificado separadamente, em modo somente leitura.
