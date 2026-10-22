@@ -48,6 +48,9 @@ def normalizar_cabecalho(valor: Any) -> str:
     chave = normalizar_texto(valor)
     if chave in SHEET_NUMBER_ALIASES:
         return SHEET_NUMBER_HEADER
+    match = re.fullmatch(r"foto\\s*(\\d{1,2})", chave)
+    if match and 1 <= int(match.group(1)) <= 10:
+        return f"Foto {int(match.group(1)):02d}"
     return str(valor or "").strip()
 
 
@@ -166,7 +169,7 @@ def _ler_sheets(spreadsheet) -> tuple[list[dict], dict]:
     rows = []
     report = {"tabs_scanned": 0, "tabs_skipped": [], "tab_issues": []}
     for worksheet in spreadsheet.worksheets():
-        values = worksheet.get_all_values()
+        values = worksheet.get_all_values(value_render_option="FORMULA")
         if not values:
             report["tabs_skipped"].append({"tab": worksheet.title, "reason": "empty"})
             continue
@@ -223,11 +226,27 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
     matched_pg_ids = set()
     unmatched_sheet_rows = []
     ambiguous_number_matches = []
+    field_differences = []
     for row in sheet_rows:
         stable_id = row["id"]
         if stable_id:
             if stable_id in pg_by_id:
                 matched_pg_ids.add(stable_id)
+                source = pg_by_id[stable_id]
+                fields = {
+                    "numero": (row["numero"], source["numero"]),
+                    "unidade": (row["unidade"], source["unidade"]),
+                    "setor": (row["setor"], source["setor"]),
+                    "tipo": (row["tipo"], source["tipo"]),
+                    "fabricante": (row["fabricante"], source["fabricante"]),
+                    "codigo_barras": (row["codigo_barras"], source["codigo_barras"]),
+                }
+                for field, (sheet_value, pg_value) in fields.items():
+                    if normalizar_texto(sheet_value) != normalizar_texto(pg_value):
+                        field_differences.append({
+                            "id": stable_id, "tab": row["tab"], "row": row["row"],
+                            "field": field, "sheet_value": sheet_value, "postgres_value": pg_value,
+                        })
             else:
                 unmatched_sheet_rows.append({"tab": row["tab"], "row": row["row"], "reason": "unknown_or_inactive_id"})
             continue
@@ -238,7 +257,11 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
         else:
             ambiguous_number_matches.append({"tab": row["tab"], "row": row["row"], "reason": "missing_id_and_number_not_unique"})
 
-    photos_orphaned = [f["id"] for f in fotos if f["patrimonio_id"] not in pg_by_id]
+    # A FK de fotos pode apontar para patrimônio inativo; isso não é foto órfã.
+    # Só classificamos como órfã quando o ID não existe em nenhum patrimônio,
+    # informação verificada separadamente no conjunto completo retornado pelo SQL.
+    all_asset_ids = set(p["id"] for p in patrimonios)
+    photos_orphaned = [f["id"] for f in fotos if f["patrimonio_id"] not in all_asset_ids]
     photo_counts = Counter(f["patrimonio_id"] for f in fotos)
     sheet_counts_by_id = Counter(r["id"] for r in sheet_rows if r["id"])
     sheet_photo_cells = sum(r["photo_cells_filled"] for r in sheet_rows)
@@ -250,6 +273,7 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
         "postgres_patrimonios_missing_from_sheets": sorted(set(pg_ids) - matched_pg_ids),
         "sheet_rows_not_matched_to_postgres": unmatched_sheet_rows,
         "ambiguous_fallback_rows": ambiguous_number_matches,
+        "field_differences_by_stable_id": field_differences,
         "photo_records_without_storage_path": [f["id"] for f in fotos if not f["storage_path_present"]],
         "photo_records_without_drive_url": [f["id"] for f in fotos if not f["drive_url_present"]],
         "orphan_photo_records": photos_orphaned,
