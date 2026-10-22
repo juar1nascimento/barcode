@@ -46,12 +46,21 @@ def normalizar_texto(valor: Any) -> str:
 
 def normalizar_cabecalho(valor: Any) -> str:
     chave = normalizar_texto(valor)
-    if chave in SHEET_NUMBER_ALIASES:
+    if chave in SHEET_NUMBER_ALIASES or chave == "no de patrimonio":
         return SHEET_NUMBER_HEADER
     match = re.fullmatch(r"foto\s*(\d{1,2})", chave)
     if match and 1 <= int(match.group(1)) <= 10:
         return f"Foto {int(match.group(1)):02d}"
     return str(valor or "").strip()
+
+
+def normalizar_unidade(valor: Any) -> str:
+    aliases = {
+        "urs jacara_pe": "URS Jacaraípe",
+        "ubs bairro de f_tima": "UBS Bairro de Fátima",
+    }
+    texto = str(valor or "").strip()
+    return aliases.get(texto.casefold(), texto)
 
 
 def _obter_colunas(conn, tabela: str) -> set[str]:
@@ -239,7 +248,7 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
                 source = pg_by_id[stable_id]
                 fields = {
                     "numero": (row["numero"], source["numero"]),
-                    "unidade": (row["unidade"], source["unidade"]),
+                    "unidade": (normalizar_unidade(row["unidade"]), normalizar_unidade(source["unidade"])),
                     "setor": (row["setor"], source["setor"]),
                     "tipo": (row["tipo"], source["tipo"]),
                     "fabricante": (row["fabricante"], source["fabricante"]),
@@ -264,8 +273,17 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
     # A consulta de fotos usa LEFT JOIN contra todos os patrimônios, inclusive inativos.
     photos_orphaned = [f["id"] for f in fotos if not f["patrimonio_exists"]]
     photo_counts = Counter(f["patrimonio_id"] for f in fotos)
-    sheet_counts_by_id = Counter(r["id"] for r in sheet_rows if r["id"])
     sheet_photo_cells = sum(r["photo_cells_filled"] for r in sheet_rows)
+    photo_count_differences = []
+    for row in sheet_rows:
+        if row["id"] and row["id"] in pg_by_id:
+            postgres_count = photo_counts[row["id"]]
+            if row["photo_cells_filled"] != postgres_count:
+                photo_count_differences.append({
+                    "id": row["id"], "tab": row["tab"], "row": row["row"],
+                    "sheets_photo_cells": row["photo_cells_filled"],
+                    "postgres_photo_records": postgres_count,
+                })
 
     issues = {
         "duplicate_sheet_ids": duplicate_sheet_ids,
@@ -275,6 +293,7 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
         "sheet_rows_not_matched_to_postgres": unmatched_sheet_rows,
         "ambiguous_fallback_rows": ambiguous_number_matches,
         "field_differences_by_stable_id": field_differences,
+        "photo_count_differences_by_stable_id": photo_count_differences,
         "photo_records_without_storage_path": [f["id"] for f in fotos if not f["storage_path_present"]],
         "photo_records_without_drive_url": [f["id"] for f in fotos if not f["drive_url_present"]],
         "orphan_photo_records": photos_orphaned,
