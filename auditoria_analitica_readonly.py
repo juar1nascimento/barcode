@@ -148,12 +148,15 @@ def _ler_postgres(conn) -> tuple[list[dict], list[dict], dict]:
     } for row in rows]
 
     fcols = cols["patrimonio_fotos"]
-    photo_select = ["id", "patrimonio_id", "ordem", "storage_path"]
-    photo_select += ["storage_bucket"] if "storage_bucket" in fcols else ["'patrimonio-fotos' AS storage_bucket"]
-    photo_select += ["drive_web_url"] if "drive_web_url" in fcols else ["NULL AS drive_web_url"]
-    photo_select += ["drive_file_name"] if "drive_file_name" in fcols else ["NULL AS drive_file_name"]
+    photo_select = ["pf.id", "pf.patrimonio_id", "pf.ordem", "pf.storage_path"]
+    photo_select += ["pf.storage_bucket"] if "storage_bucket" in fcols else ["'patrimonio-fotos' AS storage_bucket"]
+    photo_select += ["pf.drive_web_url"] if "drive_web_url" in fcols else ["NULL AS drive_web_url"]
+    photo_select += ["pf.drive_file_name"] if "drive_file_name" in fcols else ["NULL AS drive_file_name"]
     photo_rows = conn.execute(
-        f"SELECT {', '.join(photo_select)} FROM public.patrimonio_fotos ORDER BY patrimonio_id, ordem, id"
+        f"""SELECT {', '.join(photo_select)}, p.id AS existing_patrimonio_id
+              FROM public.patrimonio_fotos pf
+              LEFT JOIN public.patrimonios p ON p.id = pf.patrimonio_id
+             ORDER BY pf.patrimonio_id, pf.ordem, pf.id"""
     ).fetchall()
     fotos = [{
         "id": str(row[0]), "patrimonio_id": str(row[1]), "ordem": int(row[2]),
@@ -161,6 +164,7 @@ def _ler_postgres(conn) -> tuple[list[dict], list[dict], dict]:
         "storage_bucket": str(row[4] or ""),
         "drive_url_present": bool(str(row[5] or "").strip()),
         "drive_name_present": bool(str(row[6] or "").strip()),
+        "patrimonio_exists": row[7] is not None,
     } for row in photo_rows]
     return patrimonios, fotos, report
 
@@ -257,11 +261,8 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
         else:
             ambiguous_number_matches.append({"tab": row["tab"], "row": row["row"], "reason": "missing_id_and_number_not_unique"})
 
-    # A FK de fotos pode apontar para patrimônio inativo; isso não é foto órfã.
-    # Só classificamos como órfã quando o ID não existe em nenhum patrimônio,
-    # informação verificada separadamente no conjunto completo retornado pelo SQL.
-    all_asset_ids = set(p["id"] for p in patrimonios)
-    photos_orphaned = [f["id"] for f in fotos if f["patrimonio_id"] not in all_asset_ids]
+    # A consulta de fotos usa LEFT JOIN contra todos os patrimônios, inclusive inativos.
+    photos_orphaned = [f["id"] for f in fotos if not f["patrimonio_exists"]]
     photo_counts = Counter(f["patrimonio_id"] for f in fotos)
     sheet_counts_by_id = Counter(r["id"] for r in sheet_rows if r["id"])
     sheet_photo_cells = sum(r["photo_cells_filled"] for r in sheet_rows)
