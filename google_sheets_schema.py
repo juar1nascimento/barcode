@@ -232,13 +232,19 @@ def auditar_e_padronizar_abas_inventario(spreadsheet, *, aplicar: bool = True) -
                 relatorio["abas_ok"] += 1
 
             structure_requests.extend(_structure_requests(worksheet, len(normalized[0])))
-            detalhe["status"] = "corrigida" if info["changed"] and aplicar else "ok"
+            detalhe["status"] = (
+                "corrigida" if info["changed"] and aplicar
+                else "requer_correcao_controlada" if info["changed"]
+                else "ok"
+            )
+            detalhe["correcao_necessaria"] = bool(info["changed"])
             relatorio["detalhes"].append(detalhe)
         except Exception as exc:
             relatorio["erros"].append(f"{nome}: {str(exc)[:500]}")
             relatorio["abas_bloqueadas"] += 1
 
-    if not relatorio["erros"] and structure_requests:
+    # Em modo de auditoria, não aplicar formatação nem outras alterações.
+    if aplicar and not relatorio["erros"] and structure_requests:
         # Uma única batch_update reduz drasticamente a quantidade de escritas,
         # mas o Google Sheets pode devolver 429 quando a janela de quota ainda
         # está saturada por execuções anteriores. Nesse caso, aguarda-se uma
