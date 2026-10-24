@@ -139,6 +139,7 @@ def _ler_postgres(conn) -> tuple[list[dict], list[dict], dict]:
         "p.ativo" if "ativo" in pcols else "TRUE AS ativo",
     ]
     active_filter = "WHERE p.ativo IS TRUE" if "ativo" in pcols else ""
+    # The interpolated SQL fragments below are fixed literals selected only by schema metadata.
     rows = conn.execute(
         f"""SELECT {', '.join(select_fields)}
               FROM public.patrimonios p
@@ -161,6 +162,7 @@ def _ler_postgres(conn) -> tuple[list[dict], list[dict], dict]:
     photo_select += ["pf.storage_bucket"] if "storage_bucket" in fcols else ["'patrimonio-fotos' AS storage_bucket"]
     photo_select += ["pf.drive_web_url"] if "drive_web_url" in fcols else ["NULL AS drive_web_url"]
     photo_select += ["pf.drive_file_name"] if "drive_file_name" in fcols else ["NULL AS drive_file_name"]
+    # The interpolated SQL fragments below are fixed literals selected only by schema metadata.
     photo_rows = conn.execute(
         f"""SELECT {', '.join(photo_select)}, p.id AS existing_patrimonio_id
               FROM public.patrimonio_fotos pf
