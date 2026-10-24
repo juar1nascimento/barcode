@@ -80,3 +80,40 @@ def test_bloqueia_aba_ausente_sem_tentar_cria_la():
     with pytest.raises(RuntimeError, match="criação e validação estrutural controladas"):
         _obter_aba_existente_para_sync(spreadsheet, "UBS Ausente")
     assert spreadsheet.add_called is False
+
+def test_bloqueia_criacao_automatica_quando_patrimonio_nao_existe_na_aba(monkeypatch):
+    import sincronizador_google_sheets as sync
+
+    class FakeWorksheetMissingRow:
+        title = "Unidade A"
+
+        def __init__(self):
+            self.append_called = False
+
+        def get_all_values(self):
+            return [sync.COLUNAS_INVENTARIO + ["ID Patrimônio"]]
+
+        def append_row(self, *args, **kwargs):
+            self.append_called = True
+            raise AssertionError("Não deve criar linha automaticamente.")
+
+    class FakeSpreadsheet:
+        def __init__(self):
+            self.worksheet_instance = FakeWorksheetMissingRow()
+
+        def worksheet(self, name):
+            return self.worksheet_instance
+
+    spreadsheet = FakeSpreadsheet()
+    monkeypatch.setattr(sync, "_buscar_patrimonio", lambda _id: {
+        "id": 98654345, "numero": "98654345", "codigo": "", "tipo": "CPU",
+        "fabricante": "", "data": "", "unidade": "Unidade A", "setor": "TI",
+    })
+    monkeypatch.setattr(sync, "conectar_google_sheets", lambda: spreadsheet)
+    monkeypatch.setattr(sync, "_sheets_call", lambda _label, operation: operation())
+
+    with pytest.raises(RuntimeError, match="não encontrado.*reconciliação controlada"):
+        sync._espelhar_patrimonio({"patrimonio_id": 98654345})
+
+    assert spreadsheet.worksheet_instance.append_called is False
+
