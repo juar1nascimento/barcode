@@ -148,3 +148,21 @@ A produção permanece bloqueada até que:
 - Auditoria independente de Sheets/PostgreSQL: `auditoria_sigs_sheets_somente_leitura.py` e `auditoria_analitica_readonly.py`
 
 **Conclusão:** esta auditoria identificou bloqueios concretos e organizou a sequência corretiva, mas não certifica a prontidão para produção. O sistema só deve ser declarado pronto após a execução e aprovação dos gates com evidências atuais.
+
+
+## 9. Execução do Gate 1 — 2026-10-24
+
+### Ação aplicada
+- O log do CI do PR #73 reportou Pillow `12.3.0` com 24 vulnerabilidades conhecidas e indicou `13.0.0` como versão corrigida.
+- Atualizado somente o pin `pillow==12.3.0` para `pillow==13.0.0` em `requirements.txt`, na branch `fix/sigs-sheets-safe-reconciliation`.
+- Commit da correção: `0c829410fff4d737336934142eb80c3f19dc1f9b`.
+- Nenhum scanner foi desabilitado e nenhum serviço produtivo foi alterado.
+
+### Estado de validação
+- O commit foi confirmado no GitHub.
+- No instante da consulta, ainda não havia runs de workflow retornados para esse SHA. Portanto, a compatibilidade com Streamlit/OpenCV e o resultado do `pip-audit` permanecem **pendentes de CI**.
+- Não declarar Gate 1 aprovado até obter os jobs completos e verificar que auditoria de dependências, compilação, testes, segurança estática, verificação de segredos e smoke test terminaram sem falhas ou etapas essenciais ignoradas.
+- Se o CI apontar incompatibilidade, corrigir a restrição específica com evidência do log; não reduzir o nível de segurança nem ignorar o scanner.
+
+### Próxima verificação
+Consultar os workflows do PR #73 e os logs completos do novo commit. Se aprovados, seguir para o Gate 2: auditoria PostgreSQL × todas as abas do Google Sheets em modo somente leitura.
