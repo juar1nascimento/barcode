@@ -184,7 +184,7 @@ def _ler_postgres(conn) -> tuple[list[dict], list[dict], dict]:
 
 def _ler_sheets(spreadsheet) -> tuple[list[dict], dict]:
     rows = []
-    report = {"tabs_scanned": 0, "tabs_skipped": [], "tab_issues": []}
+    report = {"tabs_scanned": 0, "tabs_skipped": [], "tab_issues": [], "unclassified_nonempty_tabs": []}
     for worksheet in spreadsheet.worksheets():
         values = worksheet.get_all_values(value_render_option="FORMULA")
         if not values:
@@ -193,6 +193,9 @@ def _ler_sheets(spreadsheet) -> tuple[list[dict], dict]:
         header = [normalizar_cabecalho(v) for v in values[0]]
         if SHEET_NUMBER_HEADER not in header:
             report["tabs_skipped"].append({"tab": worksheet.title, "reason": "no inventory number column"})
+            # Fail closed: a non-empty tab cannot be assumed irrelevant without classification.
+            report["unclassified_nonempty_tabs"].append(worksheet.title)
+            report["tab_issues"].append({"tab": worksheet.title, "issue": "unclassified_nonempty_tab"})
             continue
         report["tabs_scanned"] += 1
         if len(header) != len(set(header)):
@@ -346,7 +349,7 @@ def main() -> int:
         sheet_rows, sheet_report = _ler_sheets(spreadsheet)
         report = comparar(patrimonios, fotos, sheet_rows, schema, sheet_report)
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        if report["postgres_schema_missing"]:
+        if report["postgres_schema_missing"] or report["sheets"]["unclassified_nonempty_tabs"]:
             return 2
         if report["blocking_issue_count"]:
             return 1
