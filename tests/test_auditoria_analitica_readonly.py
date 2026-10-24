@@ -130,6 +130,11 @@ def test_ler_sheets_classifica_aba_nao_vazia_sem_coluna_de_patrimonio_como_incom
 
     assert rows == []
     assert report["unclassified_nonempty_tabs"] == ["Resumo auxiliar"]
+    assert report["tabs_skipped"] == [{
+        "tab": "Resumo auxiliar",
+        "reason": "no inventory number column",
+        "headers": ["Indicador", "Valor"],
+    }]
     assert {"tab": "Resumo auxiliar", "issue": "unclassified_nonempty_tab"} in report["tab_issues"]
 
 
