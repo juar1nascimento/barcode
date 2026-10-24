@@ -276,17 +276,18 @@ def _espelhar_patrimonio(item: dict) -> None:
     aba = _obter_aba_existente_para_sync(
         planilha, _normalizar_unidade_aba(patrimonio["unidade"])
     )
-    _garantir_coluna_patrimonio_texto(aba)
-    if not _garantir_cabecalho_moderno(aba):
-        raise RuntimeError("Cabeçalho da aba não corresponde ao schema canônico do inventário.")
-
+    # O worker não formata nem cria cabeçalhos: valida o contrato existente.
     atuais = _sheets_call("get_all_values", aba.get_all_values)
     if not atuais:
-        raise RuntimeError("Aba sem cabeçalho; sincronização bloqueada para evitar escrita estrutural.")
+        raise RuntimeError("Aba sem cabeçalho; sincronização bloqueada para correção estrutural controlada.")
 
     cabecalho = [str(v).strip() for v in atuais[0]]
-    if "ID Patrimônio" not in cabecalho:
-        raise RuntimeError("Aba sem coluna ID Patrimônio; correção estrutural controlada necessária.")
+    if len(cabecalho) < len(COLUNAS_INVENTARIO) + 1:
+        raise RuntimeError("Cabeçalho incompleto; sincronização bloqueada para correção estrutural controlada.")
+    if cabecalho[:len(COLUNAS_INVENTARIO)] != COLUNAS_INVENTARIO:
+        raise RuntimeError("Cabeçalho não canônico; sincronização bloqueada para correção estrutural controlada.")
+    if cabecalho.count("ID Patrimônio") != 1:
+        raise RuntimeError("Coluna ID Patrimônio ausente ou duplicada; sincronização bloqueada.")
 
     valores = [
         patrimonio["setor"],
@@ -418,17 +419,20 @@ def _espelhar_foto(item: dict) -> None:
     aba = _obter_aba_existente_para_sync(
         planilha, _normalizar_unidade_aba(foto["unidade"])
     )
-    _garantir_coluna_patrimonio_texto(aba)
-    if not _garantir_cabecalho_moderno(aba):
-        raise RuntimeError("Cabeçalho da aba não corresponde ao schema canônico do inventário.")
-
-    _garantir_colunas_fotos(aba, foto["ordem"])
-    headers = _normalizar_cabecalhos_fotos(aba)
     if foto["ordem"] > FOTO_MAX_COLUNAS:
         raise RuntimeError("Limite de fotos por patrimônio excedido para o modelo tabular do Sheets.")
+
+    # O worker só consome a estrutura já homologada; não cria nem renomeia colunas.
+    headers = [str(v).strip() for v in (_sheets_call("row_values_header", lambda: aba.row_values(1)) or [])]
+    if len(headers) < len(COLUNAS_INVENTARIO) + 1 or headers[:len(COLUNAS_INVENTARIO)] != COLUNAS_INVENTARIO:
+        raise RuntimeError("Cabeçalho não canônico; sincronização de foto bloqueada para correção controlada.")
+    if headers.count("ID Patrimônio") != 1:
+        raise RuntimeError("Coluna ID Patrimônio ausente ou duplicada; sincronização bloqueada.")
     coluna_nome = f"{FOTO_PREFIXO_COLUNA}{foto['ordem']:02d}"
+    if headers.count(coluna_nome) != 1:
+        raise RuntimeError(f"Coluna {coluna_nome} ausente ou duplicada; sincronização bloqueada.")
     coluna = headers.index(coluna_nome) + 1
-    if coluna <= 5:
+    if coluna <= len(COLUNAS_INVENTARIO) + 1:
         raise RuntimeError("Coluna de foto inválida.")
 
     atuais = _sheets_call("get_all_values", aba.get_all_values)
@@ -495,10 +499,14 @@ def processar_fila_google_sheets(limit: int = 25) -> dict:
                 "Google Sheets indisponível para preflight estrutural. Confira credenciais, ID/URL e permissão de Editor da conta de serviço.",
             )
         )
-    limpeza_validacoes = {"habilitada": False, "abas_processadas": [], "validacoes_removidas": 0}
-    if os.getenv("SHEETS_REMOVE_VALIDATIONS", "false").strip().lower() == "true":
-        limpeza_validacoes = _remover_validacoes_menu_suspenso(planilha_preflight)
-        limpeza_validacoes["habilitada"] = True
+    # A limpeza de validações é uma manutenção estrutural e nunca pode ocorrer
+    # dentro do consumidor da outbox, mesmo quando uma variável de ambiente está ativa.
+    limpeza_validacoes = {
+        "habilitada": False,
+        "abas_processadas": [],
+        "validacoes_removidas": 0,
+        "motivo": "operação estrutural separada; não executada pelo worker",
+    }
     # Preflight estritamente somente leitura: nunca reescrever abas automaticamente.
     auditoria = auditar_e_padronizar_abas_inventario(planilha_preflight, aplicar=False)
     pendencias_estruturais = [
