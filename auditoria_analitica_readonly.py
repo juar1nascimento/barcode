@@ -35,7 +35,7 @@ from google.oauth2.service_account import Credentials
 SHEET_ID_HEADER = "ID Patrimônio"
 SHEET_NUMBER_HEADER = "Nº de Patrimônio"
 SHEET_PHOTO_HEADERS = {f"Foto {n:02d}" for n in range(1, 11)}
-SHEET_NUMBER_ALIASES = {"nº de patrimônio", "n° de patrimônio", "numero de patrimonio", "n de patrimonio"}
+SHEET_NUMBER_ALIASES = {"nº de patrimonio", "n° de patrimonio", "numero de patrimonio", "n de patrimonio", "no de patrimonio"}
 
 
 def normalizar_texto(valor: Any) -> str:
@@ -193,6 +193,8 @@ def _ler_sheets(spreadsheet) -> tuple[list[dict], dict]:
         report["tabs_scanned"] += 1
         if len(header) != len(set(header)):
             report["tab_issues"].append({"tab": worksheet.title, "issue": "duplicate_headers"})
+            # Não auditar uma aba ambígua usando índices sobrescritos no dicionário.
+            continue
         if header.count(SHEET_NUMBER_HEADER) != 1:
             report["tab_issues"].append({"tab": worksheet.title, "issue": "ambiguous_number_header"})
             continue
@@ -240,33 +242,40 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
     unmatched_sheet_rows = []
     ambiguous_number_matches = []
     field_differences = []
+
+    def comparar_campos(row: dict, source: dict, stable_id: str) -> None:
+        fields = {
+            "numero": (row["numero"], source["numero"]),
+            "unidade": (normalizar_unidade(row["unidade"]), normalizar_unidade(source["unidade"])),
+            "setor": (row["setor"], source["setor"]),
+            "tipo": (row["tipo"], source["tipo"]),
+            "fabricante": (row["fabricante"], source["fabricante"]),
+            "codigo_barras": (row["codigo_barras"], source["codigo_barras"]),
+        }
+        for field, (sheet_value, pg_value) in fields.items():
+            if normalizar_texto(sheet_value) != normalizar_texto(pg_value):
+                field_differences.append({
+                    "id": stable_id, "tab": row["tab"], "row": row["row"],
+                    "field": field, "sheet_value": sheet_value, "postgres_value": pg_value,
+                })
+
     for row in sheet_rows:
         stable_id = row["id"]
         if stable_id:
             if stable_id in pg_by_id:
                 matched_pg_ids.add(stable_id)
-                source = pg_by_id[stable_id]
-                fields = {
-                    "numero": (row["numero"], source["numero"]),
-                    "unidade": (normalizar_unidade(row["unidade"]), normalizar_unidade(source["unidade"])),
-                    "setor": (row["setor"], source["setor"]),
-                    "tipo": (row["tipo"], source["tipo"]),
-                    "fabricante": (row["fabricante"], source["fabricante"]),
-                    "codigo_barras": (row["codigo_barras"], source["codigo_barras"]),
-                }
-                for field, (sheet_value, pg_value) in fields.items():
-                    if normalizar_texto(sheet_value) != normalizar_texto(pg_value):
-                        field_differences.append({
-                            "id": stable_id, "tab": row["tab"], "row": row["row"],
-                            "field": field, "sheet_value": sheet_value, "postgres_value": pg_value,
-                        })
+                comparar_campos(row, pg_by_id[stable_id], stable_id)
             else:
                 unmatched_sheet_rows.append({"tab": row["tab"], "row": row["row"], "reason": "unknown_or_inactive_id"})
             continue
+
         number_key = normalizar_texto(row["numero"])
         if number_key and pg_number_counts[number_key] == 1 and sheet_number_counts[number_key] == 1:
             match = next(p for p in patrimonios if normalizar_texto(p["numero"]) == number_key)
             matched_pg_ids.add(match["id"])
+            # O fallback é apenas para localizar o registro; não pode ignorar
+            # divergências dos demais campos.
+            comparar_campos(row, match, match["id"])
         else:
             ambiguous_number_matches.append({"tab": row["tab"], "row": row["row"], "reason": "missing_id_and_number_not_unique"})
 
@@ -304,6 +313,7 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
         "audit_mode": "read_only",
         "postgres_active_filter_available": schema["active_status_available"],
         "postgres_schema_missing": schema["schema_missing"],
+        "complete": bool(schema["active_status_available"]) and not schema["schema_missing"] and not sheet_report["tab_issues"],
         "sheets": sheet_report,
         "counts": {
             "postgres_patrimonios": len(patrimonios),
@@ -313,7 +323,7 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
             "sheets_nonempty_photo_cells": sheet_photo_cells,
         },
         "issues": issues,
-        "blocking_issue_count": blockers + len(schema["schema_missing"]) + len(sheet_report["tab_issues"]),
+        "blocking_issue_count": blockers + len(schema["schema_missing"]) + len(sheet_report["tab_issues"]) + (0 if schema["active_status_available"] else 1),
         "notes": [
             "A auditoria não escreve em PostgreSQL, Google Sheets ou Storage.",
             "URLs e credenciais não são incluídas no relatório.",
@@ -331,7 +341,7 @@ def main() -> int:
         sheet_rows, sheet_report = _ler_sheets(spreadsheet)
         report = comparar(patrimonios, fotos, sheet_rows, schema, sheet_report)
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        if report["postgres_schema_missing"]:
+        if report["postgres_schema_missing"] or not report["postgres_active_filter_available"] or not report["complete"]:
             return 2
         if report["blocking_issue_count"]:
             return 1
