@@ -241,29 +241,35 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
     duplicate_pg_numbers = sorted(k for k, n in pg_number_counts.items() if k and n > 1)
 
     matched_pg_ids = set()
+    matched_sheet_row_ids = {}
     unmatched_sheet_rows = []
     ambiguous_number_matches = []
     field_differences = []
+
+    def compare_row_fields(row: dict, source: dict, matched_id: str) -> None:
+        fields = {
+            "numero": (row["numero"], source["numero"]),
+            "unidade": (normalizar_unidade(row["unidade"]), normalizar_unidade(source["unidade"])),
+            "setor": (row["setor"], source["setor"]),
+            "tipo": (row["tipo"], source["tipo"]),
+            "fabricante": (row["fabricante"], source["fabricante"]),
+            "codigo_barras": (row["codigo_barras"], source["codigo_barras"]),
+        }
+        for field, (sheet_value, pg_value) in fields.items():
+            if normalizar_texto(sheet_value) != normalizar_texto(pg_value):
+                field_differences.append({
+                    "id": matched_id, "tab": row["tab"], "row": row["row"],
+                    "field": field, "sheet_value": sheet_value, "postgres_value": pg_value,
+                })
+
     for row in sheet_rows:
         stable_id = row["id"]
+        row_key = (row["tab"], row["row"])
         if stable_id:
             if stable_id in pg_by_id:
                 matched_pg_ids.add(stable_id)
-                source = pg_by_id[stable_id]
-                fields = {
-                    "numero": (row["numero"], source["numero"]),
-                    "unidade": (normalizar_unidade(row["unidade"]), normalizar_unidade(source["unidade"])),
-                    "setor": (row["setor"], source["setor"]),
-                    "tipo": (row["tipo"], source["tipo"]),
-                    "fabricante": (row["fabricante"], source["fabricante"]),
-                    "codigo_barras": (row["codigo_barras"], source["codigo_barras"]),
-                }
-                for field, (sheet_value, pg_value) in fields.items():
-                    if normalizar_texto(sheet_value) != normalizar_texto(pg_value):
-                        field_differences.append({
-                            "id": stable_id, "tab": row["tab"], "row": row["row"],
-                            "field": field, "sheet_value": sheet_value, "postgres_value": pg_value,
-                        })
+                matched_sheet_row_ids[row_key] = stable_id
+                compare_row_fields(row, pg_by_id[stable_id], stable_id)
             else:
                 unmatched_sheet_rows.append({"tab": row["tab"], "row": row["row"], "reason": "unknown_or_inactive_id"})
             continue
@@ -271,6 +277,10 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
         if number_key and pg_number_counts[number_key] == 1 and sheet_number_counts[number_key] == 1:
             match = next(p for p in patrimonios if normalizar_texto(p["numero"]) == number_key)
             matched_pg_ids.add(match["id"])
+            matched_sheet_row_ids[row_key] = match["id"]
+            # Fallback por número só é permitido quando único dos dois lados;
+            # comparar os mesmos campos críticos e contagem de fotos do ID estável.
+            compare_row_fields(row, match, match["id"])
         else:
             ambiguous_number_matches.append({"tab": row["tab"], "row": row["row"], "reason": "missing_id_and_number_not_unique"})
 
@@ -280,11 +290,12 @@ def comparar(patrimonios: list[dict], fotos: list[dict], sheet_rows: list[dict],
     sheet_photo_cells = sum(r["photo_cells_filled"] for r in sheet_rows)
     photo_count_differences = []
     for row in sheet_rows:
-        if row["id"] and row["id"] in pg_by_id:
-            postgres_count = photo_counts[row["id"]]
+        matched_id = matched_sheet_row_ids.get((row["tab"], row["row"]))
+        if matched_id is not None:
+            postgres_count = photo_counts[matched_id]
             if row["photo_cells_filled"] != postgres_count:
                 photo_count_differences.append({
-                    "id": row["id"], "tab": row["tab"], "row": row["row"],
+                    "id": matched_id, "tab": row["tab"], "row": row["row"],
                     "sheets_photo_cells": row["photo_cells_filled"],
                     "postgres_photo_records": postgres_count,
                 })
