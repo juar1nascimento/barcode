@@ -1,4 +1,4 @@
-from auditoria_analitica_readonly import comparar, normalizar_cabecalho
+from auditoria_analitica_readonly import _ler_sheets, comparar, normalizar_cabecalho
 
 
 def test_normalizar_cabecalho_aceita_colunas_legadas_de_foto():
@@ -112,3 +112,40 @@ def test_comparar_nao_parea_por_numero_duplicado():
         "tab": "Unidade A", "row": 2, "reason": "missing_id_and_number_not_unique",
     }]
     assert report["counts"]["matched_postgres_ids"] == 0
+
+
+
+def test_ler_sheets_classifica_aba_nao_vazia_sem_coluna_de_patrimonio_como_incompleta():
+    class Worksheet:
+        title = "Resumo auxiliar"
+
+        def get_all_values(self, value_render_option):
+            return [["Indicador", "Valor"], ["Total", "42"]]
+
+    class Spreadsheet:
+        def worksheets(self):
+            return [Worksheet()]
+
+    rows, report = _ler_sheets(Spreadsheet())
+
+    assert rows == []
+    assert report["unclassified_nonempty_tabs"] == ["Resumo auxiliar"]
+    assert {"tab": "Resumo auxiliar", "issue": "unclassified_nonempty_tab"} in report["tab_issues"]
+
+
+def test_ler_sheets_nao_classifica_aba_vazia_como_bloqueio_de_cobertura():
+    class Worksheet:
+        title = "Aba vazia"
+
+        def get_all_values(self, value_render_option):
+            return []
+
+    class Spreadsheet:
+        def worksheets(self):
+            return [Worksheet()]
+
+    rows, report = _ler_sheets(Spreadsheet())
+
+    assert rows == []
+    assert report["unclassified_nonempty_tabs"] == []
+    assert report["tabs_skipped"] == [{"tab": "Aba vazia", "reason": "empty"}]
