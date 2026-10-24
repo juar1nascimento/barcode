@@ -140,14 +140,14 @@ def _ler_postgres(conn) -> tuple[list[dict], list[dict], dict]:
     ]
     active_filter = "WHERE p.ativo IS TRUE" if "ativo" in pcols else ""
     # The interpolated SQL fragments below are fixed literals selected only by schema metadata.
-    rows = conn.execute(
-        f"""SELECT {', '.join(select_fields)}
-              FROM public.patrimonios p
-              JOIN public.unidades u ON u.id = p.unidade_id
-              LEFT JOIN public.setores s ON s.id = p.setor_id
-              {active_filter}
-             ORDER BY p.id"""
-    ).fetchall()
+    query = (
+        "SELECT " + ", ".join(select_fields)
+        + " FROM public.patrimonios p "
+        + "JOIN public.unidades u ON u.id = p.unidade_id "
+        + "LEFT JOIN public.setores s ON s.id = p.setor_id "
+        + active_filter + " ORDER BY p.id"
+    )  # nosec B608 -- select_fields and active_filter are fixed literals derived from schema metadata.
+    rows = conn.execute(query).fetchall()
     patrimonios = [{
         "id": str(row[0]), "numero": str(row[1] or "").strip(),
         "tipo": str(row[2] or "").strip(), "unidade": str(row[3] or "").strip(),
@@ -163,12 +163,14 @@ def _ler_postgres(conn) -> tuple[list[dict], list[dict], dict]:
     photo_select += ["pf.drive_web_url"] if "drive_web_url" in fcols else ["NULL AS drive_web_url"]
     photo_select += ["pf.drive_file_name"] if "drive_file_name" in fcols else ["NULL AS drive_file_name"]
     # The interpolated SQL fragments below are fixed literals selected only by schema metadata.
-    photo_rows = conn.execute(
-        f"""SELECT {', '.join(photo_select)}, p.id AS existing_patrimonio_id
-              FROM public.patrimonio_fotos pf
-              LEFT JOIN public.patrimonios p ON p.id = pf.patrimonio_id
-             ORDER BY pf.patrimonio_id, pf.ordem, pf.id"""
-    ).fetchall()
+    photo_query = (
+        "SELECT " + ", ".join(photo_select)
+        + ", p.id AS existing_patrimonio_id "
+        + "FROM public.patrimonio_fotos pf "
+        + "LEFT JOIN public.patrimonios p ON p.id = pf.patrimonio_id "
+        + "ORDER BY pf.patrimonio_id, pf.ordem, pf.id"
+    )  # nosec B608 -- photo_select is built only from fixed literals and schema metadata.
+    photo_rows = conn.execute(photo_query).fetchall()
     fotos = [{
         "id": str(row[0]), "patrimonio_id": str(row[1]), "ordem": int(row[2]),
         "storage_path_present": bool(str(row[3] or "").strip()),
