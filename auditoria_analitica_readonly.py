@@ -192,7 +192,11 @@ def _ler_sheets(spreadsheet) -> tuple[list[dict], dict]:
             continue
         header = [normalizar_cabecalho(v) for v in values[0]]
         if SHEET_NUMBER_HEADER not in header:
-            report["tabs_skipped"].append({"tab": worksheet.title, "reason": "no inventory number column"})
+            report["tabs_skipped"].append({
+                "tab": worksheet.title,
+                "reason": "no inventory number column",
+                "headers": [str(value or "").strip() for value in values[0]],
+            })
             # Fail closed: a non-empty tab cannot be assumed irrelevant without classification.
             report["unclassified_nonempty_tabs"].append(worksheet.title)
             report["tab_issues"].append({"tab": worksheet.title, "issue": "unclassified_nonempty_tab"})
