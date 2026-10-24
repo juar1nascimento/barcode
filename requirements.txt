@@ -49,7 +49,7 @@ sql_metadata==3.0.0
 sqlglot==30.17.0
 st-gsheets-connection==0.1.0
 starlette==1.6.0
-streamlit==1.63.0
+streamlit==1.66.1
 streamlit-webrtc==0.47.1
 toml==0.10.2
 tornado==6.5.9
