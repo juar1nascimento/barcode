@@ -141,7 +141,7 @@ def _ler_postgres(conn) -> tuple[list[dict], list[dict], dict]:
     active_filter = "WHERE p.ativo IS TRUE" if "ativo" in pcols else ""
     # The interpolated SQL fragments below are fixed literals selected only by schema metadata.
     query = (
-        "SELECT " + ", ".join(select_fields)
+        "SELECT " + ", ".join(select_fields)  # nosec B608 -- fields are allowlisted schema-derived SQL identifiers
         + " FROM public.patrimonios p "
         + "JOIN public.unidades u ON u.id = p.unidade_id "
         + "LEFT JOIN public.setores s ON s.id = p.setor_id "
@@ -164,7 +164,7 @@ def _ler_postgres(conn) -> tuple[list[dict], list[dict], dict]:
     photo_select += ["pf.drive_file_name"] if "drive_file_name" in fcols else ["NULL AS drive_file_name"]
     # The interpolated SQL fragments below are fixed literals selected only by schema metadata.
     photo_query = (
-        "SELECT " + ", ".join(photo_select)
+        "SELECT " + ", ".join(photo_select)  # nosec B608 -- fields are fixed allowlisted SQL expressions
         + ", p.id AS existing_patrimonio_id "
         + "FROM public.patrimonio_fotos pf "
         + "LEFT JOIN public.patrimonios p ON p.id = pf.patrimonio_id "
