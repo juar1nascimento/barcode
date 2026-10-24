@@ -30,7 +30,7 @@ opencv-python-headless==4.10.0.84
 openpyxl==3.1.5
 packaging==26.3
 pandas==3.0.5
-pillow==13.0.0
+pillow==13.0.0  # Pillow 12.3.0 was blocked by pip-audit; Streamlit must allow Pillow 13
 protobuf==7.36.1
 psycopg[binary]==3.2.10
 pyarrow==25.0.1
@@ -45,7 +45,7 @@ sql_metadata==3.0.0
 sqlglot==30.17.0
 st-gsheets-connection==0.1.0
 starlette==1.6.0
-streamlit==1.66.1
+streamlit==1.66.1  # Compatible Pillow constraint: >=9.2.0,<14
 streamlit-webrtc==0.47.1
 toml==0.10.2
 tornado==6.5.9
