@@ -166,3 +166,9 @@ A produção permanece bloqueada até que:
 
 ### Próxima verificação
 Consultar os workflows do PR #73 e os logs completos do novo commit. Se aprovados, seguir para o Gate 2: auditoria PostgreSQL × todas as abas do Google Sheets em modo somente leitura.
+
+### Ajuste de compatibilidade após o primeiro CI
+- A primeira tentativa de usar Pillow 13.0.0 foi corretamente rejeitada pelo resolvedor: Streamlit 1.63.0 exige `pillow<13`. Não se desativou nem contornou essa validação.
+- A documentação oficial de Streamlit/PyPI indica que Streamlit 1.66.1 permite Pillow `>=9.2.0,<14`; portanto, a branch foi ajustada para `streamlit==1.66.1` e manteve `pillow==13.0.0`.
+- Commit de alinhamento: `4e0a4262f80454ad6967e2bd89365a4cc6be71d2`.
+- **Compatibilidade ainda não aprovada:** aguardar o CI dessa combinação, incluindo testes funcionais do app e integração com `streamlit-webrtc`. Não promover dependências a produção sem esses resultados.
