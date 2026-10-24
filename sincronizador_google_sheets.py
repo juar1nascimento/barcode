@@ -310,13 +310,11 @@ def _espelhar_patrimonio(item: dict) -> None:
         )
         return
 
-    _sheets_call(
-        "append_patrimonio",
-        lambda: aba.append_row(
-            valores,
-            value_input_option="RAW",
-            insert_data_option="INSERT_ROWS",
-        ),
+    # Reconciliação segura: ausência de linha não autoriza criar registro no Sheets.
+    # A inclusão/associação precisa ser revisada e executada em operação controlada.
+    raise RuntimeError(
+        f"Patrimônio {patrimonio['numero']} (ID {patrimonio['id']}) não encontrado "
+        f"na aba {aba.title}; sincronização bloqueada para reconciliação controlada."
     )
 
 def _buscar_foto(foto_id: int) -> dict:
