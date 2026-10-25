@@ -84,3 +84,105 @@ def test_defer_dependency_requeues_without_consuming_attempts():
 
 def test_missing_drive_url_is_classified_as_dependency_not_permanent_failure():
     assert issubclass(worker.DependencyNotReady, RuntimeError)
+
+
+
+def test_locates_photo_row_by_stable_id_when_number_is_duplicated():
+    header = [
+        "Setor", "Tipo de Patrimônio", "Nº de Patrimônio",
+        "Fabricante", "Data Cadastro", "Código de Barras", worker.ID_COLUMN,
+    ]
+    values = [
+        header,
+        ["Sala A", "CPU", "PAT-01", "Fab A", "", "", "101"],
+        ["Sala B", "CPU", "PAT-01", "Fab B", "", "", "202"],
+    ]
+    assert worker.locate_patrimony_row(header, values, 202, "PAT-01", "Unidade A") == 3
+
+
+def test_falls_back_to_unique_number_only_when_stable_id_is_blank():
+    header = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", worker.ID_COLUMN]
+    values = [header, ["Sala A", "CPU", "PAT-02", ""]]
+    assert worker.locate_patrimony_row(header, values, 303, "PAT-02", "Unidade A") == 2
+
+
+def test_blocks_missing_photo_parent_row_for_controlled_reconciliation():
+    header = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", worker.ID_COLUMN]
+    values = [header, ["Sala A", "CPU", "PAT-03", "303"]]
+    with pytest.raises(worker.ReconciliationRequired, match="reconciliação controlada"):
+        worker.locate_patrimony_row(header, values, 404, "PAT-04", "Unidade A")
+
+
+def test_blocks_number_fallback_when_existing_id_conflicts():
+    header = ["Setor", "Tipo de Patrimônio", "Nº de Patrimônio", worker.ID_COLUMN]
+    values = [header, ["Sala A", "CPU", "PAT-04", "999"]]
+    with pytest.raises(worker.ReconciliationRequired, match="informa ID 505"):
+        worker.locate_patrimony_row(header, values, 505, "PAT-04", "Unidade A")
+
+
+def test_blocks_duplicate_stable_id():
+    header = ["Nº de Patrimônio", worker.ID_COLUMN]
+    values = [header, ["PAT-05", "606"], ["PAT-06", "606"]]
+    with pytest.raises(worker.ReconciliationRequired, match="ID Patrimônio 606 duplicado"):
+        worker.locate_patrimony_row(header, values, 606, "PAT-05", "Unidade A")
+
+
+def test_mark_dead_letter_sets_permanent_block_without_retry_schedule():
+    class FakeCursor:
+        def __init__(self):
+            self.query = ""
+            self.params = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params):
+            self.query = query
+            self.params = params
+
+    class FakeConnection:
+        def __init__(self):
+            self.fake_cursor = FakeCursor()
+            self.commits = 0
+
+        def cursor(self):
+            return self.fake_cursor
+
+        def commit(self):
+            self.commits += 1
+
+    conn = FakeConnection()
+    worker.mark(conn, 36, "dead_letter", "row missing", max_attempts=12)
+    query = " ".join(conn.fake_cursor.query.split())
+    assert "SET status='dead_letter'" in query
+    assert "proxima_tentativa_em=now()" in query
+    assert conn.fake_cursor.params == ("row missing", 36)
+    assert conn.commits == 1
+
+
+def test_count_dead_letter_is_read_only_and_returns_count():
+    class FakeCursor:
+        def __init__(self):
+            self.query = ""
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def execute(self, query):
+            self.query = query
+        def fetchone(self):
+            return (2,)
+
+    class FakeConnection:
+        def __init__(self):
+            self.fake_cursor = FakeCursor()
+        def cursor(self):
+            return self.fake_cursor
+
+    conn = FakeConnection()
+    assert worker.count_dead_letter(conn) == 2
+    assert conn.fake_cursor.query.strip().startswith("SELECT count(*)")
+    assert "status='dead_letter'" in conn.fake_cursor.query
