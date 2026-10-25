@@ -38,6 +38,10 @@ class ReconciliationRequired(RuntimeError):
     """A permanent identity/schema conflict requires controlled human reconciliation."""
 
 
+class InventoryRowNotFound(ReconciliationRequired):
+    """The photo parent row is absent from the sheet."""
+
+
 def env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
@@ -407,7 +411,7 @@ def locate_patrimony_row(header: list[str], values: list[list], patrimonio_id: i
                 )
         return row_number
 
-    raise ReconciliationRequired(
+    raise InventoryRowNotFound(
         f"Patrimônio {numero} (ID {patrimonio_id}) não encontrado na aba {unidade}; "
         "sincronização bloqueada para reconciliação controlada."
     )
@@ -427,6 +431,34 @@ def locate_photo_columns(header: list[str], unidade: str) -> list[int]:
             )
         columns.append(matches[0])
     return columns
+
+
+def inventory_sync_pending(conn, patrimonio_id: int) -> bool:
+    """Return whether the parent inventory upsert is still non-terminal."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT status
+                 FROM public.patrimonios_sheets_outbox
+                WHERE patrimonio_id=%s AND evento='upsert'
+                ORDER BY id DESC
+                LIMIT 1""",
+            (patrimonio_id,),
+        )
+        row = cur.fetchone()
+    return bool(row and str(row[0]) in {"pending", "processing", "failed"})
+
+
+def resolve_photo_parent_row(conn, header: list[str], values: list[list], patrimonio_id: int, numero: str, unidade: str) -> int:
+    """Defer a missing row while its parent inventory event is still being delivered."""
+    try:
+        return locate_patrimony_row(header, values, patrimonio_id, numero, unidade)
+    except InventoryRowNotFound as exc:
+        if inventory_sync_pending(conn, patrimonio_id):
+            raise DependencyNotReady(
+                f"A linha do patrimônio {numero} (ID {patrimonio_id}) ainda aguarda "
+                "a sincronização da outbox de inventário; evento de foto reagendado sem consumir tentativas."
+            ) from exc
+        raise
 
 
 def count_dead_letter(conn) -> int:
@@ -470,7 +502,7 @@ def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
         )
 
     header = list(values[0])
-    row_number = locate_patrimony_row(header, values, patrimonio_id, str(numero), str(unidade))
+    row_number = resolve_photo_parent_row(conn, header, values, patrimonio_id, str(numero), str(unidade))
     photo_columns = locate_photo_columns(header, str(unidade))
 
     cells = [{"userEnteredValue": {"stringValue": ""}, "textFormatRuns": []} for _ in range(10)]
