@@ -201,3 +201,56 @@ def test_blocks_ambiguous_legacy_and_canonical_photo_columns():
     ]
     with pytest.raises(worker.ReconciliationRequired, match="coluna Foto 1 ambígua/duplicada"):
         worker.locate_photo_columns(header, "Unidade A")
+
+
+
+def test_missing_parent_row_is_deferred_when_inventory_outbox_is_not_terminal():
+    class FakeCursor:
+        def __init__(self):
+            self.query = ""
+            self.params = None
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def execute(self, query, params):
+            self.query = query
+            self.params = params
+        def fetchone(self):
+            return ("pending",)
+
+    class FakeConnection:
+        def __init__(self):
+            self.fake_cursor = FakeCursor()
+        def cursor(self):
+            return self.fake_cursor
+
+    conn = FakeConnection()
+    header = ["Nº de Patrimônio", worker.ID_COLUMN]
+    values = [header]
+    with pytest.raises(worker.DependencyNotReady, match="aguarda"):
+        worker.resolve_photo_parent_row(conn, header, values, 707, "PAT-07", "Unidade A")
+    assert "FROM public.patrimonios_sheets_outbox" in conn.fake_cursor.query
+    assert conn.fake_cursor.params == (707,)
+
+
+def test_missing_parent_row_requires_reconciliation_when_inventory_outbox_is_terminal():
+    class FakeCursor:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def execute(self, _query, _params):
+            pass
+        def fetchone(self):
+            return ("synced",)
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+    header = ["Nº de Patrimônio", worker.ID_COLUMN]
+    with pytest.raises(worker.InventoryRowNotFound, match="reconciliação controlada"):
+        worker.resolve_photo_parent_row(
+            FakeConnection(), header, [header], 808, "PAT-08", "Unidade A"
+        )
