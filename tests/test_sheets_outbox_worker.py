@@ -186,3 +186,18 @@ def test_count_dead_letter_is_read_only_and_returns_count():
     assert worker.count_dead_letter(conn) == 2
     assert conn.fake_cursor.query.strip().startswith("SELECT count(*)")
     assert "status='dead_letter'" in conn.fake_cursor.query
+
+
+
+def test_blocks_missing_photo_columns_for_controlled_reconciliation():
+    header = ["Nº de Patrimônio", worker.ID_COLUMN] + [f"Foto {n:02d}" for n in range(1, 10)]
+    with pytest.raises(worker.ReconciliationRequired, match="coluna Foto 10 ausente"):
+        worker.locate_photo_columns(header, "Unidade A")
+
+
+def test_blocks_ambiguous_legacy_and_canonical_photo_columns():
+    header = ["Nº de Patrimônio", worker.ID_COLUMN] + [
+        "Foto 1", "Foto 01", *[f"Foto {n:02d}" for n in range(2, 11)]
+    ]
+    with pytest.raises(worker.ReconciliationRequired, match="coluna Foto 1 ambígua/duplicada"):
+        worker.locate_photo_columns(header, "Unidade A")
