@@ -39,32 +39,133 @@ def _carregar_lote_cache(unidades: tuple[str, ...]) -> dict[str, tuple[pd.DataFr
     planilha = conectar_google_sheets()
     resultado: dict[str, tuple[pd.DataFrame, str]] = {}
     if not planilha:
+        # Uma conexão ausente/falha de autenticação não pode parecer uma
+        # planilha com 40 unidades vazias: sinaliza cada unidade como não lida.
+        origem_falha = (
+            "FALHA DE LEITURA: conexão Google Sheets indisponível; "
+            "verifique configuração, credenciais e permissões."
+        )
+        for unidade in unidades:
+            unidade_normalizada = _normalizar_unidade_aba(unidade)
+            resultado[unidade_normalizada] = (
+                pd.DataFrame(columns=COLUNAS_INVENTARIO),
+                origem_falha,
+            )
         return resultado
 
     ranges: list[str] = []
     fontes: list[tuple[str, str]] = []
+    aliases_por_unidade: dict[str, str] = {
+        "URS Jacaraípe": "URS Jacara_pe",
+        "UBS Bairro de Fátima": "UBS Bairro de F_tima",
+    }
     for unidade in unidades:
         unidade_normalizada = _normalizar_unidade_aba(unidade)
         nome = _nome_aba(unidade_normalizada)
-        nomes = [nome]
-        if nome == "URS Jacaraípe":
-            nomes.append("URS Jacara_pe")
-        elif nome == "UBS Bairro de Fátima":
-            nomes.append("UBS Bairro de F_tima")
-        for nome_aba in nomes:
-            ranges.append(f"'{_escapar_nome_aba(nome_aba)}'!A:Z")
-            fontes.append((unidade_normalizada, nome_aba))
+        ranges.append(f"'{_escapar_nome_aba(nome)}'!A:Z")
+        fontes.append((unidade_normalizada, nome))
 
+    # Primeiro tenta uma única leitura em lote apenas com os nomes canônicos.
+    # Uma única aba inexistente não deve zerar os dados das outras unidades.
+    value_ranges: list[dict] = []
     try:
         resposta = planilha.values_batch_get(
             ranges,
             params={"majorDimension": "ROWS"},
         )
+        value_ranges = resposta.get("valueRanges", []) if isinstance(resposta, dict) else []
+        if len(value_ranges) != len(fontes):
+            raise ValueError(
+                f"Resposta incompleta do batchGet: {len(value_ranges)} de {len(fontes)} intervalos."
+            )
     except Exception as exc:
-        st.warning(f"Leitura em lote do Google Sheets indisponível: {exc}")
-        return resultado
+        st.warning(
+            "Leitura em lote indisponível; tentando cada aba separadamente "
+            f"para preservar as unidades legíveis. Detalhe: {exc}"
+        )
+        value_ranges = []
+        fontes_recuperadas: list[tuple[str, str]] = []
+        for unidade, nome in fontes:
+            intervalo = f"'{_escapar_nome_aba(nome)}'!A:Z"
+            try:
+                individual = planilha.values_get(
+                    intervalo,
+                    params={"majorDimension": "ROWS"},
+                )
+                # Se a aba canônica existe mas está vazia, ainda verifica o alias
+                # legado antes de concluir que a unidade não tem registros.
+                alias = aliases_por_unidade.get(unidade)
+                valores_individuais = (
+                    individual.get("values", [])
+                    if isinstance(individual, dict)
+                    else []
+                )
+                if not valores_individuais and alias:
+                    try:
+                        intervalo_alias = f"'{_escapar_nome_aba(alias)}'!A:Z"
+                        alternativa = planilha.values_get(
+                            intervalo_alias,
+                            params={"majorDimension": "ROWS"},
+                        )
+                        if isinstance(alternativa, dict) and alternativa.get("values"):
+                            individual = alternativa
+                            fontes_recuperadas.append((unidade, alias))
+                            value_ranges.append(individual)
+                            continue
+                    except Exception:
+                        # A aba canônica vazia continua sendo válida se o alias falhar.
+                        pass
+                value_ranges.append(individual if isinstance(individual, dict) else {})
+                fontes_recuperadas.append((unidade, nome))
+                continue
+            except Exception as erro_canonico:
+                alias = aliases_por_unidade.get(unidade)
+                if alias:
+                    intervalo_alias = f"'{_escapar_nome_aba(alias)}'!A:Z"
+                    try:
+                        individual = planilha.values_get(
+                            intervalo_alias,
+                            params={"majorDimension": "ROWS"},
+                        )
+                        value_ranges.append(individual if isinstance(individual, dict) else {})
+                        fontes_recuperadas.append((unidade, alias))
+                        continue
+                    except Exception as erro_alias:
+                        st.error(
+                            f"Falha de leitura da unidade '{unidade}': "
+                            f"nome principal '{nome}' e alternativa '{alias}' falharam. "
+                            f"Detalhes: {erro_canonico}; {erro_alias}"
+                        )
+                else:
+                    st.error(
+                        f"Falha de leitura da unidade '{unidade}' na aba '{nome}': "
+                        f"{erro_canonico}"
+                    )
+                # Mantém a posição para que a associação unidade/resultado não desalinhe.
+                value_ranges.append({"values": []})
+                fontes_recuperadas.append((unidade, f"FALHA DE LEITURA: {nome}"))
+        fontes = fontes_recuperadas
 
-    value_ranges = resposta.get("valueRanges", []) if isinstance(resposta, dict) else []
+    # Se o lote canônico funcionou, só tenta alias quando a aba canônica veio vazia.
+    # Isso evita solicitar aliases inexistentes em toda execução normal.
+    if len(value_ranges) == len(fontes):
+        for idx, (unidade, nome) in enumerate(list(fontes)):
+            valores = value_ranges[idx].get("values", []) if isinstance(value_ranges[idx], dict) else []
+            alias = aliases_por_unidade.get(unidade)
+            if valores or not alias or nome.startswith("FALHA DE LEITURA"):
+                continue
+            try:
+                individual = planilha.values_get(
+                    f"'{_escapar_nome_aba(alias)}'!A:Z",
+                    params={"majorDimension": "ROWS"},
+                )
+                if isinstance(individual, dict) and individual.get("values"):
+                    value_ranges[idx] = individual
+                    fontes[idx] = (unidade, alias)
+            except Exception:
+                # Alias é opcional: aba canônica vazia continua sendo um resultado válido.
+                pass
+
     acumulados: dict[str, list[pd.DataFrame]] = {}
     nomes_fontes: dict[str, list[str]] = {}
 
@@ -94,9 +195,17 @@ def _carregar_lote_cache(unidades: tuple[str, ...]) -> dict[str, tuple[pd.DataFr
             resultado[unidade_normalizada] = (combinado, origem)
         else:
             nome = _nome_aba(unidade_normalizada)
+            falha = next(
+                (
+                    fonte for unidade_fonte, fonte in fontes
+                    if unidade_fonte == unidade_normalizada and fonte.startswith("FALHA DE LEITURA")
+                ),
+                None,
+            )
+            origem = f"Google Sheets ({falha})" if falha else f"Google Sheets ({nome})"
             resultado[unidade_normalizada] = (
                 pd.DataFrame(columns=COLUNAS_INVENTARIO),
-                f"Google Sheets ({nome})",
+                origem,
             )
 
     return resultado
