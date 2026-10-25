@@ -413,6 +413,22 @@ def locate_patrimony_row(header: list[str], values: list[list], patrimonio_id: i
     )
 
 
+def locate_photo_columns(header: list[str], unidade: str) -> list[int]:
+    """Resolve each photo column exactly once; legacy aliases may not coexist ambiguously."""
+    columns = []
+    for ordem in range(1, 11):
+        candidates = {f"Foto {ordem}", f"Foto {ordem:02d}"}
+        matches = [i for i, name in enumerate(header) if str(name).strip() in candidates]
+        if len(matches) != 1:
+            state = "ausente" if not matches else "ambígua/duplicada"
+            raise ReconciliationRequired(
+                f"Aba {unidade} possui coluna Foto {ordem} {state}; "
+                "reconciliação controlada necessária."
+            )
+        columns.append(matches[0])
+    return columns
+
+
 def count_dead_letter(conn) -> int:
     """Read-only count so an empty claim batch cannot hide quarantined events."""
     with conn.cursor() as cur:
@@ -449,21 +465,13 @@ def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
     aba = spreadsheet.worksheet(normalize_unit(unidade))
     values = aba.get_all_values()
     if not values:
-        raise RuntimeError(f"Aba {unidade} sem cabeçalho.")
+        raise ReconciliationRequired(
+            f"Aba {unidade} sem cabeçalho; reconciliação controlada necessária."
+        )
 
     header = list(values[0])
-    if "Nº de Patrimônio" not in header:
-        raise RuntimeError(f"Aba {unidade} não possui a coluna Nº de Patrimônio.")
-
     row_number = locate_patrimony_row(header, values, patrimonio_id, str(numero), str(unidade))
-
-    photo_columns = []
-    for ordem in range(1, 11):
-        candidates = (f"Foto {ordem}", f"Foto {ordem:02d}")
-        found = next((h for h in candidates if h in header), None)
-        if found is None:
-            raise RuntimeError(f"Aba {unidade} não possui a coluna Foto {ordem}.")
-        photo_columns.append(header.index(found))
+    photo_columns = locate_photo_columns(header, str(unidade))
 
     cells = [{"userEnteredValue": {"stringValue": ""}, "textFormatRuns": []} for _ in range(10)]
     for ordem, drive_url, _drive_name in fotos[:10]:
