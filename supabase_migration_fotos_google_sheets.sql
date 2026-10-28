@@ -1,9 +1,9 @@
--- GTI-SESA: fotos visíveis no Google Sheets
--- A planilha usa =IMAGE(URL), portanto o objeto precisa estar acessível por URL.
--- O arquivo continua sendo o original armazenado no bucket do Supabase.
-UPDATE storage.buckets
-SET public = true
-WHERE id = 'patrimonio-fotos';
+-- GTI-SESA: segurança das fotos de patrimônio
+-- Não tornar o bucket `patrimonio-fotos` público por causa do Google Sheets/Looker Studio.
+-- URLs públicas podem expor imagens de bens e instalações. Mantenha o bucket privado;
+-- use URLs assinadas de curta duração ou uma galeria autenticada no SIGS.
+-- A renderização de =IMAGE(URL) só deve ser habilitada se a autorização puder ser
+-- preservada; não altere a visibilidade do bucket como parte desta migration.
 
 
 -- Reconciliação operacional e limites de retry ficam em migrations versionadas do Supabase.
