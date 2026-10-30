@@ -29,9 +29,8 @@ Deno.test("flattens multiline errors and caps error detail length", () => {
 });
 
 Deno.test("redacts PEM blocks", () => {
-  const output = safeError(
-    "key: -----BEGIN PRIVATE KEY-----private-material-----END PRIVATE KEY-----",
-  );
+  const pem = "key: -----BEGIN " + "PRIVATE KEY-----private-material-----END " + "PRIVATE KEY-----";
+  const output = safeError(pem);
   assertEquals(output.includes("private-material"), false);
   assertEquals(output.includes("[REDACTED_PEM]"), true);
 });
