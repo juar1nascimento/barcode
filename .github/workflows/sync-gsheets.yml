@@ -68,6 +68,9 @@ jobs:
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
       GTI_SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
       GTI_SUPABASE_SECRET_KEY: ${{ secrets.GTI_SUPABASE_SECRET_KEY }}
+      # Alias expected by sheets_outbox_worker.py; values remain GitHub Secrets.
+      SUPABASE_URL: ${{ secrets.GTI_SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.GTI_SUPABASE_SECRET_KEY }}
       OUTBOX_BATCH_SIZE: "20"
       OUTBOX_MAX_ATTEMPTS: "12"
     steps:
