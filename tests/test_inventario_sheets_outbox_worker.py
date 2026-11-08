@@ -103,7 +103,7 @@ def test_sheets_call_retries_quota_error_with_jitter(monkeypatch):
     calls = {"count": 0}
     sleeps = []
     monkeypatch.setattr(worker.time, "sleep", sleeps.append)
-    monkeypatch.setattr(worker.random, "uniform", lambda _a, _b: 0.25)
+    monkeypatch.setattr(worker.secrets, "randbelow", lambda _limit: 250)
 
     def callback():
         calls["count"] += 1
