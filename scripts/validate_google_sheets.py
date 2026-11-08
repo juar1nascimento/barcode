@@ -15,7 +15,10 @@ from googleapiclient.discovery import build
 CREDENTIAL_ENV = "GTI_GOOGLE_SERVICE_ACCOUNT_JSON"
 SPREADSHEET_ENV = "GTI_GOOGLE_SPREADSHEET_ID"
 SPREADSHEET_ID_RE = re.compile(r"^[A-Za-z0-9_-]{20,200}$")
-SCOPES = [\n    "https://www.googleapis.com/auth/spreadsheets.readonly",\n    "https://www.googleapis.com/auth/drive.metadata.readonly",\n]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/drive.metadata.readonly",
+]
 
 
 class ValidationError(ValueError):
@@ -66,14 +69,36 @@ def validate_config(environ=None) -> tuple[dict, str]:
     return credentials_info, spreadsheet_id
 
 
-def validate_readonly(\n    environ=None, credentials_factory=None, authorizer=None, drive_factory=None\n):
+def validate_readonly(
+    environ=None, credentials_factory=None, authorizer=None, drive_factory=None
+):
     info, spreadsheet_id = validate_config(environ)
     factory = credentials_factory or Credentials.from_service_account_info
     authorize = authorizer or gspread.authorize
+    drive_builder = drive_factory or build
     credentials = factory(info, scopes=SCOPES)
+
+    # Leitura de metadados e abas: nenhuma célula é criada ou alterada.
     client = authorize(credentials)
     spreadsheet = client.open_by_key(spreadsheet_id)
     worksheets = spreadsheet.worksheets()
+
+    # Drive capabilities confirma permissão de edição sem executar uma escrita.
+    drive = drive_builder("drive", "v3", credentials=credentials, cache_discovery=False)
+    metadata = (
+        drive.files()
+        .get(
+            fileId=spreadsheet_id,
+            supportsAllDrives=True,
+            fields="id,mimeType,capabilities(canEdit,canModifyContent)",
+        )
+        .execute()
+    )
+    capabilities = metadata.get("capabilities", {})
+    if not capabilities.get("canEdit") or not capabilities.get("canModifyContent"):
+        raise ValidationError(
+            "A conta de serviço acessa a planilha, mas não possui permissão de edição."
+        )
     if not worksheets:
         raise ValidationError(
             "A planilha foi acessada, mas não contém abas disponíveis."
@@ -94,7 +119,7 @@ def main() -> int:
         ) from None
     print(
         "GOOGLE_SHEETS_VALIDATION_OK: "
-        f"read_only=true worksheets={result['worksheet_count']}"
+        f"readonly_metadata=true editor_capability=true worksheets={result['worksheet_count']}"
     )
     return 0
 
