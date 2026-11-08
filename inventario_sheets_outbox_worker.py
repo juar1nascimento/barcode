@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import re
 import time
+
+import requests
 
 import gspread
 import psycopg
@@ -41,13 +44,41 @@ def sheets_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     return gspread.authorize(Credentials.from_service_account_info(data, scopes=scopes))
 
+def _sheets_call(operation: str, callback, attempts: int = 4):
+    """Retry limitado com jitter para leituras e gravações determinísticas."""
+    if attempts < 1:
+        raise ValueError("attempts deve ser maior que zero.")
+    retryable_statuses = {429, 500, 502, 503, 504}
+    for attempt in range(attempts):
+        try:
+            return callback()
+        except Exception as exc:
+            response = getattr(exc, "response", None)
+            status = getattr(response, "status_code", None)
+            retryable = status in retryable_statuses or isinstance(
+                exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)
+            )
+            if not retryable or attempt + 1 >= attempts:
+                raise RuntimeError(
+                    f"Google Sheets operation {operation} failed: {safe_error(exc)}"
+                ) from exc
+            retry_after = None
+            headers = getattr(response, "headers", {}) or {}
+            try:
+                retry_after = float(headers.get("Retry-After", ""))
+            except (TypeError, ValueError):
+                pass
+            delay = min(2 ** attempt, 8) + secrets.randbelow(1000) / 1000
+            time.sleep(max(delay, min(retry_after, 30)) if retry_after is not None else delay)
+
+
 def open_spreadsheet(client):
     spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID", "").strip()
     spreadsheet_url = os.getenv("GOOGLE_SPREADSHEET_URL", "").strip()
     if spreadsheet_id:
-        return client.open_by_key(spreadsheet_id)
+        return _sheets_call("open_spreadsheet", lambda: client.open_by_key(spreadsheet_id))
     if spreadsheet_url:
-        return client.open_by_url(spreadsheet_url)
+        return _sheets_call("open_spreadsheet", lambda: client.open_by_url(spreadsheet_url))
     raise RuntimeError("Defina GOOGLE_SPREADSHEET_ID ou GOOGLE_SPREADSHEET_URL.")
 
 def col_letter(n: int) -> str:
@@ -180,8 +211,11 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
         raise RuntimeError(f"Patrimônio {patrimonio_id} não encontrado.")
 
     _, numero, _codigo, tipo, fabricante, data_cadastro, unidade, setor = row
+    if not numero or not str(numero).strip():
+        raise RuntimeError(f"Patrimônio {patrimonio_id} sem número patrimonial; sincronização bloqueada.")
+
     aba = spreadsheet.worksheet(normalize_unit(unidade))
-    values = aba.get_all_values()
+    values = _sheets_call("read_worksheet_values", aba.get_all_values)
 
     if not values:
         raise RuntimeError(
@@ -201,7 +235,13 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
     setor = str(setor or "").strip()
     tipo = str(tipo or "").strip()
     fabricante = str(fabricante or "").strip()
-    data_texto = data_cadastro.isoformat(sep=" ") if hasattr(data_cadastro, "isoformat") else str(data_cadastro or "").strip()
+    if hasattr(data_cadastro, "isoformat"):
+        try:
+            data_texto = data_cadastro.isoformat(sep=" ")
+        except TypeError:  # datetime aceita sep; date não.
+            data_texto = data_cadastro.isoformat()
+    else:
+        data_texto = str(data_cadastro or "").strip()
     esperado = {
         "Setor": setor,
         "Tipo de Patrimônio": tipo,
@@ -215,13 +255,17 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
         esperado["Código de Barras"] = str(_codigo or "").strip()
 
     numero_col = positions["Nº de Patrimônio"]
-    row_number = None
     compact_expected = re.sub(r"\s+", " ", numero).casefold()
-    for idx, existing in enumerate(values[1:], start=2):
-        current = _row_value(existing, numero_col)
-        if re.sub(r"\s+", " ", current).casefold() == compact_expected:
-            row_number = idx
-            break
+    matching_rows = [
+        idx for idx, existing in enumerate(values[1:], start=2)
+        if re.sub(r"\s+", " ", _row_value(existing, numero_col)).casefold() == compact_expected
+    ]
+    if len(matching_rows) > 1:
+        raise RuntimeError(
+            f"Planilha contém {len(matching_rows)} linhas para o patrimônio {patrimonio_id}; "
+            "nenhuma linha foi alterada."
+        )
+    row_number = matching_rows[0] if matching_rows else None
 
     if row_number is None:
         largura = max(len(header), max(positions.values()) + 1)
@@ -229,16 +273,26 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
         for column, value in esperado.items():
             nova_linha[positions[column]] = value
         aba.append_rows([nova_linha], value_input_option="RAW")
-        row_number = len(aba.get_all_values())
+        row_number = len(values) + 1
     else:
-        for column, value in esperado.items():
-            column_number = positions[column] + 1
-            aba.update_cell(row_number, column_number, value)
+        # Uma única chamada batchUpdate reduz quota e evita estado parcialmente atualizado.
+        # Repetir a mesma escrita em endereços fixos é idempotente após timeout transitório.
+        updates = [
+            {"range": f"{col_letter(positions[column] + 1)}{row_number}", "values": [[value]]}
+            for column, value in esperado.items()
+        ]
+        _sheets_call(
+            "update_patrimonio_cells_batch",
+            lambda: aba.batch_update(updates, value_input_option="RAW"),
+        )
 
     # Confirma somente as células que o worker escreveu. Colunas como
     # Origem, Status, ID Patrimônio e Fotos permanecem intocadas.
-    confirmada = aba.get(
-        f"A{row_number}:{col_letter(max(len(header), max(positions.values()) + 1))}{row_number}"
+    confirmada = _sheets_call(
+        "verify_patrimonio_row",
+        lambda: aba.get(
+            f"A{row_number}:{col_letter(max(len(header), max(positions.values()) + 1))}{row_number}"
+        ),
     )
     linha = list(confirmada[0]) if confirmada else []
     for column, value in esperado.items():
@@ -300,6 +354,8 @@ def main():
             "failed": failed,
             "max_attempts": max_attempts,
         }, ensure_ascii=False))
+        if failed:
+            raise SystemExit(2)
     finally:
         conn.close()
 
