@@ -11,6 +11,8 @@ O workflow **GTI SESA - Integration validation** executa em pull requests e em a
 
 A análise sintática não equivale a aplicar migrations em um banco PostgreSQL. Os corpos PL/pgSQL e a compatibilidade semântica precisam de uma execução local Supabase/PostgreSQL isolada. Nenhuma validação deste workflow usa `--remote` ou grava em produção.
 
+A documentação e o changelog Supabase foram revisados em 8 de novembro de 2026. O Supabase CLI v3 mudou a seleção de destino: comandos de banco usam o stack local por padrão, enquanto operações hospedadas exigem `--remote` e, em CI, consentimento explícito `--yes`. A nova configuração local deve usar as chaves atuais (por exemplo, `[local_smtp]`, não a antiga `[inbucket]`). Este PR não instala nem executa a CLI; quando o baseline for reconstruído, a versão da CLI deverá ser fixada e o workflow deverá limitar-se ao stack descartável local.
+
 ### Lacuna encontrada no baseline atual
 
 A inspeção do schema e de todos os SQL versionados identificou pré-requisitos ausentes para reconstruir um banco limpo: não há declaração versionada para `public.movimentacoes_patrimonio`, `public.patrimonio_fotos_sheets_outbox` nem para a view `public.patrimonios_sheets_outbox_health`; também não existe `supabase/config.toml`. O validador sinaliza essas lacunas como **BLOCKED_BY_BASELINE_GAPS**.
