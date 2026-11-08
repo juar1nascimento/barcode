@@ -16,9 +16,12 @@ concurrency:
 
 jobs:
   validate:
+    if: github.ref == 'refs/heads/main'
     name: Validate sync configuration
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.credentials.outputs.ready }}
     env:
       GTI_DB_HOST: ${{ secrets.GTI_DB_HOST }}
       GTI_DB_NAME: ${{ secrets.GTI_DB_NAME }}
@@ -29,32 +32,62 @@ jobs:
       OUTBOX_BATCH_SIZE: "20"
       OUTBOX_MAX_ATTEMPTS: "12"
     steps:
+      - name: Detect required integration secrets
+        id: credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=true
+          for name in GTI_DB_HOST GTI_DB_NAME GTI_DB_USER GTI_DB_PASSWORD GOOGLE_SERVICE_ACCOUNT_JSON GOOGLE_SPREADSHEET_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::warning::Sincronização Google Sheets ignorada: configuração ausente (${name})."
+              ready=false
+            fi
+          done
+          echo "ready=${ready}" >> "$GITHUB_OUTPUT"
+
+      - name: Report skipped integration
+        if: steps.credentials.outputs.ready != 'true'
+        shell: bash
+        run: |
+          echo "## Google Sheets sync" >> "$GITHUB_STEP_SUMMARY"
+          echo "SKIPPED: configure os secrets GTI_DB_* e GTI_GOOGLE_* para habilitar a integração real." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout
+        if: steps.credentials.outputs.ready == 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - name: Configure Python
+        if: steps.credentials.outputs.ready == 'true'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
       - name: Install dependencies
+        if: steps.credentials.outputs.ready == 'true'
         run: python -m pip install -r requirements.txt
       - name: Compile synchronization workers
+        if: steps.credentials.outputs.ready == 'true'
         run: |
           python -m py_compile inventario_sheets_outbox_worker.py
           python -m py_compile sheets_outbox_worker.py
       - name: Validate required secrets without exposing values
+        if: steps.credentials.outputs.ready == 'true'
         run: python scripts/validate_gti_sync.py
       - name: Validate no hardcoded secret patterns
+        if: steps.credentials.outputs.ready == 'true'
         run: |
           ! git grep -nE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|postgresql://[^[:space:]]+:[^[:space:]]+@|AIza[0-9A-Za-z_-]{20,}|sb_secret_[A-Za-z0-9_-]+' -- ':!tests/**' ':!.github/workflows/**'
       - name: Prepare PostgreSQL connection
+        if: steps.credentials.outputs.ready == 'true'
         run: python scripts/prepare_gti_database.py
       - name: Process patrimony outbox
+        if: steps.credentials.outputs.ready == 'true'
         run: python inventario_sheets_outbox_worker.py
 
   sync-fotos:
+    if: github.ref == 'refs/heads/main' && needs.validate.outputs.ready == 'true'
     name: Sync photos to Drive links
     needs: validate
     runs-on: ubuntu-24.04
@@ -71,20 +104,46 @@ jobs:
       OUTBOX_BATCH_SIZE: "20"
       OUTBOX_MAX_ATTEMPTS: "12"
     steps:
+      - name: Detect Supabase worker credentials
+        id: credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=true
+          for name in GTI_SUPABASE_URL GTI_SUPABASE_SECRET_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::warning::Worker de fotos ignorado: configuração ausente (${name})."
+              ready=false
+            fi
+          done
+          echo "ready=${ready}" >> "$GITHUB_OUTPUT"
+
+      - name: Report skipped photo integration
+        if: steps.credentials.outputs.ready != 'true'
+        shell: bash
+        run: |
+          echo "## Supabase photo worker" >> "$GITHUB_STEP_SUMMARY"
+          echo "SKIPPED: configure GTI_SUPABASE_URL e GTI_SUPABASE_SECRET_KEY para habilitar o worker." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout
+        if: steps.credentials.outputs.ready == 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - name: Configure Python
+        if: steps.credentials.outputs.ready == 'true'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
       - name: Install dependencies
+        if: steps.credentials.outputs.ready == 'true'
         run: python -m pip install -r requirements.txt
       - name: Prepare PostgreSQL connection
+        if: steps.credentials.outputs.ready == 'true'
         run: python scripts/prepare_gti_database.py
       - name: Process up to five Drive outbox items before Sheets photo links
+        if: steps.credentials.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -126,4 +185,5 @@ jobs:
           fi
 
       - name: Process photo outbox
+        if: steps.credentials.outputs.ready == 'true'
         run: python sheets_outbox_worker.py
