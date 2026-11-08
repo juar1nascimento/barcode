@@ -235,7 +235,13 @@ def sync_one(conn, spreadsheet, patrimonio_id: int):
     setor = str(setor or "").strip()
     tipo = str(tipo or "").strip()
     fabricante = str(fabricante or "").strip()
-    data_texto = data_cadastro.isoformat(sep=" ") if hasattr(data_cadastro, "isoformat") else str(data_cadastro or "").strip()
+    if hasattr(data_cadastro, "isoformat"):
+        try:
+            data_texto = data_cadastro.isoformat(sep=" ")
+        except TypeError:  # datetime aceita sep; date não.
+            data_texto = data_cadastro.isoformat()
+    else:
+        data_texto = str(data_cadastro or "").strip()
     esperado = {
         "Setor": setor,
         "Tipo de Patrimônio": tipo,
