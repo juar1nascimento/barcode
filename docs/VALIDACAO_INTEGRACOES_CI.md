@@ -41,7 +41,7 @@ A validação abre uma conexão TLS ao pooler, configura `default_transaction_re
 
 Compartilhe a planilha com o e-mail `client_email` da service account. O teste consulta as abas pela Sheets API e consulta `capabilities.canEdit` / `canModifyContent` pelo Drive API para confirmar a capacidade de edição sem escrever células.
 
-A API Google Sheets deve estar habilitada no projeto Google Cloud. O escopo usado para os dados é somente leitura; o escopo Drive é apenas de metadados. O workflow não cria, atualiza, anexa ou apaga dados.
+As APIs Google Sheets e Google Drive devem estar habilitadas no projeto Google Cloud. O escopo usado para os dados é somente leitura; o escopo Drive é apenas de metadados. O workflow não cria, atualiza, anexa ou apaga dados.
 
 ## Interpretação dos resultados
 
