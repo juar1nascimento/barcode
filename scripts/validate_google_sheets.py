@@ -10,11 +10,12 @@ import re
 
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
 
 CREDENTIAL_ENV = "GTI_GOOGLE_SERVICE_ACCOUNT_JSON"
 SPREADSHEET_ENV = "GTI_GOOGLE_SPREADSHEET_ID"
 SPREADSHEET_ID_RE = re.compile(r"^[A-Za-z0-9_-]{20,200}$")
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+SCOPES = [\n    "https://www.googleapis.com/auth/spreadsheets.readonly",\n    "https://www.googleapis.com/auth/drive.metadata.readonly",\n]
 
 
 class ValidationError(ValueError):
@@ -65,7 +66,7 @@ def validate_config(environ=None) -> tuple[dict, str]:
     return credentials_info, spreadsheet_id
 
 
-def validate_readonly(environ=None, credentials_factory=None, authorizer=None):
+def validate_readonly(\n    environ=None, credentials_factory=None, authorizer=None, drive_factory=None\n):
     info, spreadsheet_id = validate_config(environ)
     factory = credentials_factory or Credentials.from_service_account_info
     authorize = authorizer or gspread.authorize
