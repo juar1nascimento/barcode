@@ -16,6 +16,8 @@ on:
       - "tests/test_validate_google_sheets.py"
       - "requirements-dev.txt"
       - ".github/workflows/integration-validation.yml"
+      - ".github/workflows/sync-gsheets.yml"
+      - "supabase/config.toml"
   pull_request:
     branches: [main]
     paths:
