@@ -1,0 +1,155 @@
+name: GTI SESA - Integration validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "postgresql_schema.sql"
+      - "supabase_migration_fotos_google_sheets.sql"
+      - "supabase/migrations/**"
+      - "migrations/**"
+      - "scripts/validate_postgres_connection.py"
+      - "scripts/validate_postgres_migrations.py"
+      - "scripts/validate_google_sheets.py"
+      - "tests/test_postgres_migrations_syntax.py"
+      - "tests/test_validate_postgres_connection.py"
+      - "tests/test_validate_google_sheets.py"
+      - "requirements-dev.txt"
+      - ".github/workflows/integration-validation.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "postgresql_schema.sql"
+      - "supabase_migration_fotos_google_sheets.sql"
+      - "supabase/migrations/**"
+      - "migrations/**"
+      - "scripts/validate_postgres_connection.py"
+      - "scripts/validate_postgres_migrations.py"
+      - "scripts/validate_google_sheets.py"
+      - "tests/test_postgres_migrations_syntax.py"
+      - "tests/test_validate_postgres_connection.py"
+      - "tests/test_validate_google_sheets.py"
+      - "requirements-dev.txt"
+      - ".github/workflows/integration-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gti-integration-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-validation:
+    name: Offline PostgreSQL and Google Sheets validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Configure Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install pinned runtime and validation dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Validate PostgreSQL SQL syntax
+        run: python scripts/validate_postgres_migrations.py
+
+      - name: Test independent validators and mocked Sheets worker
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest -q \
+            tests/test_postgres_migrations_syntax.py \
+            tests/test_validate_postgres_connection.py \
+            tests/test_validate_google_sheets.py \
+            tests/test_sheets_outbox_worker.py
+
+  live-readonly-validation:
+    name: Optional live read-only integration checks
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GTI_DB_HOST: ${{ secrets.GTI_DB_HOST }}
+      GTI_DB_NAME: ${{ secrets.GTI_DB_NAME }}
+      GTI_DB_USER: ${{ secrets.GTI_DB_USER }}
+      GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
+      GTI_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GTI_GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Configure Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install runtime dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Detect available integration credentials without exposing values
+        id: credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          postgres_ready=true
+          for name in GTI_DB_HOST GTI_DB_NAME GTI_DB_USER GTI_DB_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::warning::Validação PostgreSQL/Supabase ignorada: variável ${name} ausente."
+              postgres_ready=false
+            fi
+          done
+
+          sheets_ready=true
+          for name in GTI_GOOGLE_SERVICE_ACCOUNT_JSON GTI_GOOGLE_SPREADSHEET_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::warning::Validação Google Sheets ignorada: variável ${name} ausente."
+              sheets_ready=false
+            fi
+          done
+
+          echo "postgres_ready=${postgres_ready}" >> "$GITHUB_OUTPUT"
+          echo "sheets_ready=${sheets_ready}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate PostgreSQL/Supabase connection (read-only)
+        if: steps.credentials.outputs.postgres_ready == 'true'
+        run: python scripts/validate_postgres_connection.py
+
+      - name: Validate Google Sheets access and editor capability (read-only)
+        if: steps.credentials.outputs.sheets_ready == 'true'
+        run: python scripts/validate_google_sheets.py
+
+      - name: Report external validation status
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Live integration validation"
+            if [ "${{ steps.credentials.outputs.postgres_ready }}" = "true" ]; then
+              echo "- PostgreSQL/Supabase: attempted (read-only)."
+            else
+              echo "- PostgreSQL/Supabase: **SKIPPED** — configure GTI_DB_HOST, GTI_DB_NAME, GTI_DB_USER and GTI_DB_PASSWORD."
+            fi
+            if [ "${{ steps.credentials.outputs.sheets_ready }}" = "true" ]; then
+              echo "- Google Sheets: attempted (read-only metadata and permission checks)."
+            else
+              echo "- Google Sheets: **SKIPPED** — configure GTI_GOOGLE_SERVICE_ACCOUNT_JSON and GTI_GOOGLE_SPREADSHEET_ID."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
