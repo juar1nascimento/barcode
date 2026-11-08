@@ -27,6 +27,7 @@ HEADER_ALIASES = {
     "tipo de patrimonio": "Tipo de Patrimônio",
     "tipo patrimonio": "Tipo de Patrimônio",
     "n de patrimonio": "Nº de Patrimônio",
+    "no de patrimonio": "Nº de Patrimônio",
     "n patrimonio": "Nº de Patrimônio",
     "numero de patrimonio": "Nº de Patrimônio",
     "numero patrimonio": "Nº de Patrimônio",
