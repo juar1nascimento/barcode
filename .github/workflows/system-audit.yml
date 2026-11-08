@@ -16,9 +16,9 @@ concurrency:
 
 jobs:
   audit:
-    name: Python and inventory smoke audit
+    name: Streamlit startup and runtime smoke audit
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Checkout PR head
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -30,42 +30,36 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-          cache: "pip"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest
+      # Build, full tests and security scans are authoritative in the CI workflow.
+      # Keep this workflow focused on an independent application startup check.
+      - name: Install runtime dependencies
+        run: python -m pip install -r requirements.txt
 
-      - name: Dependency vulnerability audit
-        run: |
-          python -m pip install pip-audit bandit
-          pip-audit -r requirements.txt
-
-      - name: Static security audit
-        run: |
-          bandit -q -r . -x ./tests,./test_*.py --skip B110
-
-      - name: Compile all Python modules
-        run: python -m compileall -q .
-
-      - name: Run test suite
-        run: pytest -q
+      - name: Verify dependency consistency
+        run: python -m pip check
 
       - name: Streamlit startup smoke test
         shell: bash
         run: |
-          set -e
-          streamlit run app.py --server.headless true --server.port 8501 > /tmp/streamlit.log 2>&1 &
+          set -Eeuo pipefail
+          streamlit run app.py --server.headless true --server.port 8501 --server.address 127.0.0.1 > /tmp/streamlit.log 2>&1 &
           PID=$!
-          trap 'kill $PID 2>/dev/null || true' EXIT
+          trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true' EXIT
           for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:8501/_stcore/health >/dev/null; then
+            if ! kill -0 "$PID" 2>/dev/null; then
+              cat /tmp/streamlit.log
+              echo "Streamlit process exited before becoming healthy" >&2
+              exit 1
+            fi
+            if curl --fail --silent --show-error http://127.0.0.1:8501/_stcore/health >/dev/null; then
               echo "Streamlit startup OK"
               exit 0
             fi
             sleep 1
           done
           cat /tmp/streamlit.log
+          echo "Streamlit did not become healthy within 30 seconds" >&2
           exit 1
