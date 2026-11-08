@@ -13,7 +13,7 @@ import psycopg
 PROJECT_REF = os.getenv("GTI_SUPABASE_PROJECT_REF", "vgabxdprocwmpmhoxrgt")
 POOLER_PORT = 6543
 REQUIRED = ("GTI_DB_HOST", "GTI_DB_NAME", "GTI_DB_USER", "GTI_DB_PASSWORD")
-POOLER_RE = re.compile(r"^aws-[0-9]+-[a-z0-9-]+\\.pooler\\.supabase\\.com$")
+POOLER_RE = re.compile(r"^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$")
 
 
 class ValidationError(ValueError):
