@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-import random
+import secrets
 import re
 import time
 from urllib.parse import quote, urljoin, urlparse, parse_qs
@@ -227,7 +227,7 @@ def _sheets_call(operation: str, callback, attempts: int = 4):
                 retry_after = float(headers.get("Retry-After", ""))
             except (TypeError, ValueError):
                 pass
-            delay = min(2 ** attempt, 8) + random.uniform(0, 1)
+            delay = min(2 ** attempt, 8) + secrets.randbelow(1000) / 1000
             time.sleep(max(delay, min(retry_after, 30)) if retry_after is not None else delay)
 
 
