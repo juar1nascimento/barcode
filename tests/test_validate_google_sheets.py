@@ -21,6 +21,29 @@ def _env(**overrides):
     return values
 
 
+def _drive_factory(can_edit=True):
+    class Request:
+        def execute(self):
+            return {
+                "capabilities": {
+                    "canEdit": can_edit,
+                    "canModifyContent": can_edit,
+                }
+            }
+
+    class Files:
+        def get(self, **kwargs):
+            assert kwargs["supportsAllDrives"] is True
+            assert "capabilities(canEdit,canModifyContent)" in kwargs["fields"]
+            return Request()
+
+    class Drive:
+        def files(self):
+            return Files()
+
+    return lambda *args, **kwargs: Drive()
+
+
 def test_google_config_is_independent_from_postgres_credentials():
     info, spreadsheet_id = validator.validate_config(_env())
     assert info["type"] == "service_account"
@@ -44,8 +67,8 @@ def test_google_config_rejects_sheet_url_instead_of_id():
         )
 
 
-def test_google_readonly_validation_does_not_call_write_methods():
-    calls = {"opened": None, "writes": 0}
+def test_google_readonly_validation_checks_editor_capability_without_writes():
+    calls = {"opened": None, "writes": 0, "scopes": None}
 
     class Spreadsheet:
         def worksheets(self):
@@ -59,11 +82,34 @@ def test_google_readonly_validation_does_not_call_write_methods():
             calls["opened"] = spreadsheet_id
             return Spreadsheet()
 
+    def credentials_factory(info, scopes):
+        calls["scopes"] = scopes
+        return object()
+
     result = validator.validate_readonly(
         _env(),
-        credentials_factory=lambda info, scopes: object(),
+        credentials_factory=credentials_factory,
         authorizer=lambda credentials: Client(),
+        drive_factory=_drive_factory(),
     )
     assert result["worksheet_count"] == 1
     assert calls["opened"] == "a" * 44
     assert calls["writes"] == 0
+    assert "https://www.googleapis.com/auth/spreadsheets.readonly" in calls["scopes"]
+    assert "https://www.googleapis.com/auth/drive.metadata.readonly" in calls["scopes"]
+
+
+def test_google_validation_rejects_service_account_without_editor_capability():
+    with pytest.raises(validator.ValidationError, match="permissão de edição"):
+        validator.validate_readonly(
+            _env(),
+            credentials_factory=lambda info, scopes: object(),
+            authorizer=lambda credentials: type(
+                "Client",
+                (),
+                {"open_by_key": lambda self, _key: type(
+                    "Spreadsheet", (), {"worksheets": lambda self: ["Inventário"]}
+                )()},
+            )(),
+            drive_factory=_drive_factory(can_edit=False),
+        )
