@@ -32,7 +32,7 @@ def validate_sql_files(root: Path = ROOT) -> list[tuple[str, int]]:
             statements = parse_sql(source)
         except ParseError as exc:
             location = getattr(exc, "location", None)
-            line = source.count("\\n", 0, location or 0) + 1
+            line = source.count("\n", 0, location or 0) + 1
             raise RuntimeError(f"SQL inválido em {path.relative_to(root)}:{line}: {exc}") from None
         if not statements:
             raise RuntimeError(f"Arquivo SQL vazio: {path.relative_to(root)}")
