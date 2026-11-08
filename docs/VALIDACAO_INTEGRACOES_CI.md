@@ -11,6 +11,12 @@ O workflow **GTI SESA - Integration validation** executa em pull requests e em a
 
 A análise sintática não equivale a aplicar migrations em um banco PostgreSQL. Os corpos PL/pgSQL e a compatibilidade semântica precisam de uma execução local Supabase/PostgreSQL isolada. Nenhuma validação deste workflow usa `--remote` ou grava em produção.
 
+### Lacuna encontrada no baseline atual
+
+A inspeção do schema e de todos os SQL versionados identificou pré-requisitos ausentes para reconstruir um banco limpo: não há declaração versionada para `public.movimentacoes_patrimonio`, `public.patrimonio_fotos_sheets_outbox` nem para a view `public.patrimonios_sheets_outbox_health`; também não existe `supabase/config.toml`. O validador sinaliza essas lacunas como **BLOCKED_BY_BASELINE_GAPS**.
+
+Esses objetos podem existir no banco remoto atual, mas não estão descritos integralmente no baseline versionado que foi auditado. Não criei tabelas ou views presumindo colunas, constraints, índices ou políticas. A próxima etapa correta é recuperar/confirmar o DDL canônico do ambiente autorizado e transformá-lo em baseline/migrations reproduzíveis antes de habilitar um teste `supabase start` + `supabase db reset` em banco descartável.
+
 ## Validação real, somente leitura
 
 A execução externa é manual e só roda quando o workflow é disparado na branch `main`. Em pull requests, inclusive os originados de forks, nenhuma credencial é disponibilizada.
