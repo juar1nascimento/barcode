@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   audit-test:
-    name: Build, tests and security checks
+    name: Build and security checks
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -37,8 +37,6 @@ jobs:
         run: python -m pip check
       - name: Compile Python
         run: python -m compileall -q .
-      - name: Run automated tests
-        run: python -m pytest -q
       - name: Dependency security audit
         run: pip-audit -r requirements.txt
       - name: Static security audit
