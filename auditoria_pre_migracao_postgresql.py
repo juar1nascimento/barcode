@@ -176,6 +176,20 @@ def renderizar_auditoria_pre_migracao() -> None:
         return
 
     totais = resultado["totais"]
+    falhas_leitura = [
+        r for r in resultado["unidades"]
+        if "FALHA DE LEITURA" in str(r.get("origem", ""))
+    ]
+    if falhas_leitura:
+        nomes_falha = ", ".join(r["unidade"] for r in falhas_leitura)
+        st.error(
+            "AUDITORIA INCOMPLETA — a leitura falhou para: "
+            f"{nomes_falha}. Os totais abaixo não devem ser usados para aprovar "
+            "migração até que essas abas sejam lidas com sucesso."
+        )
+        # Invalida qualquer simulação anterior: não pode haver resultado "verde"
+        # baseado em uma auditoria que agora sabemos estar incompleta.
+        st.session_state.pop("resultado_simulacao_pg", None)
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Unidades", totais["unidades"])
     c2.metric("Linhas", totais["linhas"])
@@ -210,7 +224,12 @@ def renderizar_auditoria_pre_migracao() -> None:
     if totais["bloqueadores"] > 0:
         st.warning("A simulação está liberada para análise, mas a migração efetiva deverá aguardar a resolução dos bloqueadores.")
 
-    if st.button("🧪 Executar simulação (sem gravar)"):
+    if falhas_leitura:
+        st.warning(
+            "Simulação bloqueada: corrija as falhas de leitura e execute novamente "
+            "a auditoria completa antes de comparar com o PostgreSQL."
+        )
+    elif st.button("🧪 Executar simulação (sem gravar)"):
         from migrar_google_para_postgresql import migrar_todas_as_unidades
         with st.spinner("Comparando os dados do Google Sheets com o PostgreSQL..."):
             simulacao = migrar_todas_as_unidades(dry_run=True)
