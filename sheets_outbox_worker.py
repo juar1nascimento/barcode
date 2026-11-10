@@ -34,6 +34,13 @@ class DependencyNotReady(RuntimeError):
     """A prerequisite is still being delivered by another asynchronous worker."""
 
 
+class ReconciliationRequired(RuntimeError):
+    """A permanent identity/schema conflict requires controlled human reconciliation."""
+
+
+class InventoryRowNotFound(ReconciliationRequired):
+    """The photo parent row is absent from the sheet."""
+
 
 def env(name: str) -> str:
     value = os.getenv(name, "").strip()
@@ -271,6 +278,16 @@ def mark(conn, outbox_id: int, status: str, error: str | None = None, max_attemp
                     WHERE id=%s""",
                 (outbox_id,),
             )
+        elif status == "dead_letter":
+            # A reconciliação manual é necessária; não repetir a mesma escrita externa.
+            cur.execute(
+                """UPDATE public.patrimonio_fotos_sheets_outbox
+                      SET status='dead_letter', processando_em=NULL,
+                          proxima_tentativa_em=now(), ultimo_erro=%s,
+                          atualizado_em=now()
+                    WHERE id=%s""",
+                (str(error or "reconciliação controlada necessária")[:2000], outbox_id),
+            )
         else:
             cur.execute(
                 """UPDATE public.patrimonio_fotos_sheets_outbox
@@ -321,6 +338,139 @@ def reset_stale(conn):
     conn.commit()
 
 
+def _normalize_identity(value: object) -> str:
+    raw = "" if value is None else str(value)
+    return re.sub(r"\s+", " ", raw.strip()).casefold()
+
+
+def locate_patrimony_row(header: list[str], values: list[list], patrimonio_id: int, numero: str, unidade: str) -> int:
+    """Resolve a Sheets row by stable ID; number fallback must be unique and conflict-free."""
+    id_positions = [i for i, name in enumerate(header) if str(name).strip() == ID_COLUMN]
+    number_positions = [i for i, name in enumerate(header) if str(name).strip() == "Nº de Patrimônio"]
+    if len(id_positions) > 1:
+        raise ReconciliationRequired(
+            f"Aba {unidade} possui coluna {ID_COLUMN} duplicada; reconciliação controlada necessária."
+        )
+    if len(number_positions) != 1:
+        raise ReconciliationRequired(
+            f"Aba {unidade} possui coluna Nº de Patrimônio ausente ou ambígua; "
+            "reconciliação controlada necessária."
+        )
+
+    id_idx = id_positions[0] if id_positions else None
+    number_idx = number_positions[0]
+    expected_id = _normalize_identity(patrimonio_id)
+    expected_number = _normalize_identity(numero)
+    if not expected_id or not expected_number:
+        raise ReconciliationRequired(
+            f"Identidade incompleta para o patrimônio {patrimonio_id}; reconciliação controlada necessária."
+        )
+
+    def cell(row, index):
+        return row[index] if len(row) > index else ""
+
+    data_rows = list(enumerate(values[1:], start=2))
+    if id_idx is not None:
+        id_matches = [
+            (row_number, row)
+            for row_number, row in data_rows
+            if _normalize_identity(cell(row, id_idx)) == expected_id
+        ]
+        if len(id_matches) > 1:
+            raise ReconciliationRequired(
+                f"ID Patrimônio {patrimonio_id} duplicado na aba {unidade}; "
+                "reconciliação controlada necessária."
+            )
+        if len(id_matches) == 1:
+            row_number, row = id_matches[0]
+            if _normalize_identity(cell(row, number_idx)) != expected_number:
+                raise ReconciliationRequired(
+                    f"ID Patrimônio {patrimonio_id} localizado na aba {unidade}, mas o número "
+                    "de patrimônio diverge; reconciliação controlada necessária."
+                )
+            return row_number
+
+    number_matches = [
+        (row_number, row)
+        for row_number, row in data_rows
+        if _normalize_identity(cell(row, number_idx)) == expected_number
+    ]
+    if len(number_matches) > 1:
+        raise ReconciliationRequired(
+            f"Número de patrimônio {numero} aparece em múltiplas linhas da aba {unidade}; "
+            "reconciliação controlada necessária."
+        )
+    if len(number_matches) == 1:
+        row_number, row = number_matches[0]
+        if id_idx is not None:
+            existing_id = _normalize_identity(cell(row, id_idx))
+            if existing_id and existing_id != expected_id:
+                raise ReconciliationRequired(
+                    f"Número de patrimônio {numero} aponta para ID {existing_id}, mas o "
+                    f"PostgreSQL informa ID {patrimonio_id}; reconciliação controlada necessária."
+                )
+        return row_number
+
+    raise InventoryRowNotFound(
+        f"Patrimônio {numero} (ID {patrimonio_id}) não encontrado na aba {unidade}; "
+        "sincronização bloqueada para reconciliação controlada."
+    )
+
+
+def locate_photo_columns(header: list[str], unidade: str) -> list[int]:
+    """Resolve each photo column exactly once; legacy aliases may not coexist ambiguously."""
+    columns = []
+    for ordem in range(1, 11):
+        candidates = {f"Foto {ordem}", f"Foto {ordem:02d}"}
+        matches = [i for i, name in enumerate(header) if str(name).strip() in candidates]
+        if len(matches) != 1:
+            state = "ausente" if not matches else "ambígua/duplicada"
+            raise ReconciliationRequired(
+                f"Aba {unidade} possui coluna Foto {ordem} {state}; "
+                "reconciliação controlada necessária."
+            )
+        columns.append(matches[0])
+    return columns
+
+
+def inventory_sync_pending(conn, patrimonio_id: int) -> bool:
+    """Return whether the parent inventory upsert is still non-terminal."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT status
+                 FROM public.patrimonios_sheets_outbox
+                WHERE patrimonio_id=%s AND evento='upsert'
+                ORDER BY id DESC
+                LIMIT 1""",
+            (patrimonio_id,),
+        )
+        row = cur.fetchone()
+    return bool(row and str(row[0]) in {"pending", "processing", "failed"})
+
+
+def resolve_photo_parent_row(conn, header: list[str], values: list[list], patrimonio_id: int, numero: str, unidade: str) -> int:
+    """Defer a missing row while its parent inventory event is still being delivered."""
+    try:
+        return locate_patrimony_row(header, values, patrimonio_id, numero, unidade)
+    except InventoryRowNotFound as exc:
+        if inventory_sync_pending(conn, patrimonio_id):
+            raise DependencyNotReady(
+                f"A linha do patrimônio {numero} (ID {patrimonio_id}) ainda aguarda "
+                "a sincronização da outbox de inventário; evento de foto reagendado sem consumir tentativas."
+            ) from exc
+        raise
+
+
+def count_dead_letter(conn) -> int:
+    """Read-only count so an empty claim batch cannot hide quarantined events."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM public.patrimonio_fotos_sheets_outbox WHERE status='dead_letter'"
+        )
+        row = cur.fetchone()
+    return int(row[0] or 0)
+
+
 def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
     with conn.cursor() as cur:
         cur.execute(
@@ -347,30 +497,13 @@ def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
     aba = spreadsheet.worksheet(normalize_unit(unidade))
     values = aba.get_all_values()
     if not values:
-        raise RuntimeError(f"Aba {unidade} sem cabeçalho.")
+        raise ReconciliationRequired(
+            f"Aba {unidade} sem cabeçalho; reconciliação controlada necessária."
+        )
 
     header = list(values[0])
-    if "Nº de Patrimônio" not in header:
-        raise RuntimeError(f"Aba {unidade} não possui a coluna Nº de Patrimônio.")
-
-    number_idx = header.index("Nº de Patrimônio")
-    row_number = None
-    for row_idx, row in enumerate(values[1:], start=2):
-        number = row[number_idx].strip() if len(row) > number_idx else ""
-        if re.sub(r"\s+", " ", number).casefold() == re.sub(r"\s+", " ", str(numero)).casefold():
-            row_number = row_idx
-            break
-
-    if row_number is None:
-        raise RuntimeError(f"Patrimônio {numero} não encontrado na aba {unidade}.")
-
-    photo_columns = []
-    for ordem in range(1, 11):
-        candidates = (f"Foto {ordem}", f"Foto {ordem:02d}")
-        found = next((h for h in candidates if h in header), None)
-        if found is None:
-            raise RuntimeError(f"Aba {unidade} não possui a coluna Foto {ordem}.")
-        photo_columns.append(header.index(found))
+    row_number = resolve_photo_parent_row(conn, header, values, patrimonio_id, str(numero), str(unidade))
+    photo_columns = locate_photo_columns(header, str(unidade))
 
     cells = [{"userEnteredValue": {"stringValue": ""}, "textFormatRuns": []} for _ in range(10)]
     for ordem, drive_url, _drive_name in fotos[:10]:
@@ -428,7 +561,7 @@ def main():
         for outbox_id, patrimonio_id, _foto_id in claimed:
             by_patrimonio.setdefault(int(patrimonio_id), []).append(int(outbox_id))
 
-        synced = failed = deferred = 0
+        synced = failed = deferred = blocked = 0
         for patrimonio_id, event_ids in by_patrimonio.items():
             started = time.monotonic()
             try:
@@ -443,6 +576,20 @@ def main():
                     "result": "synced",
                     "events_consolidated": len(event_ids),
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                }, ensure_ascii=False))
+            except ReconciliationRequired as exc:
+                error = _safe_error(exc)
+                for outbox_id in event_ids:
+                    mark(conn, outbox_id, "dead_letter", error, max_attempts=max_attempts)
+                blocked += len(event_ids)
+                print(json.dumps({
+                    "event": "sheets_outbox_sync",
+                    "patrimonio_id": patrimonio_id,
+                    "outbox_ids": event_ids,
+                    "result": "blocked_reconciliation",
+                    "events_consolidated": len(event_ids),
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "error": error[:500],
                 }, ensure_ascii=False))
             except DependencyNotReady as exc:
                 error = _safe_error(exc)
@@ -474,6 +621,7 @@ def main():
                     "error": error[:500],
                 }, ensure_ascii=False))
 
+        dead_letter_count = count_dead_letter(conn)
         print(json.dumps({
             "event": "sheets_outbox_batch",
             "reconciled": reconciled,
@@ -482,9 +630,12 @@ def main():
             "synced": synced,
             "deferred": deferred,
             "failed": failed,
+            "blocked_reconciliation": blocked,
+            "dead_letter_count": dead_letter_count,
             "max_attempts": max_attempts,
         }, ensure_ascii=False))
-        if failed:
+        # Um lote vazio não significa fila saudável: dead-letter permanece bloqueador.
+        if failed or blocked or dead_letter_count:
             raise SystemExit(2)
     finally:
         conn.close()
