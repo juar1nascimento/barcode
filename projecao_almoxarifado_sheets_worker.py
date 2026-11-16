@@ -271,7 +271,6 @@ if __name__ == "__main__":
                     "event": "projecao_almoxarifado_sheets_sync",
                     "result": "failed",
                     "error": safe_error(exc),
-                    "external_write": False,
                 },
                 ensure_ascii=False,
             )
