@@ -13,11 +13,12 @@ A unidade está atualmente referenciada pelo identificador `2` no SQL da aplica�
 
 ### Validação somente leitura
 
-Executar:
+A validação deve ser iniciada pelo GitHub Actions, no workflow manual
+`.github/workflows/analytics-readonly-validation.yml`. Após a incorporação
+aprovada do workflow à branch padrão, abrir **Actions → GTI SESA - Analytics
+read-only validation → Run workflow**. Não é necessário usar o terminal Linux.
 
-```bash
-python projecao_almoxarifado_sheets_worker.py --dry-run
-```
+O workflow chama internamente o worker com a opção `--dry-run`.
 
 O modo:
 
