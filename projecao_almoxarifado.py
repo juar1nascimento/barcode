@@ -126,6 +126,63 @@ def _salvar_meta(tipo: str, tipo_custom: str | None, fabricante: str | None, qua
         conn.close()
 
 
+
+def _estatisticas_eventos() -> dict[str, Any]:
+    """Resumo operacional de eventos; não altera nem reclassifica registros."""
+    rows = _query(
+        """
+        SELECT
+            COUNT(e.id)::integer AS eventos_total,
+            COUNT(*) FILTER (WHERE e.resultado = 'encontrado')::integer AS encontrados,
+            COUNT(DISTINCT e.patrimonio_id) FILTER (
+                WHERE e.resultado = 'encontrado' AND e.patrimonio_id IS NOT NULL
+            )::integer AS patrimonios_distintos,
+            COUNT(*) FILTER (
+                WHERE e.resultado = 'encontrado' AND e.meta_id IS NULL
+            )::integer AS encontrados_sem_meta,
+            MAX(e.ocorrido_em) AS ultimo_evento
+        FROM public.patrimonio_contagem_eventos e
+        JOIN public.patrimonio_contagem_sessoes s ON s.id = e.sessao_id
+        WHERE s.unidade_id = 2
+        """
+    )
+    if not rows:
+        return {
+            "eventos_total": 0,
+            "encontrados": 0,
+            "patrimonios_distintos": 0,
+            "encontrados_sem_meta": 0,
+            "ultimo_evento": None,
+        }
+    row = rows[0]
+    return {
+        "eventos_total": int(row[0] or 0),
+        "encontrados": int(row[1] or 0),
+        "patrimonios_distintos": int(row[2] or 0),
+        "encontrados_sem_meta": int(row[3] or 0),
+        "ultimo_evento": row[4],
+    }
+
+
+def _renderizar_resumo_eventos() -> None:
+    stats = _estatisticas_eventos()
+    st.caption("Histórico operacional da contagem — independente das metas configuradas.")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("EVENTOS REGISTRADOS", stats["eventos_total"])
+    c2.metric("LEITURAS ENCONTRADAS", stats["encontrados"])
+    c3.metric("PATRIMÔNIOS DISTINTOS", stats["patrimonios_distintos"])
+    c4.metric("ENCONTRADOS SEM META", stats["encontrados_sem_meta"])
+    if stats["encontrados_sem_meta"]:
+        st.info(
+            f'{stats["encontrados_sem_meta"]} leitura(s) encontrada(s) não estão '
+            "associadas a uma meta. Elas permanecem no histórico e não são "
+            "contabilizadas no progresso das metas."
+        )
+    if stats["ultimo_evento"]:
+        st.caption(f'Último evento registrado: {stats["ultimo_evento"]}')
+
+
+
 def _projecao() -> list[dict[str, Any]]:
     rows = _query(
         """
@@ -165,6 +222,7 @@ def renderizar_projecao_embutida(is_admin: bool = False) -> None:
             mapa[label] = item
 
     with st.expander("📈 Projeção / Contagem do Almoxarifado Central SESA", expanded=False):
+        _renderizar_resumo_eventos()
         st.caption("Quantidade total opcional. Vazio mantém o inventário normal, sem countdown.")
         if not is_admin_efetivo:
             st.caption("🔐 A configuração da quantidade total é exclusiva do administrador.")
@@ -236,6 +294,7 @@ def renderizar_projecao_almoxarifado() -> None:
         "A quantidade total é opcional. Deixe o campo vazio para manter o patrimônio "
         "no inventário sem countdown ou efeito de projeção."
     )
+    _renderizar_resumo_eventos()
 
     opcoes = _listar_opcoes()
     if not opcoes:
