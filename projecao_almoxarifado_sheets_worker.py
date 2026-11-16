@@ -1,8 +1,12 @@
 """Publica a projeção do Almoxarifado Central no Google Sheets para o Data Studio.
+
 O Supabase permanece como fonte de verdade. A sincronização é idempotente.
+O modo --dry-run valida as views em uma transação PostgreSQL READ ONLY e não
+autentica no Google nem altera planilhas.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -138,6 +142,20 @@ def fetch_projection_summary(conn) -> list[list[object]]:
 def sync_sheet(
     spreadsheet, values: list[list[object]], sheet_name: str, columns: list[str]
 ) -> dict:
+    if not values or values[0] != columns:
+        raise ValueError(f"Snapshot inválido para a aba {sheet_name}: cabeçalho ausente ou divergente.")
+    if any(len(row) != len(columns) for row in values[1:]):
+        raise ValueError(f"Snapshot inválido para a aba {sheet_name}: quantidade de colunas divergente.")
+
+    # Não substituir um snapshot existente por uma resposta vazia/incompleta.
+    if len(values) == 1:
+        return {
+            "aba": sheet_name,
+            "linhas": 0,
+            "colunas": len(columns),
+            "status": "skipped_empty_snapshot",
+        }
+
     try:
         worksheet = spreadsheet.worksheet(sheet_name)
     except gspread.WorksheetNotFound:
@@ -170,6 +188,7 @@ def sync_sheet(
         "aba": sheet_name,
         "linhas": max(0, len(values) - 1),
         "colunas": len(columns),
+        "status": "synced",
     }
 
 
@@ -181,13 +200,38 @@ def column_letter(number: int) -> str:
     return result
 
 
-def main():
+def run(dry_run: bool = False) -> dict:
     conn = psycopg.connect(database_url())
     try:
+        if dry_run:
+            # Deve ser a primeira instrução da transação, antes de qualquer SELECT.
+            with conn.cursor() as cur:
+                cur.execute("SET TRANSACTION READ ONLY")
         detail_values = fetch_projection(conn)
         summary_values = fetch_projection_summary(conn)
     finally:
         conn.close()
+
+    if dry_run:
+        return {
+            "event": "projecao_almoxarifado_sheets_sync",
+            "result": "validated_read_only",
+            "database_transaction": "READ ONLY",
+            "google_sheets_connected": False,
+            "external_write": False,
+            "abas": [
+                {
+                    "aba": DETAIL_SHEET_NAME,
+                    "linhas": max(0, len(detail_values) - 1),
+                    "colunas": len(COLUMNS),
+                },
+                {
+                    "aba": SUMMARY_SHEET_NAME,
+                    "linhas": max(0, len(summary_values) - 1),
+                    "colunas": len(SUMMARY_COLUMNS),
+                },
+            ],
+        }
 
     spreadsheet = open_spreadsheet(sheets_client())
     detail_result = sync_sheet(
@@ -196,21 +240,30 @@ def main():
     summary_result = sync_sheet(
         spreadsheet, summary_values, SUMMARY_SHEET_NAME, SUMMARY_COLUMNS
     )
-    print(
-        json.dumps(
-            {
-                "event": "projecao_almoxarifado_sheets_sync",
-                "result": "synced",
-                "abas": [detail_result, summary_result],
-            },
-            ensure_ascii=False,
-        )
+    return {
+        "event": "projecao_almoxarifado_sheets_sync",
+        "result": "synced",
+        "external_write": True,
+        "abas": [detail_result, summary_result],
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Consulta as views em transação READ ONLY; não acessa nem altera o Google Sheets.",
     )
+    args = parser.parse_args(argv)
+    result = run(dry_run=args.dry_run)
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
 
 
 if __name__ == "__main__":
     try:
-        main()
+        raise SystemExit(main())
     except Exception as exc:
         print(
             json.dumps(
@@ -218,6 +271,7 @@ if __name__ == "__main__":
                     "event": "projecao_almoxarifado_sheets_sync",
                     "result": "failed",
                     "error": safe_error(exc),
+                    "external_write": False,
                 },
                 ensure_ascii=False,
             )
