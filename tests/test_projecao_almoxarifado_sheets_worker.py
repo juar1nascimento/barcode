@@ -22,7 +22,7 @@ class FakeCursor:
         if "v_projecao_almoxarifado_central_resumo" in query:
             self.rows = [(2, "Almoxarifado Central SESA", 1, 1, 10, 4, 6, 0, 0, 1, Decimal("40.00"), None)]
         elif "v_projecao_almoxarifado_central" in query:
-            self.rows = [(1, 2, "Almoxarifado Central SESA", "CPU", None, "Dell", 10, 4, 6, Decimal("40.00"), None)]
+            self.rows = [(1, 2, "Almoxarifado Central SESA", "CPU", None, "Dell", 10, 4, 6, Decimal("40.00"), "EM_ANDAMENTO", None)]
         else:
             self.rows = []
 
@@ -126,3 +126,15 @@ def test_normalize_value_handles_datetime_and_decimal():
 )
 def test_column_letter(number, expected):
     assert worker.column_letter(number) == expected
+
+
+
+def test_safe_error_redacts_database_passwords_and_tokens():
+    message = worker.safe_error(
+        "connection failed password=database-secret token=jwt-secret"
+    )
+
+    assert "database-secret" not in message
+    assert "jwt-secret" not in message
+    assert "password=[REDACTED]" in message
+    assert "token=[REDACTED]" in message
