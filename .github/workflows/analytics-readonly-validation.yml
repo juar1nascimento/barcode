@@ -1,0 +1,45 @@
+name: GTI SESA - Analytics read-only validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gti-analytics-readonly-validation
+  cancel-in-progress: true
+
+jobs:
+  validate-projection:
+    name: Validate projection views without external writes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GTI_DB_HOST: ${{ secrets.GTI_DB_HOST }}
+      GTI_DB_NAME: ${{ secrets.GTI_DB_NAME }}
+      GTI_DB_USER: ${{ secrets.GTI_DB_USER }}
+      GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Configure Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile analytics worker
+        run: python -m py_compile projecao_almoxarifado_sheets_worker.py
+
+      - name: Run mocked analytics safety tests
+        run: python -m pytest -q tests/test_projecao_almoxarifado_sheets_worker.py
+
+      - name: Validate PostgreSQL projection in READ ONLY mode
+        run: python projecao_almoxarifado_sheets_worker.py --dry-run
