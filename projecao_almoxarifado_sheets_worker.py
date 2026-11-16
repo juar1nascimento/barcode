@@ -47,6 +47,7 @@ def safe_error(error: Exception | str) -> str:
     value = re.sub(r"(?i)(postgres(?:ql)?://)[^\s]+", r"\1[REDACTED]", value)
     value = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]", value)
     value = re.sub(r"(?i)(token=)[^&\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)\b(password|sslpassword)\s*=\s*[^\s]+", r"\1=[REDACTED]", value)
     value = re.sub(
         r"-----BEGIN [^-]+-----.*?-----END [^-]+-----",
         "[REDACTED PEM]",
