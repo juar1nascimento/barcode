@@ -385,3 +385,53 @@ Auditoria executada por consultas exclusivamente `SELECT` ao catálogo PostgreSQ
 5. Não foi feita consulta de contagem/estado de eventos operacionais, nem teste de chamada das funções, para evitar interferir no processamento real.
 
 **Próximo gate recomendado:** Gate 9 — revisão de segurança sem escrita, com foco nos grants residuais anon/authenticated de fotos Drive/local, ausência de policy explícita na fila local, SECURITY DEFINER/search_path e fencing/expiração/limite de tentativas. O Gate 9 deve produzir proposta de correção e testes em branch isolada; não executar REVOKE, CREATE POLICY, ALTER FUNCTION ou qualquer DDL no projeto remoto sem autorização específica.
+
+
+### 10.12 Gate 9 — revisão de segurança de funções e workers (2026-11-22)
+
+Revisão estática de definições SQL obtidas por `pg_get_functiondef` e leitura de arquivos versionados no GitHub. Não houve invocação de funções worker, chamadas REST, processamento de filas, alteração no banco, teste de integração com serviços externos ou escrita em Sheets/Drive.
+
+**Achados confirmados nas funções SQL instaladas**
+1. `claim_patrimonio_fotos_drive_outbox` recupera todos os registros `processing` antigos diretamente para `pending`, sem verificar `tentativas` contra teto. Depois reivindica pending e incrementa tentativas. Assim, a recuperação de lease expirado pode continuar indefinidamente.
+2. A reivindicação Drive usa `FOR UPDATE SKIP LOCKED`, mas não emite `lease_token` nem identifica um proprietário do claim. `finalize_patrimonio_fotos_drive_outbox` e `fail_patrimonio_fotos_drive_outbox` recebem apenas o ID; não verificam token de posse nem validade de lease. Um worker atrasado pode finalizar ou reclassificar um evento que já foi retomado por outro worker.
+3. `claim_patrimonio_fotos_local_outbox` gera UUID por claim e recupera leases expirados, mas não limita `tentativas` no ramo de recuperação. Portanto, também permite reclaims sem teto.
+4. `complete_patrimonio_fotos_local_outbox` e `fail_patrimonio_fotos_local_outbox` conferem `status='processing'` e `lease_token`; isso fornece fencing contra um token substituído. Contudo, não verificam `lease_expires_at > now()`. Um worker cujo lease expirou, mas ainda não foi substituído, ainda pode completar/falhar o evento.
+5. `fail_patrimonio_fotos_local_outbox` não valida explicitamente limites de `p_max_attempts` ou sinal de `p_retry_after`; a lógica depende dos parâmetros recebidos pelo chamador.
+6. As funções Drive e local são `SECURITY DEFINER`; grants EXECUTE para anon/authenticated seguem negados conforme Gate 8. Funções Drive qualificam objetos como `public.*` e usam `search_path=pg_catalog, public`; funções locais usam `search_path=public`. A revisão não identificou referência não qualificada a objetos de aplicação nos corpos lidos, mas recomenda-se padronizar `pg_catalog, public` e qualificar objetos em uma alteração futura testada.
+
+**Achados nos workers Sheets versionados no branch padrão**
+- `inventario_sheets_outbox_worker.py`: `claim_batch` reivindica pending/failed sem filtrar `tentativas < max_attempts`; `reset_stale` transforma processing expirado em failed sem aplicar teto. A função `mark` só envia a dead-letter após falha subsequente. Isso permite tentativas excedentes em registros failed e recuperação sem limite estrito.
+- `sheets_outbox_worker.py`: o claim de fotos seleciona pending/failed sem filtro de tentativas; `reset_stale` move processing expirado para failed sem aplicar o limite. `mark` aplica dead-letter após falha, mas não impede novo claim de um item já acima do teto.
+- `sincronizador_google_sheets.py`: o claim permite recuperar processing expirado sem verificar teto e mantém o contador de tentativas inalterado no ramo expirado. A finalização por ID não inclui token/fencing. A rotina de sincronização também executa preflight estrutural com aplicação de alterações no Sheets; portanto, não deve ser tratada como operação read-only.
+- `workers/local_drive_mirror_worker.py`: o worker REST reivindica apenas status pending por PATCH condicional, sem token/lease; o caminho observado não recupera registros processing expirados. Há risco de eventos ficarem presos em processing após interrupção. A rotina live também pode remover arquivos Drive, condicionada a flags de execução, e não foi invocada nesta auditoria.
+
+**Relação com correções em branches/PRs já existentes**
+- PR #91 corrige seleção de failed no consumidor Sheets.
+- PR #93 corrige o limite de tentativas para leases expirados no consumidor principal e worker patrimonial Sheets.
+- PR #95 adiciona guarda para o PostgreSQL descartável usado nos testes concorrentes.
+- Esses ajustes não demonstram cobertura do worker dedicado de fotos `sheets_outbox_worker.py`, do worker Drive, nem do worker local/rotina REST. A revisão do código no branch padrão não substitui uma inspeção final dos heads empilhados das PRs antes de eventual integração.
+
+**Classificação e plano de correção proposto (não aplicado)**
+- **P0 — fencing Drive:** introduzir lease token por claim e exigir token vigente nas operações finalize/fail; limitar tentativas também ao recuperar processing expirado.
+- **P0 — limite local:** aplicar teto de tentativas na seleção/reclaim de leases expirados e enviar esgotados diretamente a dead_letter.
+- **P1 — validade local:** exigir `lease_expires_at > now()` em complete/fail; validar parâmetros de retry e teto.
+- **P1 — Sheets:** unificar claim/reset/mark com máximo de tentativas em todos os ramos e fencing por lease token; cobrir os dois workers e o sincronizador alternativo.
+- **P1 — worker REST local:** migrar para função de claim/complete/fail com lease token ou implementar protocolo equivalente atômico; definir recuperação de processing e fencing. Não manter PATCH por status como único mecanismo de posse.
+- **P2 — hardening SQL:** padronizar `search_path=pg_catalog, public`, manter referências qualificadas e validar grants/policies após desenho de autorização explícito.
+
+**Critérios mínimos de testes antes de qualquer proposta de integração**
+- Dois workers concorrentes: somente um obtém cada lease.
+- Worker A expira; worker B obtém novo token; finalize/fail de A é rejeitado.
+- Token válido com lease expirado é rejeitado.
+- Última tentativa falha e lease expira: dead_letter, sem nova reivindicação.
+- Failed já acima do teto não é reivindicado.
+- Interrupção de worker REST permite recuperação sem permitir finalização por proprietário antigo.
+- Testes PostgreSQL em instância descartável com guarda de segurança; testes Sheets/Drive com mocks, sem credenciais reais.
+
+**Limitações**
+- Leitura de código foi feita no branch padrão e em referências de PRs conhecidas; não foi uma comparação integral de todos os heads/branches.
+- Nenhuma função foi chamada e nenhum registro operacional foi lido ou alterado.
+- Nenhuma correção de código ou SQL foi implementada neste gate.
+- As conclusões sobre funções instaladas derivam dos corpos efetivamente consultados; as conclusões sobre workers aplicam-se aos arquivos/versões examinados, não necessariamente a todo artefato de execução atualmente implantado.
+
+**Próximo gate recomendado:** Gate 10 — desenho técnico e implementação isolada do protocolo uniforme de leases/fencing e limites de tentativas, começando por testes unitários e PostgreSQL descartável. Não aplicar migrations, REVOKE, CREATE POLICY, ALTER FUNCTION ou qualquer alteração de produção sem autorização específica.
