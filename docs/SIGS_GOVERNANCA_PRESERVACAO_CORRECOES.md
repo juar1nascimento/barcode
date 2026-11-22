@@ -172,3 +172,38 @@ A descrição atual da PR #92 ainda afirma que a automação diária permanece d
 4. Manter bloqueadas as validações operacionais com PostgreSQL/Supabase real, Google Sheets e Drive.
 
 **Limites confirmados neste adendo:** nenhuma alteração em `main`, merge, deploy, migration, escrita em banco real, sincronização operacional ou alteração de credenciais foi realizada.
+
+
+## 9. Adendo de auditoria — isolamento dos testes PostgreSQL (2026-11-22)
+
+### 9.1 Achado na revisão independente da PR #93
+
+Na revisão dos testes de integração PostgreSQL da PR #93, foi identificado que `tests/test_sincronizador_google_sheets_claim_postgres.py` executava `DROP TABLE IF EXISTS public.patrimonios_sheets_outbox` e `CREATE TABLE` sempre que `TEST_POSTGRES_DSN` estivesse configurado. O workflow fornece um serviço PostgreSQL efêmero, mas o próprio teste não verificava se a DSN apontava efetivamente para esse serviço.
+
+**Risco:** configuração local ou de CI incorreta poderia direcionar operações destrutivas de teste a uma instância não descartável. O risco decorre da ausência de validação no próprio teste; não há evidência de que tenha ocorrido qualquer conexão ou exclusão em banco real.
+
+### 9.2 PR #95 — guarda fail-closed para o banco de testes
+
+- PR: https://github.com/juar1nascimento/barcode/pull/95
+- Branch: `fix/test-postgres-disposable-guard-20261122`.
+- Base: head da PR #93 (`8261d9a514c50fac01b144c28adf0c2769565ba8`).
+- Head registrado: `2282049b4a018f0c6e674e20d39d70c10003c4f1`.
+- Estado consultado: aberta, draft, sem merge.
+- A alteração exige `GITHUB_ACTIONS=true`, host/hostaddr em loopback e banco/usuário esperados antes de qualquer conexão dos testes de integração.
+- Foram adicionados testes unitários para rejeitar execução fora do GitHub Actions e DSN remoto.
+- Escopo limitado ao arquivo de testes; não altera worker, aplicação, migration ou schema.
+
+### 9.3 CI e validação pendente
+
+Na consulta inicial ao commit da PR #95, os workflows **Testes Python** e **Inventário GTI SESA - Security** estavam em andamento. Portanto, nenhum resultado final foi presumido. Atualizar este registro somente após consultar as execuções vinculadas ao head exato.
+
+### 9.4 Gate de segurança
+
+Até a aprovação do CI da PR #95:
+1. Não considerar o harness PostgreSQL da PR #93 isolado por completo.
+2. Manter PRs #93 e #95 em draft e sem merge.
+3. Confirmar que os testes de guarda falham sem `GITHUB_ACTIONS=true` e para DSN não local.
+4. Confirmar que os testes de integração continuam executando contra o serviço efêmero do workflow.
+5. Não executar esses testes com DSN de Supabase, produção ou qualquer banco persistente.
+
+**Limites confirmados:** nenhum teste foi direcionado a banco real; nenhuma escrita, exclusão, migration, sincronização externa, merge ou deploy foi executado durante esta revisão.
