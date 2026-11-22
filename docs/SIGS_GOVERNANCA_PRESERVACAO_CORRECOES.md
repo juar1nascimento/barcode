@@ -322,3 +322,18 @@ Resultado nesta rodada:
 - A busca não foi considerada exaustiva sobre todas as branches e commits do repositório. Portanto, não classificar os arquivos como perdidos ou inexistentes; continuam pendentes de recuperação em histórico Git mais amplo ou de fonte original confiável.
 
 **Decisão de segurança:** não gerar SQL substituto a partir de `pg_get_functiondef`, não recriar migrations a partir do catálogo, não renomear arquivos com timestamps divergentes e não atualizar migration history. As definições atuais do banco são evidência do estado instalado, não substitutos byte-a-byte do SQL original.
+
+
+### 10.9 Linhagem Git recuperada para migrations com timestamp divergente
+
+A busca por commits ampliou a rastreabilidade de três migrations cujo nome funcional existe em `main`, mas cujo timestamp local diverge do histórico remoto:
+
+- Commit `76845a306c47a9849cd26ae17215d7f5ac35989b` (`feat: criar outbox durável para sincronização de patrimônios`): o diff contém o SQL que corresponde ao conteúdo atual de `20260930170000_patrimonios_google_sheets_outbox.sql`. A versão remota registrada é `20260930171805`. O SQL versionado e a definição atual da tabela/função devem ser comparados antes de qualquer reconciliação de versão.
+- Commit `22f2f7e6a6b6cb2709d15f7ebc5174085cde9763` (`security: bloquear outbox publico e tornar fotos privadas`): o diff contém o SQL que corresponde ao conteúdo atual de `20261001190000_harden_outbox_and_private_photo_storage.sql`. A versão remota registrada é `20261001183052`.
+- Commit `0a95aafcfd4a544e00f83e1f5cc2798909bc3c88` (`security: version-control outbox health grant hardening`): o diff contém o SQL que corresponde ao conteúdo atual de `20261003190000_harden_outbox_health_view_public_grants.sql`. A versão remota registrada é `20261003175946`.
+
+Para a migration RLS `20261002102325_harden_outbox_rls_deny_public_roles`, foram localizados o commit de conteúdo `ac5da606b27dcbe0165001dc1fe3bb4853dcdb8d` e o commit de versionamento `688e28c96e8d6e82038be1370924b01ebf66ac98`; também foi encontrado o commit `400b13fd85f97821259fb3089f9a573f1ca9e4e8`, que removeu a versão anterior do arquivo durante o alinhamento de versão.
+
+Essas evidências recuperam a linhagem do SQL versionado, mas **não provam, isoladamente, que o conteúdo byte a byte aplicado no Supabase seja idêntico**. O histórico remoto conserva versão/nome, não o corpo SQL original. A classificação correta para as três primeiras é: conteúdo de origem versionado localizado, timestamp divergente, equivalência com a aplicação remota pendente de prova. Não renomear arquivos nem editar o histórico para forçar correspondência.
+
+Os quatro SQLs Drive/local e o SQL de privilégios de execução permanecem sem origem SQL localizada nas referências consultadas. Os commits de implementação do worker Drive (`d5782dac5fabc36cf40926d2d7d452a43de0300b`, `808817f66908a1b85249bf3925055795c9982e5f` e `9fcefe5a94e99b3329907e00b67f26d2847b7312`) contêm alterações Python e não substituem os SQLs de migration.
