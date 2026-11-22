@@ -304,7 +304,7 @@ def test_sync_one_verifies_photo_links_by_position_when_orders_have_gaps(monkeyp
         def batch_get(self, ranges, value_render_option):
             assert value_render_option == "FORMULA"
             assert len(ranges) == 10
-            return [[value] for value in self.photo_values]
+            return [[[value]] if value else [] for value in self.photo_values]
 
     class FakeSpreadsheet:
         def __init__(self, worksheet):
