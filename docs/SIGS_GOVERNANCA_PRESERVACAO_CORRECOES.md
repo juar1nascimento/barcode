@@ -484,3 +484,42 @@ A busca anterior não localizou cinco SQLs originais relacionados a Drive/local/
 - Próximo gate: recuperar SQLs originais e elaborar proposta de migration aditiva com testes locais descartáveis; antes de aplicar qualquer schema no projeto remoto, solicitar autorização específica e separada.
 
 **Limites confirmados:** nenhuma consulta/escrita no Supabase remoto durante esta entrega; nenhuma função foi invocada; nenhum worker ou integração externa foi executado; nenhuma alteração em main, merge, deploy ou sincronização operacional ocorreu.
+
+
+## 12. Gate 10B — reconciliação da origem Git dos SQLs de Outbox (2026-11-22)
+
+### 12.1 Escopo
+
+Busca read-only ampliada a branches, árvores Git, arquivos e commits do repositório. Nenhuma conexão/consulta Supabase foi realizada nesta rodada; nenhum worker, integração ou workflow operacional foi executado.
+
+### 12.2 Artefatos próximos descartados como equivalentes
+
+- Encontrado `supabase/migrations/20261013130000_gti_drive_folder_lease.sql` na branch `fix/gti-drive-folder-lease-gate-20261013`. O SQL cria lease para serializar criação/verificação de pastas Drive por patrimônio, com tabela `gti_drive_folder_leases` e funções acquire/release. **Não** reivindica eventos da tabela `patrimonio_fotos_drive_outbox`, não altera estado de eventos e não substitui claim/finalize/fail da Outbox.
+- Encontrado `supabase/migrations/20261001154000_harden_trigger_function_execute_privileges.sql`, que protege somente `validar_movimentacao_patrimonio()`. O histórico remoto registra `20261001184053_harden_trigger_function_execute_privileges` no contexto de hardening das funções Outbox. Timestamp e objeto diferem; não há prova de equivalência. Não classificar o arquivo encontrado como origem da migration remota.
+
+### 12.3 Evidências de workers
+
+- O commit `d5782dac5fabc36cf40926d2d7d452a43de0300b` adiciona worker Drive legado: claim SQL direto com SKIP LOCKED; ramo pending com teto; ramo processing expirado sem teto e sem incremento de tentativas; finalização por ID sem token. O commit `9fcefe5a94e99b3329907e00b67f26d2847b7312` adiciona failed ao ramo elegível, mas não resolve as demais lacunas observadas.
+- O commit `78ef0a30c0959a573d87c40c72c912060f6b13f9` adiciona worker REST local: claim por PATCH condicionado a status=pending, sem token/expiry; caminho examinado não recupera processing expirado; há estados intermediários `drive_delete_pending` e `completed`.
+- Essas evidências se aplicam aos commits examinados e não provam exclusividade nem estado de todos os artefatos implantados.
+
+### 12.4 Resultado da busca dos SQLs
+
+Após a busca ampliada por branches/árvores e por mensagens de commits, os cinco arquivos exatos permanecem não recuperados nas referências examinadas:
+- `20261003230654_add_safe_drive_outbox_claim.sql`;
+- `20261003235815_harden_drive_outbox_finalize_idempotent.sql`;
+- `20261003235928_harden_drive_outbox_retry_dead_letter.sql`;
+- `20261007213327_add_local_photo_worker_leases.sql`;
+- `20261001184053_harden_trigger_function_execute_privileges.sql`.
+
+Busca de commits por nome exato sem resultados não prova inexistência em refs apagadas, forks, backups ou objetos locais. O relatório `docs/architecture/GATE10B_OUTBOX_SQL_ORIGIN_RECONCILIATION.md` registra branches, blobs, classificação dos artefatos, limites e fontes adicionais de recuperação.
+
+### 12.5 Decisão e bloqueios
+
+1. Não reconstruir migrations a partir de `pg_get_functiondef`.
+2. Não renomear ou copiar arquivos com timestamp/objeto diferentes para satisfazer o histórico remoto.
+3. Não alterar `schema_migrations`, schema, funções instaladas, grants ou policies.
+4. Próxima fonte prioritária: checkout local do proprietário, objetos Git, refs, reflogs, bundles e backups; busca somente leitura.
+5. Se os originais não forem recuperados, desenhar migration nova, aditiva e versionada, baseada em especificação aprovada e estado de catálogo novamente confirmado; apresentar compatibilidade/cutover/rollback antes de qualquer aplicação.
+
+**Limites confirmados:** somente leitura GitHub; nenhum acesso ao Supabase, nenhum SQL, nenhuma execução de função, worker ou integração externa; nenhuma alteração em main, merge ou deploy.
