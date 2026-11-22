@@ -119,3 +119,56 @@ Quando habilitada, deve:
 ## 7. Limites de execução
 
 Nenhuma migration, escrita no Supabase/PostgreSQL, escrita no Google Sheets/Drive, sincronização operacional, deploy ou merge foi executado como parte deste registro. A integração em produção permanece bloqueada até autorização expressa do proprietário e conclusão dos gates pertinentes.
+
+
+## 8. Adendo de auditoria — PR #93 e integridade dos leases (2026-11-22)
+
+### 8.1 Consulta documental e escopo
+
+Este adendo foi preparado após consulta deste registro SIGS e da ADR-001. A ADR-001 mantém a outbox persistida como fila durável, exige reivindicação atômica/idempotente e preserva o polling como mecanismo de reconciliação. O presente trabalho limita-se ao controle de tentativas dos consumidores existentes; não ativa notificações, workers ou integrações externas.
+
+### 8.2 PR #93 — limite de tentativas em leases expirados
+
+- PR: https://github.com/juar1nascimento/barcode/pull/93
+- Branch: `fix/outbox-expired-lease-limit-20261122`.
+- Base: `fix/outbox-failed-retry-20261122` (PR #91).
+- Head auditado: `8261d9a514c50fac01b144c28adf0c2769565ba8`.
+- Estado consultado: aberta, draft, mergeable; não mesclada.
+- Escopo alterado: `sincronizador_google_sheets.py`, `inventario_sheets_outbox_worker.py`, testes de claim e integração PostgreSQL, e workflow de testes.
+- A PR limita a reivindicação de eventos pending/failed e processing expirados pelo orçamento de tentativas; incrementa o contador em nova reivindicação; e move leases expirados já esgotados para `dead_letter`. O worker principal recebe o limite configurado em `OUTBOX_MAX_ATTEMPTS`; o consumidor alternativo aplica `MAX_TENTATIVAS`.
+- Os dois caminhos preservam `FOR UPDATE SKIP LOCKED`. Não foi proposta migration nem alteração de schema.
+
+### 8.3 Evidências de CI
+
+Execuções associadas ao head acima, concluídas em 2026-11-22:
+
+- **Testes Python:** sucesso; **159 testes passaram**, com 1 aviso de compatibilidade do plugin pytest/AnyIO.
+- **Security:** sucesso em CodeQL, Source hardening e Dependency Review.
+- O job de testes inicializou PostgreSQL 16 efêmero e executou os testes de integração contra esse serviço descartável.
+- Não foram usadas credenciais do ambiente real, nem executados SELECT/INSERT/UPDATE em Supabase/PostgreSQL de produção, sincronização Sheets/Drive ou workflow operacional.
+
+O resultado comprova os checks de CI para o commit indicado; não comprova comportamento operacional em produção.
+
+### 8.4 Revisão e estado de aprovação
+
+Na consulta realizada, a PR #93 não possuía reviews submetidos nem threads de revisão. Portanto, CI aprovado não equivale a aprovação humana nem autorização de merge. A PR permanece draft e deve continuar sem merge até revisão do proprietário e conclusão dos gates dependentes.
+
+### 8.5 Atualização do quadro de riscos
+
+- **Limite de tentativas após expiração:** correção proposta na PR #93 para os dois consumidores; considerada coberta pelos testes do CI, ainda pendente de integração/revisão.
+- **Heartbeat/renovação de lease:** continua aberto. O timeout fixo de 15 minutos pode ainda permitir que um trabalho legítimo, de duração superior ao lease, seja considerado expirado. A PR #93 limita o número de reaquisições, mas não implementa heartbeat nem prova exclusão durante operações longas. Qualquer solução que exija coluna, token de lease ou migration deve ser objeto de desenho e autorização específica.
+- **Movimentações/baixas, reconciliação incompleta, writers diretos e concorrência entre workflows:** permanecem riscos separados, não resolvidos pela PR #93.
+- **Cobertura:** foram adicionados testes PostgreSQL descartáveis para concorrência/limite no consumidor alternativo e para reset/claim no worker principal. Isso não substitui a cobertura futura de heartbeat, baixa, movimentação, duplicidade de append e escritores paralelos.
+
+### 8.6 Consistência documental entre PRs
+
+A descrição atual da PR #92 ainda afirma que a automação diária permanece desabilitada. O texto deste documento, na seção 5, registra sua reativação e estado habilitado em 2026-11-22. A divergência é de metadado/descrição da PR #92; este adendo não altera a descrição nem o estado da automação. Corrigir a descrição da PR #92 em ação documental separada, preservando o histórico.
+
+### 8.7 Próximo gate seguro
+
+1. Manter PRs #90–#93 abertas em draft e sem merge até revisão ordenada das dependências.
+2. Fazer revisão técnica independente do SQL CTE e dos dois consumidores da PR #93, incluindo semântica de tentativas e transições para dead-letter.
+3. Tratar heartbeat/lease renewal primeiro como diagnóstico e desenho. Não alterar schema, criar migration ou tocar em banco real sem autorização específica.
+4. Manter bloqueadas as validações operacionais com PostgreSQL/Supabase real, Google Sheets e Drive.
+
+**Limites confirmados neste adendo:** nenhuma alteração em `main`, merge, deploy, migration, escrita em banco real, sincronização operacional ou alteração de credenciais foi realizada.
