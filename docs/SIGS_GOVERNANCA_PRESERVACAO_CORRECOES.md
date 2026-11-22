@@ -207,3 +207,231 @@ Até a aprovação do CI da PR #95:
 5. Não executar esses testes com DSN de Supabase, produção ou qualquer banco persistente.
 
 **Limites confirmados:** nenhum teste foi direcionado a banco real; nenhuma escrita, exclusão, migration, sincronização externa, merge ou deploy foi executado durante esta revisão.
+
+## 10. Adendo de auditoria — reconciliação do histórico de migrations e catálogo Outbox (2026-11-22)
+
+### 10.1 Objetivo, documentação consultada e escopo
+
+Este adendo registra a inspeção somente leitura do histórico de migrations e do catálogo PostgreSQL/Supabase, com a finalidade de preservar configurações já existentes e impedir a recriação de objetos, migrations, testes ou mecanismos já implementados.
+
+Antes da inspeção foram consultados este registro SIGS, a ADR-001 (notificações orientadas a eventos para as outboxes) e os registros técnicos disponíveis no repositório. A ADR-001 determina que a outbox persistida continue sendo a fonte durável, que o polling permaneça como fallback e que notificações não substituam os mecanismos de claim/finalização existentes.
+
+Escopo executado: leitura do histórico de migrations, definições de funções, colunas, constraints, índices, triggers, políticas RLS e privilégios das quatro tabelas Outbox. Nenhuma migration foi aplicada; nenhum DDL/DML, teste destrutivo, sincronização operacional, alteração de credencial ou escrita em integração externa foi executado.
+
+### 10.2 Inventário confirmado no projeto Supabase
+
+A consulta ao histórico do projeto retornou **32 migrations registradas**. O catálogo confirmou a existência das quatro filas:
+
+1. `patrimonios_sheets_outbox`;
+2. `patrimonio_fotos_sheets_outbox`;
+3. `patrimonio_fotos_drive_outbox`;
+4. `patrimonio_fotos_local_outbox`.
+
+Também foram encontrados objetos já implementados que devem ser reutilizados e não recriados por suposição:
+
+- Triggers de enfileiramento automático de patrimônio e fotos (`trg_gti_*`).
+- Funções de claim/finalização/falha do Drive: `claim_patrimonio_fotos_drive_outbox`, `finalize_patrimonio_fotos_drive_outbox` e `fail_patrimonio_fotos_drive_outbox`.
+- Funções de claim/conclusão/falha da fila local: `claim_patrimonio_fotos_local_outbox`, `complete_patrimonio_fotos_local_outbox` e `fail_patrimonio_fotos_local_outbox`.
+- Funções de reconciliação de patrimônio e fotos Sheets.
+- Índices, chaves primárias/estrangeiras, constraints de status e contadores de tentativas.
+
+A fila local de fotos já possui `worker_id`, `lease_token`, `lease_expires_at`, `processando_em`, `tentativas` e `proxima_tentativa_em`. Esse desenho é uma referência existente, não uma autorização para copiar a implementação sem revisar suas condições de expiração, tentativas e finalização.
+
+### 10.3 Correspondência entre histórico Supabase e repositório
+
+A inspeção identificou as seguintes situações:
+
+| Migration/objeto | Evidência no Supabase | Situação no Git consultado |
+|---|---|---|
+| `20261012213050_gti_auto_enqueue_outboxes` | Registrada no histórico; funções e triggers correspondentes presentes | SQL recuperado na branch histórica `chore/gti-outbox-triggers-prod-migration-20261012`; não localizado em `main` |
+| `20261012213108_fix_gti_photo_outbox_trigger_routing` | Registrada no histórico; roteamento atual de fotos presente | SQL recuperado na mesma branch histórica; não localizado em `main` |
+| `20261003230654_add_safe_drive_outbox_claim` | Migration registrada; função de claim Drive presente | Arquivo não localizado em `main` |
+| `20261003235815_harden_drive_outbox_finalize_idempotent` | Migration registrada; função de finalização Drive presente | Arquivo não localizado em `main` |
+| `20261003235928_harden_drive_outbox_retry_dead_letter` | Migration registrada; função de falha/retry Drive presente | Arquivo não localizado em `main` |
+| `20261007213327_add_local_photo_worker_leases` | Migration registrada; funções e colunas de lease local presentes | Arquivo não localizado em `main` |
+
+A branch histórica que contém os dois SQLs de triggers está **2 commits à frente e 6 atrás de `main`** na comparação consultada. Portanto, não se deve mesclá-la integralmente nem copiar seus commits sem revisão de dependências e diffs. Os dois arquivos SQL foram recuperados e comparados em conteúdo com o comportamento dos objetos encontrados no catálogo; a reconciliação de histórico Git ainda precisa ser feita de forma controlada.
+
+As migrations-base `20260930170000_patrimonios_google_sheets_outbox.sql`, `20261001190000_harden_outbox_and_private_photo_storage.sql`, `20261002102325_harden_outbox_rls_deny_public_roles.sql` e `20261003190000_harden_outbox_health_view_public_grants.sql` foram localizadas em `main`. A existência desses arquivos não substitui a comparação integral entre cada definição versionada e o estado atualmente aplicado.
+
+Foi observado também hardening de privilégios no catálogo: as funções Outbox consultadas não concedem EXECUTE a `anon` ou `authenticated`, e concedem execução a `service_role`. O arquivo/timestamp exato responsável por cada concessão ainda não foi reconciliado com segurança; não criar uma migration substituta com base apenas nesse resultado.
+
+**Classificação:** há migrations aplicadas sem arquivo correspondente em `main`, duas delas recuperadas em uma branch histórica, e outras quatro identificadas pelo histórico/catálogo que ainda exigem recuperação do SQL original e comparação. Não é evidência de que as migrations não tenham sido aplicadas; é uma divergência de rastreabilidade/versionamento.
+
+### 10.4 Achados de segurança e lease no catálogo
+
+- As tabelas Sheets consultadas não concedem privilégios de tabela a `anon` ou `authenticated`.
+- `patrimonio_fotos_drive_outbox` e `patrimonio_fotos_local_outbox` apresentam privilégios de tabela para essas roles. RLS está habilitado; a tabela Drive possui política restritiva de negação para roles públicas, enquanto a tabela local não apresentou política própria na consulta. A ausência de política, com RLS habilitado, resulta em negação por padrão; ainda assim, os privilégios concedidos são mais amplos que o necessário e devem ser revisados em gate próprio, sem alteração automática.
+- As funções de claim/finalização/falha examinadas estão restritas a `service_role` no privilégio EXECUTE.
+- O claim da fila local utiliza `FOR UPDATE SKIP LOCKED` e token de lease. Não foi localizada função de heartbeat/renovação no catálogo consultado.
+- As funções locais de conclusão/falha validam o token, mas a inspeção não confirmou validação explícita de que `lease_expires_at` ainda esteja no futuro.
+- As rotinas Drive ainda usam identificação por evento/ID, sem token de fencing; a recuperação de leases expirados e o orçamento de tentativas precisam ser avaliados em conjunto com os workers e migrations originais.
+
+Esses achados não autorizam mudanças em RLS, grants, funções ou schema. Qualquer correção exige proposta isolada, testes e autorização específica do proprietário.
+
+### 10.5 Preservação de testes e configurações existentes
+
+Não foram repetidos testes já executados pelas PRs #90–#96 nem workflows operacionais. A inspeção do banco foi composta por consultas de catálogo/SELECT. O resultado de CI das PRs continua vinculado aos respectivos commits e não foi reinterpretado como teste de integração em produção.
+
+Não reconstruir os SQLs ausentes manualmente enquanto o original puder ser recuperado de branches, commits, PRs ou histórico. Não aplicar `db push`, `migration up`, `apply_migration`, nem atualizar a tabela de histórico de migrations durante esta reconciliação.
+
+### 10.6 Gates seguintes
+
+1. Continuar a busca pelos quatro SQLs aplicados que não foram encontrados em `main` nem nas branches candidatas já verificadas; não declarar a busca exaustiva até examinar as demais referências acessíveis. Preservar conteúdos originais e metadados. Os dois SQLs de triggers já foram recuperados na branch histórica.
+2. Recuperar e identificar o SQL/timestamp de hardening de privilégios, sem presumir nome ou versão.
+3. Comparar cada SQL original com `pg_get_functiondef`, colunas, constraints, índices, triggers, RLS e grants do catálogo; registrar diferenças explícitas.
+4. Construir uma matriz final de migrations aplicadas, arquivos em `main`, arquivos em branches históricas e divergências de conteúdo.
+5. Somente após a matriz e revisão do proprietário, propor eventual reconciliação documental/versionada. Não executar migrations nem modificar schema como parte desses gates.
+6. Em gate separado, desenhar a evolução dos leases aproveitando as funções e colunas já existentes, sem criar uma segunda implementação de claim/heartbeat.
+
+**Limites confirmados neste adendo:** nenhuma migration, alteração de schema, escrita em Supabase/PostgreSQL, execução de testes destrutivos, sincronização Sheets/Drive, alteração de secrets, merge ou deploy foi realizada. Este registro é documental e não declara a integração operacional validada.
+
+
+### 10.7 Complemento de recuperação — timestamps reais e SQLs não localizados (2026-11-22)
+
+Nova consulta ao histórico oficial do Supabase confirmou 32 versões e corrigiu três divergências de timestamp observadas no registro anterior:
+
+| Versão aplicada no Supabase | Arquivo encontrado em `main` | Situação |
+|---|---|---|
+| `20260930171805_patrimonios_google_sheets_outbox` | `20260930170000_patrimonios_google_sheets_outbox.sql` | Mesmo nome funcional, timestamp diferente; equivalência integral ainda não demonstrada |
+| `20261001183052_harden_outbox_and_private_photo_storage` | `20261001190000_harden_outbox_and_private_photo_storage.sql` | Mesmo nome funcional, timestamp diferente; equivalência integral ainda não demonstrada |
+| `20261001184053_harden_trigger_function_execute_privileges` | Não localizado em `main` nem nas branches candidatas consultadas | SQL original ainda não recuperado |
+| `20261002102325_harden_outbox_rls_deny_public_roles` | Mesmo timestamp e nome em `main` | Correspondência nominal; comparar integralmente com o catálogo antes de concluir equivalência |
+| `20261003175946_harden_outbox_health_view_public_grants` | `20261003190000_harden_outbox_health_view_public_grants.sql` | Mesmo nome funcional, timestamp diferente; equivalência integral ainda não demonstrada |
+
+Os três arquivos em `main` com timestamp diferente foram lidos. Seus conteúdos implementam, respectivamente, criação da Outbox de patrimônio e função de reconciliação; hardening RLS/grants e bucket privado; e revogação de acesso público à view de saúde. O fato de os nomes e conteúdos aparentarem corresponder ao propósito das migrations remotas não autoriza renomear, reaplicar ou atualizar a tabela de histórico. A equivalência precisa ser demonstrada por comparação do SQL e dos objetos resultantes.
+
+Também foram consultadas as definições atuais de seis funções PostgreSQL:
+
+- Drive: `claim_patrimonio_fotos_drive_outbox`, `finalize_patrimonio_fotos_drive_outbox` e `fail_patrimonio_fotos_drive_outbox`.
+- Espelhamento local: `claim_patrimonio_fotos_local_outbox`, `complete_patrimonio_fotos_local_outbox` e `fail_patrimonio_fotos_local_outbox`.
+
+A definição atual do claim Drive recupera eventos `processing` expirados para `pending`, sem aplicar o limite de tentativas nessa etapa; a nova reivindicação incrementa tentativas. A função de falha Drive aplica `p_max_attempts` e pode mover o evento para `dead_letter`. A finalização é idempotente para evento já `synced`, mas não utiliza token de propriedade do worker.
+
+A fila local reivindica eventos expirados com novo `lease_token` e novo prazo, incrementando tentativas. A conclusão e a falha conferem `lease_token`, mas a definição consultada não condiciona a operação a `lease_expires_at > now()`; o claim também não aplica um teto de tentativas. Não foi encontrada função de heartbeat no catálogo consultado.
+
+### 10.8 Resultado da busca de SQLs originais
+
+Foram pesquisados os nomes exatos das migrations, histórico de commits e PRs, e branches relacionadas a Outbox, Drive, fotos, leases e sincronização. Foram testados caminhos de migration nas branches candidatas, incluindo branches de inventário Outbox, retry, reconciliação de fotos, lease de Drive e espelhamento local.
+
+Resultado nesta rodada:
+
+- Os dois SQLs de triggers continuam recuperados na branch histórica da PR #56.
+- Os quatro SQLs `20261003230654_add_safe_drive_outbox_claim`, `20261003235815_harden_drive_outbox_finalize_idempotent`, `20261003235928_harden_drive_outbox_retry_dead_letter` e `20261007213327_add_local_photo_worker_leases` não foram encontrados em `main` nem nas branches candidatas verificadas nesta rodada.
+- O SQL `20261001184053_harden_trigger_function_execute_privileges` também não foi encontrado nas referências examinadas.
+- A busca não foi considerada exaustiva sobre todas as branches e commits do repositório. Portanto, não classificar os arquivos como perdidos ou inexistentes; continuam pendentes de recuperação em histórico Git mais amplo ou de fonte original confiável.
+
+**Decisão de segurança:** não gerar SQL substituto a partir de `pg_get_functiondef`, não recriar migrations a partir do catálogo, não renomear arquivos com timestamps divergentes e não atualizar migration history. As definições atuais do banco são evidência do estado instalado, não substitutos byte-a-byte do SQL original.
+
+
+### 10.9 Linhagem Git recuperada para migrations com timestamp divergente
+
+A busca por commits ampliou a rastreabilidade de três migrations cujo nome funcional existe em `main`, mas cujo timestamp local diverge do histórico remoto:
+
+- Commit `76845a306c47a9849cd26ae17215d7f5ac35989b` (`feat: criar outbox durável para sincronização de patrimônios`): o diff contém o SQL que corresponde ao conteúdo atual de `20260930170000_patrimonios_google_sheets_outbox.sql`. A versão remota registrada é `20260930171805`. O SQL versionado e a definição atual da tabela/função devem ser comparados antes de qualquer reconciliação de versão.
+- Commit `22f2f7e6a6b6cb2709d15f7ebc5174085cde9763` (`security: bloquear outbox publico e tornar fotos privadas`): o diff contém o SQL que corresponde ao conteúdo atual de `20261001190000_harden_outbox_and_private_photo_storage.sql`. A versão remota registrada é `20261001183052`.
+- Commit `0a95aafcfd4a544e00f83e1f5cc2798909bc3c88` (`security: version-control outbox health grant hardening`): o diff contém o SQL que corresponde ao conteúdo atual de `20261003190000_harden_outbox_health_view_public_grants.sql`. A versão remota registrada é `20261003175946`.
+
+Para a migration RLS `20261002102325_harden_outbox_rls_deny_public_roles`, foram localizados o commit de conteúdo `ac5da606b27dcbe0165001dc1fe3bb4853dcdb8d` e o commit de versionamento `688e28c96e8d6e82038be1370924b01ebf66ac98`; também foi encontrado o commit `400b13fd85f97821259fb3089f9a573f1ca9e4e8`, que removeu a versão anterior do arquivo durante o alinhamento de versão.
+
+Essas evidências recuperam a linhagem do SQL versionado, mas **não provam, isoladamente, que o conteúdo byte a byte aplicado no Supabase seja idêntico**. O histórico remoto conserva versão/nome, não o corpo SQL original. A classificação correta para as três primeiras é: conteúdo de origem versionado localizado, timestamp divergente, equivalência com a aplicação remota pendente de prova. Não renomear arquivos nem editar o histórico para forçar correspondência.
+
+Os quatro SQLs Drive/local e o SQL de privilégios de execução permanecem sem origem SQL localizada nas referências consultadas. Os commits de implementação do worker Drive (`d5782dac5fabc36cf40926d2d7d452a43de0300b`, `808817f66908a1b85249bf3925055795c9982e5f` e `9fcefe5a94e99b3329907e00b67f26d2847b7312`) contêm alterações Python e não substituem os SQLs de migration.
+
+
+### 10.10 Busca adicional em branches e commits de workers (2026-11-22)
+
+A busca foi ampliada para branches relacionadas a Outbox, Drive, fotos, espelhamento local, leases, reconciliação e arquitetura GTI, além de commits indexados por `outbox`, `Drive outbox`, `local drive mirror worker` e termos de lease. Os caminhos exatos dos cinco SQLs pendentes foram consultados em branches adicionais de implementação e documentação; nenhum dos cinco arquivos foi recuperado nessas referências adicionais.
+
+Foi localizado o commit `78ef0a30c0959a573d87c40c72c912060f6b13f9` (`Feat: add safe local Drive mirror worker`, 2026-10-07), que adiciona `workers/local_drive_mirror_worker.py` e testes, mas não contém a migration `20261007213327_add_local_photo_worker_leases.sql`. O worker recuperado usa chamadas REST ao Supabase, reivindica registros com PATCH condicionado a `status=pending`, incrementa `tentativas` e usa `MAX_ATTEMPTS` ao registrar falhas. O código desse commit não contém uso de `lease_token` nem `lease_expires_at`. Isso não prova que o worker seja a única implementação operacional da fila local; evidencia apenas que esse commit não é a origem do SQL de lease.
+
+Também foi reexaminado o commit `d5782dac5fabc36cf40926d2d7d452a43de0300b`, que adiciona o worker incremental de fotos Drive. Seu SQL de claim recupera eventos `processing` expirados sem limitar tentativas nessa condição; o limite `MAX_TENTATIVAS` é aplicado ao ramo `pending` (e o commit posterior `9fcefe5a94e99b3329907e00b67f26d2847b7312` adiciona `failed` a esse ramo). O claim não incrementa tentativas quando recupera um item `processing` expirado. Esse comportamento é coerente com o risco já observado na função Drive atual e reforça a necessidade de gate próprio para lease/fencing e teto de tentativas.
+
+**Resultado do Gate 7 nesta rodada:** nenhum dos cinco SQLs pendentes foi recuperado. Foram recuperadas evidências de implementação Python e de comportamento dos workers, que não substituem os arquivos originais. A busca continua limitada às branches e commits acessíveis e indexados pelas consultas realizadas; não declarar inexistência definitiva dos arquivos. Nenhuma migration, SQL de escrita, atualização de schema, alteração de dados ou sincronização operacional foi executada.
+
+
+### 10.11 Gate 8 — reconciliação estrutural das quatro Outboxes (2026-11-22)
+
+Auditoria executada por consultas exclusivamente `SELECT` ao catálogo PostgreSQL e ao histórico de migrations. Nenhum dado operacional de patrimônio/foto foi consultado; não houve DDL/DML, alteração de privilégios, migration, sincronização ou execução de worker.
+
+**Contagem e objetos confirmados**
+- Histórico `supabase_migrations.schema_migrations`: **34 versões**, não 32. A contagem anterior registrada na seção 10 estava incompleta e deve ser considerada corrigida por este resultado.
+- Quatro tabelas Outbox presentes: `patrimonios_sheets_outbox`, `patrimonio_fotos_sheets_outbox`, `patrimonio_fotos_drive_outbox` e `patrimonio_fotos_local_outbox`.
+- As quatro tabelas estão com RLS habilitado; nenhuma está com `FORCE ROW LEVEL SECURITY`.
+- Quatro triggers GTI ativos foram encontrados: três em `patrimonio_fotos` (INSERT, UPDATE de metadados Drive e UPDATE de metadados Storage) e um em `patrimonios` (INSERT e UPDATE de campos patrimoniais). Todos apontam para `gti_enqueue_foto_outboxes()` ou `gti_enqueue_patrimonio_sheets_outbox()`.
+- Ambas as funções de trigger são `SECURITY DEFINER`, com `search_path=pg_catalog, public`. A definição de fotos roteia para Sheets quando há identificadores/URL Drive preenchidos; caso contrário, cria evento na fila Drive. Alterações de metadados Storage voltam a enfileirar Drive; mudanças em campos Drive roteiam para Sheets quando há dados suficientes.
+
+**Estrutura e integridade**
+- As quatro tabelas possuem PK, CHECK de status e CHECK `tentativas >= 0`.
+- Patrimônio Sheets mantém UNIQUE `(patrimonio_id, evento)`, FK para `patrimonios` com `ON DELETE CASCADE), índice de claim e índice por patrimônio.
+- Fotos Sheets tem FK para patrimônio/foto com `ON DELETE CASCADE`, índice parcial de eventos pendentes/failed e UNIQUE parcial `(foto_id, evento)` quando `foto_id IS NOT NULL`.
+- Fotos Drive tem UNIQUE `(foto_id, evento)`, FKs para foto e patrimônio sem ação explícita de cascade, e índice de claim por `(status, proxima_tentativa_em, id)`.
+- Fotos local tem UNIQUE `(foto_id)`, FKs sem cascade explícito, índices de claim/FIFO/Drive/patrimônio e estados adicionais `verified`, `drive_delete_pending` e `completed`.
+- A tabela local contém `worker_id`, `lease_token` UUID e `lease_expires_at`, além de campos de fila e verificação local.
+
+**RLS e privilégios efetivos — achado prioritário**
+- As quatro tabelas têm RLS habilitado.
+- Políticas restritivas `deny_anon_authenticated_unless_backend` com `USING false` e `WITH CHECK false` existem em patrimônio Sheets, fotos Sheets e fotos Drive.
+- **Fotos local não possui política própria registrada em `pg_policies`.** Com RLS habilitado e sem política permissiva, o acesso por linha fica negado por padrão. Não é evidência de exposição atual; é uma diferença de configuração que deve ser reconciliada com o desenho de segurança esperado.
+- Apesar disso, `has_table_privilege` confirma privilégios efetivos de tabela SELECT/INSERT para `anon` e `authenticated` em fotos Drive e fotos local. Em Drive, a política restritiva bloqueia as operações por linha; em local, a ausência de política permissiva produz deny-by-default. Os privilégios amplos continuam sendo concessões desnecessárias e ampliam o risco de uma futura política permissiva ser adicionada sem perceber os grants preexistentes.
+- Para patrimônio Sheets e fotos Sheets, `anon` e `authenticated` não têm SELECT/INSERT; `service_role` tem os privilégios operacionais nas quatro tabelas.
+- As oito funções consultadas (seis funções worker Drive/local e duas funções de trigger) são `SECURITY DEFINER`. EXECUTE está negado para `anon` e `authenticated` e permitido para `service_role`. As funções Drive usam `search_path=pg_catalog, public`; funções locais usam `search_path=public`. Não foi realizada alteração de grants ou search_path.
+
+**Conclusões e limites**
+1. A presença das quatro tabelas, quatro triggers, constraints, índices, policies e funções confirma o estado estrutural consultado, mas não prova que cada arquivo SQL local corresponda byte a byte ao SQL aplicado.
+2. O conjunto de políticas RLS é assimétrico: a tabela local depende de deny-by-default, enquanto as outras três possuem política restritiva explícita. Os grants de tabela anon/authenticated em Drive/local merecem correção planejada e revisão do proprietário; nenhuma revogação foi executada.
+3. As funções privilegiadas estão protegidas contra EXECUTE direto por anon/authenticated conforme `has_function_privilege`; isso não substitui revisão de seus corpos e do modelo de autorização.
+4. A comparação estrutural dos objetos foi feita; a comparação integral de cada função com seu SQL original permanece limitada pelos cinco arquivos ainda não recuperados.
+5. Não foi feita consulta de contagem/estado de eventos operacionais, nem teste de chamada das funções, para evitar interferir no processamento real.
+
+**Próximo gate recomendado:** Gate 9 — revisão de segurança sem escrita, com foco nos grants residuais anon/authenticated de fotos Drive/local, ausência de policy explícita na fila local, SECURITY DEFINER/search_path e fencing/expiração/limite de tentativas. O Gate 9 deve produzir proposta de correção e testes em branch isolada; não executar REVOKE, CREATE POLICY, ALTER FUNCTION ou qualquer DDL no projeto remoto sem autorização específica.
+
+
+### 10.12 Gate 9 — revisão de segurança de funções e workers (2026-11-22)
+
+Revisão estática de definições SQL obtidas por `pg_get_functiondef` e leitura de arquivos versionados no GitHub. Não houve invocação de funções worker, chamadas REST, processamento de filas, alteração no banco, teste de integração com serviços externos ou escrita em Sheets/Drive.
+
+**Achados confirmados nas funções SQL instaladas**
+1. `claim_patrimonio_fotos_drive_outbox` recupera todos os registros `processing` antigos diretamente para `pending`, sem verificar `tentativas` contra teto. Depois reivindica pending e incrementa tentativas. Assim, a recuperação de lease expirado pode continuar indefinidamente.
+2. A reivindicação Drive usa `FOR UPDATE SKIP LOCKED`, mas não emite `lease_token` nem identifica um proprietário do claim. `finalize_patrimonio_fotos_drive_outbox` e `fail_patrimonio_fotos_drive_outbox` recebem apenas o ID; não verificam token de posse nem validade de lease. Um worker atrasado pode finalizar ou reclassificar um evento que já foi retomado por outro worker.
+3. `claim_patrimonio_fotos_local_outbox` gera UUID por claim e recupera leases expirados, mas não limita `tentativas` no ramo de recuperação. Portanto, também permite reclaims sem teto.
+4. `complete_patrimonio_fotos_local_outbox` e `fail_patrimonio_fotos_local_outbox` conferem `status='processing'` e `lease_token`; isso fornece fencing contra um token substituído. Contudo, não verificam `lease_expires_at > now()`. Um worker cujo lease expirou, mas ainda não foi substituído, ainda pode completar/falhar o evento.
+5. `fail_patrimonio_fotos_local_outbox` não valida explicitamente limites de `p_max_attempts` ou sinal de `p_retry_after`; a lógica depende dos parâmetros recebidos pelo chamador.
+6. As funções Drive e local são `SECURITY DEFINER`; grants EXECUTE para anon/authenticated seguem negados conforme Gate 8. Funções Drive qualificam objetos como `public.*` e usam `search_path=pg_catalog, public`; funções locais usam `search_path=public`. A revisão não identificou referência não qualificada a objetos de aplicação nos corpos lidos, mas recomenda-se padronizar `pg_catalog, public` e qualificar objetos em uma alteração futura testada.
+
+**Achados nos workers Sheets versionados no branch padrão**
+- `inventario_sheets_outbox_worker.py`: `claim_batch` reivindica pending/failed sem filtrar `tentativas < max_attempts`; `reset_stale` transforma processing expirado em failed sem aplicar teto. A função `mark` só envia a dead-letter após falha subsequente. Isso permite tentativas excedentes em registros failed e recuperação sem limite estrito.
+- `sheets_outbox_worker.py`: o claim de fotos seleciona pending/failed sem filtro de tentativas; `reset_stale` move processing expirado para failed sem aplicar o limite. `mark` aplica dead-letter após falha, mas não impede novo claim de um item já acima do teto.
+- `sincronizador_google_sheets.py`: o claim permite recuperar processing expirado sem verificar teto e mantém o contador de tentativas inalterado no ramo expirado. A finalização por ID não inclui token/fencing. A rotina de sincronização também executa preflight estrutural com aplicação de alterações no Sheets; portanto, não deve ser tratada como operação read-only.
+- `workers/local_drive_mirror_worker.py`: o worker REST reivindica apenas status pending por PATCH condicional, sem token/lease; o caminho observado não recupera registros processing expirados. Há risco de eventos ficarem presos em processing após interrupção. A rotina live também pode remover arquivos Drive, condicionada a flags de execução, e não foi invocada nesta auditoria.
+
+**Relação com correções em branches/PRs já existentes**
+- PR #91 corrige seleção de failed no consumidor Sheets.
+- PR #93 corrige o limite de tentativas para leases expirados no consumidor principal e worker patrimonial Sheets.
+- PR #95 adiciona guarda para o PostgreSQL descartável usado nos testes concorrentes.
+- Esses ajustes não demonstram cobertura do worker dedicado de fotos `sheets_outbox_worker.py`, do worker Drive, nem do worker local/rotina REST. A revisão do código no branch padrão não substitui uma inspeção final dos heads empilhados das PRs antes de eventual integração.
+
+**Classificação e plano de correção proposto (não aplicado)**
+- **P0 — fencing Drive:** introduzir lease token por claim e exigir token vigente nas operações finalize/fail; limitar tentativas também ao recuperar processing expirado.
+- **P0 — limite local:** aplicar teto de tentativas na seleção/reclaim de leases expirados e enviar esgotados diretamente a dead_letter.
+- **P1 — validade local:** exigir `lease_expires_at > now()` em complete/fail; validar parâmetros de retry e teto.
+- **P1 — Sheets:** unificar claim/reset/mark com máximo de tentativas em todos os ramos e fencing por lease token; cobrir os dois workers e o sincronizador alternativo.
+- **P1 — worker REST local:** migrar para função de claim/complete/fail com lease token ou implementar protocolo equivalente atômico; definir recuperação de processing e fencing. Não manter PATCH por status como único mecanismo de posse.
+- **P2 — hardening SQL:** padronizar `search_path=pg_catalog, public`, manter referências qualificadas e validar grants/policies após desenho de autorização explícito.
+
+**Critérios mínimos de testes antes de qualquer proposta de integração**
+- Dois workers concorrentes: somente um obtém cada lease.
+- Worker A expira; worker B obtém novo token; finalize/fail de A é rejeitado.
+- Token válido com lease expirado é rejeitado.
+- Última tentativa falha e lease expira: dead_letter, sem nova reivindicação.
+- Failed já acima do teto não é reivindicado.
+- Interrupção de worker REST permite recuperação sem permitir finalização por proprietário antigo.
+- Testes PostgreSQL em instância descartável com guarda de segurança; testes Sheets/Drive com mocks, sem credenciais reais.
+
+**Limitações**
+- Leitura de código foi feita no branch padrão e em referências de PRs conhecidas; não foi uma comparação integral de todos os heads/branches.
+- Nenhuma função foi chamada e nenhum registro operacional foi lido ou alterado.
+- Nenhuma correção de código ou SQL foi implementada neste gate.
+- As conclusões sobre funções instaladas derivam dos corpos efetivamente consultados; as conclusões sobre workers aplicam-se aos arquivos/versões examinados, não necessariamente a todo artefato de execução atualmente implantado.
+
+**Próximo gate recomendado:** Gate 10 — desenho técnico e implementação isolada do protocolo uniforme de leases/fencing e limites de tentativas, começando por testes unitários e PostgreSQL descartável. Não aplicar migrations, REVOKE, CREATE POLICY, ALTER FUNCTION ou qualquer alteração de produção sem autorização específica.
