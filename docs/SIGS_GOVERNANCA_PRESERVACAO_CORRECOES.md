@@ -277,7 +277,7 @@ Não reconstruir os SQLs ausentes manualmente enquanto o original puder ser recu
 
 ### 10.6 Gates seguintes
 
-1. Recuperar os quatro SQLs aplicados que ainda não foram localizados em qualquer branch/commit acessível, preservando conteúdos originais e metadados. Os dois SQLs de triggers já foram recuperados na branch histórica, embora não estejam em `main`.
+1. Continuar a busca pelos quatro SQLs aplicados que não foram encontrados em `main` nem nas branches candidatas já verificadas; não declarar a busca exaustiva até examinar as demais referências acessíveis. Preservar conteúdos originais e metadados. Os dois SQLs de triggers já foram recuperados na branch histórica.
 2. Recuperar e identificar o SQL/timestamp de hardening de privilégios, sem presumir nome ou versão.
 3. Comparar cada SQL original com `pg_get_functiondef`, colunas, constraints, índices, triggers, RLS e grants do catálogo; registrar diferenças explícitas.
 4. Construir uma matriz final de migrations aplicadas, arquivos em `main`, arquivos em branches históricas e divergências de conteúdo.
@@ -285,3 +285,40 @@ Não reconstruir os SQLs ausentes manualmente enquanto o original puder ser recu
 6. Em gate separado, desenhar a evolução dos leases aproveitando as funções e colunas já existentes, sem criar uma segunda implementação de claim/heartbeat.
 
 **Limites confirmados neste adendo:** nenhuma migration, alteração de schema, escrita em Supabase/PostgreSQL, execução de testes destrutivos, sincronização Sheets/Drive, alteração de secrets, merge ou deploy foi realizada. Este registro é documental e não declara a integração operacional validada.
+
+
+### 10.7 Complemento de recuperação — timestamps reais e SQLs não localizados (2026-11-22)
+
+Nova consulta ao histórico oficial do Supabase confirmou 32 versões e corrigiu três divergências de timestamp observadas no registro anterior:
+
+| Versão aplicada no Supabase | Arquivo encontrado em `main` | Situação |
+|---|---|---|
+| `20260930171805_patrimonios_google_sheets_outbox` | `20260930170000_patrimonios_google_sheets_outbox.sql` | Mesmo nome funcional, timestamp diferente; equivalência integral ainda não demonstrada |
+| `20261001183052_harden_outbox_and_private_photo_storage` | `20261001190000_harden_outbox_and_private_photo_storage.sql` | Mesmo nome funcional, timestamp diferente; equivalência integral ainda não demonstrada |
+| `20261001184053_harden_trigger_function_execute_privileges` | Não localizado em `main` nem nas branches candidatas consultadas | SQL original ainda não recuperado |
+| `20261002102325_harden_outbox_rls_deny_public_roles` | Mesmo timestamp e nome em `main` | Correspondência nominal; comparar integralmente com o catálogo antes de concluir equivalência |
+| `20261003175946_harden_outbox_health_view_public_grants` | `20261003190000_harden_outbox_health_view_public_grants.sql` | Mesmo nome funcional, timestamp diferente; equivalência integral ainda não demonstrada |
+
+Os três arquivos em `main` com timestamp diferente foram lidos. Seus conteúdos implementam, respectivamente, criação da Outbox de patrimônio e função de reconciliação; hardening RLS/grants e bucket privado; e revogação de acesso público à view de saúde. O fato de os nomes e conteúdos aparentarem corresponder ao propósito das migrations remotas não autoriza renomear, reaplicar ou atualizar a tabela de histórico. A equivalência precisa ser demonstrada por comparação do SQL e dos objetos resultantes.
+
+Também foram consultadas as definições atuais de seis funções PostgreSQL:
+
+- Drive: `claim_patrimonio_fotos_drive_outbox`, `finalize_patrimonio_fotos_drive_outbox` e `fail_patrimonio_fotos_drive_outbox`.
+- Espelhamento local: `claim_patrimonio_fotos_local_outbox`, `complete_patrimonio_fotos_local_outbox` e `fail_patrimonio_fotos_local_outbox`.
+
+A definição atual do claim Drive recupera eventos `processing` expirados para `pending`, sem aplicar o limite de tentativas nessa etapa; a nova reivindicação incrementa tentativas. A função de falha Drive aplica `p_max_attempts` e pode mover o evento para `dead_letter`. A finalização é idempotente para evento já `synced`, mas não utiliza token de propriedade do worker.
+
+A fila local reivindica eventos expirados com novo `lease_token` e novo prazo, incrementando tentativas. A conclusão e a falha conferem `lease_token`, mas a definição consultada não condiciona a operação a `lease_expires_at > now()`; o claim também não aplica um teto de tentativas. Não foi encontrada função de heartbeat no catálogo consultado.
+
+### 10.8 Resultado da busca de SQLs originais
+
+Foram pesquisados os nomes exatos das migrations, histórico de commits e PRs, e branches relacionadas a Outbox, Drive, fotos, leases e sincronização. Foram testados caminhos de migration nas branches candidatas, incluindo branches de inventário Outbox, retry, reconciliação de fotos, lease de Drive e espelhamento local.
+
+Resultado nesta rodada:
+
+- Os dois SQLs de triggers continuam recuperados na branch histórica da PR #56.
+- Os quatro SQLs `20261003230654_add_safe_drive_outbox_claim`, `20261003235815_harden_drive_outbox_finalize_idempotent`, `20261003235928_harden_drive_outbox_retry_dead_letter` e `20261007213327_add_local_photo_worker_leases` não foram encontrados em `main` nem nas branches candidatas verificadas nesta rodada.
+- O SQL `20261001184053_harden_trigger_function_execute_privileges` também não foi encontrado nas referências examinadas.
+- A busca não foi considerada exaustiva sobre todas as branches e commits do repositório. Portanto, não classificar os arquivos como perdidos ou inexistentes; continuam pendentes de recuperação em histórico Git mais amplo ou de fonte original confiável.
+
+**Decisão de segurança:** não gerar SQL substituto a partir de `pg_get_functiondef`, não recriar migrations a partir do catálogo, não renomear arquivos com timestamps divergentes e não atualizar migration history. As definições atuais do banco são evidência do estado instalado, não substitutos byte-a-byte do SQL original.
