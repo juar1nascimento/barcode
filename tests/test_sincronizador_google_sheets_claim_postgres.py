@@ -38,9 +38,8 @@ def _require_disposable_ci_database():
 
 def test_postgres_guard_rejects_execution_outside_github_actions(monkeypatch):
     monkeypatch.setenv("GITHUB_ACTIONS", "false")
-    monkeypatch.setattr(
-        "tests.test_sincronizador_google_sheets_claim_postgres.DSN",
-        "postgresql://postgres:postgres@localhost:5432/postgres",
+    monkeypatch.setitem(
+        globals(), "DSN", "postgresql://postgres:postgres@localhost:5432/postgres"
     )
     with pytest.raises(RuntimeError, match="somente podem rodar no GitHub Actions"):
         _require_disposable_ci_database()
@@ -48,9 +47,8 @@ def test_postgres_guard_rejects_execution_outside_github_actions(monkeypatch):
 
 def test_postgres_guard_rejects_remote_database_even_in_ci(monkeypatch):
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    monkeypatch.setattr(
-        "tests.test_sincronizador_google_sheets_claim_postgres.DSN",
-        "postgresql://postgres:secret@db.example.invalid:5432/postgres",
+    monkeypatch.setitem(
+        globals(), "DSN", "postgresql://postgres:secret@db.example.invalid:5432/postgres"
     )
     with pytest.raises(RuntimeError, match="exclusivamente para localhost"):
         _require_disposable_ci_database()
