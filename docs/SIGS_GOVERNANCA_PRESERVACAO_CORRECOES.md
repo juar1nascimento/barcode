@@ -611,3 +611,14 @@ A comparação das branches dependentes contra `fix/security-dependencies-codeql
 Os workflows verdes foram executados sobre os merge refs disponibilizados pelo GitHub, mas isso não remove a divergência das branches de origem. As PRs permanecem draft; não considerar `mergeable` como aprovado. Após a PR #90 ser integrada em `main`, será necessário rebase/port controlado de cada branch para a nova `main`, resolução de conflitos (principalmente no worker Sheets da PR #77), nova comparação de diff e repetição integral dos workflows.
 
 Nenhuma operação de merge/rebase foi executada nesta rodada. A divergência é um bloqueio de integração, não uma falha dos testes automatizados.
+
+
+### 13.10 Verificação dos objetos Git locais não referenciados (2026-11-22)
+
+Foi feita uma tentativa de resolução, pela API de commits do GitHub, dos nove hashes listados pelo `git fsck --full --no-reflogs --unreachable` no checkout local. Todos os nove hashes foram resolvidos como objetos de commit pela API, mas nenhum corresponde às cinco migrations pendentes: os commits examinados são atualizações automatizadas de dependências/workflows (Dependabot), alterando `.github/workflows/codeql.yml`, `.github/workflows/security.yml`, `.github/workflows/system-audit.yml`, `.github/workflows/dependency-review.yml` ou `requirements.txt`.
+
+**Interpretação:** a resolução pela API confirma que os objetos de commit podem ser consultados no GitHub, mas não demonstra que sejam alcançáveis por uma branch publicada nem que contenham o histórico SQL procurado. A inspeção de seus arquivos alterados descarta esses nove candidatos como fonte das cinco migrations. A busca de commits pelos cinco nomes exatos continuou sem resultados.
+
+**Decisão:** não criar branches de recuperação a partir desses hashes, não fazer cherry-pick e não alterar histórico. A recuperação das cinco migrations permanece inconclusiva e exige outra fonte: objetos locais adicionais, refs antigas, PRs/patches, bundles ou backups. Se essas fontes não fornecerem os originais, permanece válida a alternativa de desenhar migration nova e aditiva, sem reconstruir a histórica.
+
+**Limites:** somente leitura da API GitHub nesta verificação; o checkout local não foi alterado nem acessado remotamente. Nenhuma migration, schema, Supabase, worker, Sheets, Drive, merge ou deploy foi executado.
