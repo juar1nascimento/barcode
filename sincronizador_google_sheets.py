@@ -125,7 +125,7 @@ def _marcar_evento(conn, tabela: str, event_id: int, *, status: str, erro: str |
 
 
 def _claim_candidate_predicate() -> str:
-    """Seleciona pendentes e falhas cujo backoff venceu; limita tentativas."""
+    """Seleciona retries elegíveis, inclusive leases expirados ainda dentro do limite."""
     return """
         (
             status IN ('pending', 'failed')
@@ -134,6 +134,7 @@ def _claim_candidate_predicate() -> str:
         ) OR (
             status='processing'
             AND processando_em < now() - make_interval(mins => %s)
+            AND tentativas < %s
         )
     """
 
@@ -149,7 +150,28 @@ def _claim(tabela: str, limit: int) -> list[dict]:
             foto_coluna = sql.SQL("o.foto_id") if tabela == "patrimonio_fotos_sheets_outbox" else sql.SQL("NULL::bigint")
             consulta = sql.SQL(
                 """
-                WITH candidatos AS (
+                WITH esgotados AS (
+                    SELECT id
+                      FROM {tabela}
+                     WHERE status='processing'
+                       AND processando_em < now() - make_interval(mins => %s)
+                       AND tentativas >= %s
+                     ORDER BY id
+                     FOR UPDATE SKIP LOCKED
+                     LIMIT 100
+                ),
+                marcados_esgotados AS (
+                    UPDATE {tabela} o
+                       SET status='dead_letter',
+                           processando_em=NULL,
+                           proxima_tentativa_em=now(),
+                           ultimo_erro='limite de tentativas atingido após expiração do lease',
+                           atualizado_em=now()
+                      FROM esgotados e
+                     WHERE o.id=e.id
+                    RETURNING o.id
+                ),
+                candidatos AS (
                     SELECT id
                       FROM {tabela}
                      WHERE {predicado}
@@ -160,10 +182,7 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                 UPDATE {tabela} o
                    SET status='processing',
                        processando_em=now(),
-                       tentativas=CASE
-                           WHEN o.status='processing' THEN o.tentativas
-                           ELSE o.tentativas + 1
-                       END,
+                       tentativas=o.tentativas + 1,
                        atualizado_em=now()
                   FROM candidatos c
                  WHERE o.id=c.id
@@ -176,7 +195,14 @@ def _claim(tabela: str, limit: int) -> list[dict]:
             )
             cur.execute(
                 consulta,
-                (MAX_TENTATIVAS, STALE_MINUTES, max(1, min(limit, 100))),
+                (
+                    STALE_MINUTES,
+                    MAX_TENTATIVAS,
+                    MAX_TENTATIVAS,
+                    STALE_MINUTES,
+                    MAX_TENTATIVAS,
+                    max(1, min(limit, 100)),
+                ),
             )
             rows = cur.fetchall()
         conn.commit()
