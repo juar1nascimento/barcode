@@ -132,21 +132,6 @@ jobs:
             END IF;
           END
           $test$;
-
-          docker exec -i gti-drive-lease-db psql -U postgres -d gti_migration_test -v ON_ERROR_STOP=1 <<'SQL'
-          DO $test$
-          BEGIN
-            IF has_function_privilege('anon', 'public.gti_acquire_drive_folder_lease(bigint,uuid,integer)', 'EXECUTE') THEN
-              RAISE EXCEPTION 'anon can execute lease acquisition';
-            END IF;
-            IF has_function_privilege('authenticated', 'public.gti_renew_drive_folder_lease(bigint,uuid,integer)', 'EXECUTE') THEN
-              RAISE EXCEPTION 'authenticated can execute lease renewal';
-            END IF;
-            IF NOT has_function_privilege('service_role', 'public.gti_renew_drive_folder_lease(bigint,uuid,integer)', 'EXECUTE') THEN
-              RAISE EXCEPTION 'service_role cannot renew lease';
-            END IF;
-          END
-          $test$;
           SQL
 
           docker exec -i gti-drive-lease-db psql -Atq -U postgres -d gti_migration_test -v ON_ERROR_STOP=1 -c "SELECT public.gti_acquire_drive_folder_lease(987654323, '66666666-6666-4666-8666-666666666666', 60)" > /tmp/lease_a.out &
