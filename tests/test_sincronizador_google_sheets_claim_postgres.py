@@ -41,7 +41,7 @@ def test_postgres_guard_rejects_execution_outside_github_actions(monkeypatch):
     monkeypatch.setitem(
         globals(), "DSN", "postgresql://postgres:postgres@localhost:5432/postgres"
     )
-    with pytest.raises(RuntimeError, match="somente podem rodar no GitHub Actions"):
+    with pytest.raises(RuntimeError, match="só podem rodar no GitHub Actions"):
         _require_disposable_ci_database()
 
 
