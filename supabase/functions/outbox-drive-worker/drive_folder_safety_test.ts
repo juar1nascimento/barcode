@@ -264,3 +264,23 @@ Deno.test("invalid lease duration and heartbeat configuration fail before acquis
   );
   assert(acquisitions === 0, "invalid lease settings must fail before acquisition");
 });
+
+
+Deno.test("outbox and photo IDs must be positive safe integers", () => {
+  for (const [outboxId, fotoId] of [
+    [0, 1],
+    [-1, 1],
+    [1, 0],
+    [1, -1],
+    [1.5, 1],
+    [1, Number.MAX_SAFE_INTEGER + 1],
+  ]) {
+    let rejected = false;
+    try {
+      assertOutboxPatrimonioMatches(outboxId, fotoId);
+    } catch (error) {
+      rejected = String(error).includes("outbox_patrimonio_mismatch");
+    }
+    assert(rejected, "invalid IDs must fail closed");
+  }
+});
