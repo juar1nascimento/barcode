@@ -277,7 +277,7 @@ Não reconstruir os SQLs ausentes manualmente enquanto o original puder ser recu
 
 ### 10.6 Gates seguintes
 
-1. Recuperar os quatro SQLs aplicados ainda não localizados em `main` a partir de branches, commits ou histórico Git, preservando seus conteúdos originais e metadados.
+1. Recuperar os quatro SQLs aplicados que ainda não foram localizados em qualquer branch/commit acessível, preservando conteúdos originais e metadados. Os dois SQLs de triggers já foram recuperados na branch histórica, embora não estejam em `main`.
 2. Recuperar e identificar o SQL/timestamp de hardening de privilégios, sem presumir nome ou versão.
 3. Comparar cada SQL original com `pg_get_functiondef`, colunas, constraints, índices, triggers, RLS e grants do catálogo; registrar diferenças explícitas.
 4. Construir uma matriz final de migrations aplicadas, arquivos em `main`, arquivos em branches históricas e divergências de conteúdo.
