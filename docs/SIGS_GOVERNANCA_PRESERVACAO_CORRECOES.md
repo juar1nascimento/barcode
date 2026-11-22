@@ -622,3 +622,12 @@ Foi feita uma tentativa de resolução, pela API de commits do GitHub, dos nove 
 **Decisão:** não criar branches de recuperação a partir desses hashes, não fazer cherry-pick e não alterar histórico. A recuperação das cinco migrations permanece inconclusiva e exige outra fonte: objetos locais adicionais, refs antigas, PRs/patches, bundles ou backups. Se essas fontes não fornecerem os originais, permanece válida a alternativa de desenhar migration nova e aditiva, sem reconstruir a histórica.
 
 **Limites:** somente leitura da API GitHub nesta verificação; o checkout local não foi alterado nem acessado remotamente. Nenhuma migration, schema, Supabase, worker, Sheets, Drive, merge ou deploy foi executado.
+
+
+### 13.11 Varredura de PRs históricas relacionadas a workers e Outbox (2026-11-22)
+
+Foi feita leitura dos arquivos alterados nas PRs históricas #37, #38, #39, #40, #41, #43, #44, #48, #49, #50, #52, #53, #56, #57 e #58. Nenhuma dessas PRs, exceto a #56, contém migration SQL. A PR #56 contém somente as duas migrations de triggers automáticos já conhecidas (20261012213050_gti_auto_enqueue_outboxes.sql e 20261012213108_fix_gti_photo_outbox_trigger_routing.sql), sem os cinco arquivos pendentes.
+
+A PR #39 introduz o worker de espelhamento local e testes, mas não versiona migration de lease local; as PRs #40 e #41 evoluem download/credenciais do worker, também sem SQL. As PRs #37, #43 e #48 alteram consumidores Sheets, sem incluir os cinco SQLs. Assim, a varredura dos PRs históricos mais diretamente relacionados não recuperou os originais.
+
+**Decisão:** manter os cinco SQLs como não recuperados. Não inferir que a ausência em PRs selecionadas esgote todos os patches/artefatos; a busca remota prossegue somente em fontes que preservem conteúdo original. Nenhuma alteração operacional foi executada.
