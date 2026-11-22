@@ -599,3 +599,15 @@ Foram consultados os resultados dos workflows dos heads abaixo; todos os jobs li
 As PRs #66, #77 e #100 permanecem em draft e empilhadas sobre a branch da PR #90. Checks verdes validam os commits examinados, não equivalem a revisão independente, merge, homologação com integrações reais ou implantação. Após a integração da PR #90, cada PR dependente deverá ser retargeted para `main`, reconciliada sua base e repetidos os workflows.
 
 **Decisão do gate:** código e testes isolados dos três bloqueadores abordados estão aprovados pelos workflows; a liberação de produção continua bloqueada por revisão/integração, reconciliação SQL, eventos de fotos em `dead_letter`, validação externa de Sheets/Drive e gates de homologação.
+
+
+### 13.9 Dependência de integração e divergência das branches (2026-11-22)
+
+A comparação das branches dependentes contra `fix/security-dependencies-codeql-20261115` mostrou divergência histórica:
+- PR #66: 32 commits exclusivos do head e 22 commits ainda ausentes do head;
+- PR #77: 15 commits exclusivos do head e 22 commits ainda ausentes do head;
+- PR #100: 7 commits exclusivos do head e 21 commits ainda ausentes do head.
+
+Os workflows verdes foram executados sobre os merge refs disponibilizados pelo GitHub, mas isso não remove a divergência das branches de origem. As PRs permanecem draft; não considerar `mergeable` como aprovado. Após a PR #90 ser integrada em `main`, será necessário rebase/port controlado de cada branch para a nova `main`, resolução de conflitos (principalmente no worker Sheets da PR #77), nova comparação de diff e repetição integral dos workflows.
+
+Nenhuma operação de merge/rebase foi executada nesta rodada. A divergência é um bloqueio de integração, não uma falha dos testes automatizados.
