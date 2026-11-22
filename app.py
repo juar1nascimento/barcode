@@ -80,6 +80,10 @@ with st.sidebar:
             st.session_state.pagina_atual = "saude_integracao"
             st.rerun()
 
+        if st.button("⚙️ Configurações SIGS"):
+            st.session_state.pagina_atual = "configuracoes_sigs"
+            st.rerun()
+
     if st.button("🚪 Sair do Sistema"):
         _limpar_sessao_autenticacao()
         st.session_state.pagina_atual = "portal"
@@ -185,6 +189,34 @@ secret_key = "COLOQUE_A_CHAVE_SECRETA_DO_SUPABASE_AQUI"''',
                 "O preflight deverá mostrar **6 itens verdes**. Só então faremos o teste de leitura "
                 "do bucket e, depois, o primeiro upload controlado."
             )
+
+elif st.session_state.pagina_atual == "configuracoes_sigs":
+    if not is_admin:
+        st.error("Acesso não autorizado.")
+        st.session_state.pagina_atual = "portal"
+        st.stop()
+
+    st.title("⚙️ Configurações SIGS")
+    st.subheader("Governança e preservação de correções")
+    st.success("🛡️ PRESERVAÇÃO DE CORREÇÕES — POLÍTICA ATIVA")
+    st.caption(
+        "Este selo indica a política de auditoria e preservação documentada. "
+        "Ele não substitui proteção de branch, revisão de PR ou autorização de publicação."
+    )
+    st.markdown(
+        """
+        **Regras de proteção**
+        - Não sobrescrever nem reverter correções já aprovadas ou em revisão.
+        - Não descartar commits, branches ou alterações locais não conciliadas.
+        - Não executar force push, merge, deploy ou sincronização operacional automática.
+        - Registrar divergências e apresentar um plano de correção antes de qualquer mudança.
+        - Somente o proprietário do sistema autoriza alterações e publicação.
+        """
+    )
+    st.info(
+        "O selo é somente informativo e não possui chave para desativar a proteção. "
+        "A aplicação efetiva da política depende da governança do GitHub e da rotina diária."
+    )
 
 elif st.session_state.pagina_atual == "saude_integracao":
     if not is_admin:
