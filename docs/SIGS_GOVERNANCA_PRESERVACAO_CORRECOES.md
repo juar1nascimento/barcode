@@ -523,3 +523,54 @@ Busca de commits por nome exato sem resultados não prova inexistência em refs 
 5. Se os originais não forem recuperados, desenhar migration nova, aditiva e versionada, baseada em especificação aprovada e estado de catálogo novamente confirmado; apresentar compatibilidade/cutover/rollback antes de qualquer aplicação.
 
 **Limites confirmados:** somente leitura GitHub; nenhum acesso ao Supabase, nenhum SQL, nenhuma execução de função, worker ou integração externa; nenhuma alteração em main, merge ou deploy.
+
+
+## 13. Gate 10C — estado operacional remoto e correções isoladas (2026-11-22)
+
+### 13.1 Escopo e segurança
+
+Foi realizada leitura direta do projeto Supabase conectado e revisão do código/PRs no GitHub. Consultas foram somente leitura. Foram criadas/atualizadas branches e PRs de código em modo draft para correção e validação automatizada. Nenhuma migration foi aplicada ao Supabase remoto; nenhum worker operacional foi invocado; nenhuma fila foi processada; nenhuma escrita foi feita no Google Sheets ou Drive; nenhum segredo foi alterado; nenhuma PR foi mesclada e nenhum deploy foi executado.
+
+### 13.2 Estado observado no Supabase
+
+- Projeto `gti-inventario`: ativo/saudável; Edge Function `outbox-drive-worker` ativa na versão 22.
+- Bucket `patrimonio-fotos`: privado; limite configurado de 1 MiB; os 56 objetos observados correspondem aos 56 registros de fotos; maior objeto observado: 305.625 bytes.
+- Outbox Drive de fotos: 56 eventos sincronizados; view de reconciliação registrou 56 em estado `ok`.
+- Outbox Sheets de patrimônio: 91 eventos sincronizados.
+- Outbox Sheets de fotos: 54 sincronizados e 2 em `dead_letter`. Os dois eventos estão associados ao patrimônio `98654345` e falharam após 12 tentativas porque a linha não foi localizada na aba `Almoxarifado GTI-SESA-SEDE`.
+- Outbox de espelhamento local: 8 eventos `pending` desde 2026-10-07, sem `caminho_local`, `sha256_local` ou tentativas registradas.
+- A view `patrimonio_fotos_sheets_reconciliation` conta `pending/processing/failed`, mas exclui `dead_letter` de `eventos_pendentes` e `eventos_falhos`. A view usa `security_invoker=true`; leitura é concedida a `service_role`, não a `anon/authenticated`.
+- As funções privilegiadas de Outbox consultadas não concedem execução a `anon` ou `authenticated`.
+
+Os estados acima são um snapshot de leitura; não representam uma reconciliação visual independente do Google Sheets nem confirmação de cada arquivo no Drive.
+
+### 13.3 Correções isoladas em andamento
+
+- **PR #66 — Drive folder routing/lease:** a branch adiciona lease por patrimônio, renovação/token guard, revalidação de pasta e testes. Foi incluída validação da migration em PostgreSQL descartável no CI. A execução isolada da migration foi concluída com sucesso no SHA `41afc7d50eff07b6222f89aed48734d103466e38`, incluindo acquire/renew, token incorreto, expiração, reacquisição, release, grants e duas sessões concorrentes. A PR permanece draft, empilhada sobre a PR #90; migration remota não aplicada.
+- **PR #77 — Outbox de fotos para Sheets:** foi corrigida a comparação da leitura posterior para preservar posições reais quando há lacunas entre fotos (por exemplo, posições 1 e 3). O teste usa mocks e não chama serviços externos. Também foi portada a política de backoff com jitter e respeito a `Retry-After` da PR #90. Os workflows do novo head precisam concluir antes de qualquer aprovação. A view SQL citada em 13.2 continua pendente de correção aditiva após recuperação da linhagem de migrations.
+- **PR #100 — autorização administrativa:** centraliza a decisão em `usuario_e_admin()`, usando a identidade autenticada e `email.admin_email`, em vez de depender de `usuario_papel` que o login não grava. Inclui testes para identidade normalizada, usuário comum, sessão ausente e configuração ausente. A PR está draft e empilhada sobre a PR #90.
+
+### 13.4 Dependências e CI
+
+A `main` foi identificada com versões vulneráveis de `oauthlib 4.0.0`, `pyasn1 0.6.4` e `tornado 6.5.9`. A PR #90 atualiza para `oauthlib 4.0.1`, `pyasn1 0.6.5` e `tornado 6.6.1`; no SHA `6100d4d9c248ea947cd729ee1aaadab64d48e680`, os workflows Python, CI, System Audit, Security e wake-up contract foram observados com sucesso. A branch da PR #90 recebeu ajuste posterior para permitir que CI/System Audit também rodem em PRs empilhadas sob branches `fix/**`; os workflows desse novo head estavam em execução no momento do registro.
+
+As falhas de `pip-audit` observadas nos primeiros ciclos das PRs #66, #77 e #100 correspondem às dependências ainda presentes na `main`, não aos testes funcionais das correções. Os PRs dependentes permanecem bloqueados até que a PR #90 seja integrada e os checks sejam repetidos sobre a base final.
+
+### 13.5 Bloqueios que permanecem
+
+1. Recuperar os cinco SQLs originais listados no Gate 10B; não reconstruí-los a partir do catálogo remoto.
+2. Resolver os dois eventos `dead_letter` de fotos do patrimônio `98654345` com reconciliação controlada da linha/ID no Sheets; não criar linha automaticamente.
+3. Projetar migration aditiva para que a view de reconciliação inclua `dead_letter`, após confirmar a cadeia de migrations e compatibilidade dos consumidores.
+4. Diagnosticar e recuperar os oito eventos pendentes do espelhamento local; não processar antes de identificar o worker, raiz local e contrato de lease.
+5. Validar a execução agendada dos workers e a leitura real da planilha/Drive com conectores autorizados, sem expor credenciais.
+6. Completar CI, System Audit e revisão independente nas PRs empilhadas.
+
+### 13.6 Próxima sequência segura
+
+1. Aguardar e verificar os workflows atualizados da PR #90.
+2. Confirmar os testes Python, CI, System Audit e Security nas PRs #66, #77 e #100 sobre a base corrigida.
+3. Reconciliar conflitos/commits divergentes antes de qualquer merge; manter PRs em draft enquanto houver checks pendentes.
+4. Recuperar a linhagem SQL original no checkout local/backups e atualizar este registro de forma append-only.
+5. Somente depois de todos os gates, preparar plano de homologação controlada e solicitar autorização separada para qualquer alteração remota.
+
+**Decisão:** o sistema ainda não está liberado para produção. Os fluxos de Drive/Sheets têm componentes ativos e dados sincronizados, mas há eventos em quarentena, fila local parada, lacuna de reconciliação SQL e gates de CI/revisão ainda pendentes. Nenhuma liberação deve ser declarada com base apenas neste snapshot.
