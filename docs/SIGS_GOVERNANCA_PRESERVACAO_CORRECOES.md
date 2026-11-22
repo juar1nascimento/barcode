@@ -574,3 +574,12 @@ As falhas de `pip-audit` observadas nos primeiros ciclos das PRs #66, #77 e #100
 5. Somente depois de todos os gates, preparar plano de homologação controlada e solicitar autorização separada para qualquer alteração remota.
 
 **Decisão:** o sistema ainda não está liberado para produção. Os fluxos de Drive/Sheets têm componentes ativos e dados sincronizados, mas há eventos em quarentena, fila local parada, lacuna de reconciliação SQL e gates de CI/revisão ainda pendentes. Nenhuma liberação deve ser declarada com base apenas neste snapshot.
+
+
+### 13.7 Revisão adicional de recuperação e classificação do espelho local (2026-11-22)
+
+**Outbox Sheets — limite de tentativas:** a revisão posterior da PR #77 encontrou que `claim_batch` não filtrava `tentativas < max_attempts`, e `reset_stale` convertia todo `processing` expirado em `failed`, inclusive quando o teto já havia sido atingido. Isso permitia uma reivindicação extra e podia deixar eventos exauridos fora de `dead_letter`. A PR #77 foi atualizada para mover eventos exauridos de `pending/failed` diretamente a `dead_letter`, filtrar o teto no claim e classificar `processing` expirado conforme as tentativas. Foram adicionados testes para ambos os caminhos; CI ainda precisa concluir.
+
+**Espelho local — reclassificação:** a leitura adicional confirmou 8 eventos `pending`, total de 479.689 bytes (0,457 MiB), todos sem caminho/hash local e sem tentativas. O worker `workers/local_drive_mirror_worker.py` tem gate explícito de 1 GiB de pendências antes de iniciar processamento; portanto, o volume atual está muito abaixo do limiar e a ausência de `caminho_local/sha256_local` é compatível com o comportamento intencional de espera. O script também opera em dry-run por padrão e exige `--live` mais `LOCAL_MIRROR_ALLOW_DELETE=true` para remover o arquivo original do Drive após validação local.
+
+**Decisão revisada:** os 8 eventos locais não são classificados como bloqueio da funcionalidade principal de inventário/Drive/Sheets neste snapshot. São uma fila derivada e condicionada ao limiar de 1 GiB; permanecem pendentes até que o requisito de espelhamento local seja explicitamente ativado. Não executar `--live`, não habilitar exclusão do Drive e não alterar o limiar sem autorização operacional específica. A existência de agendamento automático não foi comprovada nesta rodada.
