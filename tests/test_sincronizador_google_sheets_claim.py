@@ -74,10 +74,17 @@ def test_claim_retries_failed_events_only_after_backoff_and_before_attempt_limit
     assert "status IN ('pending', 'failed')" in query
     assert "proxima_tentativa_em <= now()" in query
     assert "tentativas < %s" in query
+    assert "status='processing'" in query
+    assert "tentativas < %s" in query
+    assert "tentativas >= %s" in query
+    assert "status='dead_letter'" in query
     assert "FOR UPDATE SKIP LOCKED" in query
     assert conn.fake_cursor.params == (
+        sincronizador.STALE_MINUTES,
+        sincronizador.MAX_TENTATIVAS,
         sincronizador.MAX_TENTATIVAS,
         sincronizador.STALE_MINUTES,
+        sincronizador.MAX_TENTATIVAS,
         10,
     )
     assert conn.commits == 1
