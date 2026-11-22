@@ -134,3 +134,12 @@ A resolução via API não prova alcançabilidade por refs publicadas, mas permi
 ### Próximo passo seguro
 
 Prosseguir com inventário de PRs/patches e artefatos de CI históricos que possam preservar os cinco arquivos. Caso nenhuma fonte adicional contenha os originais, apresentar proposta de migration nova, aditiva e versionada, sem aplicação remota e sem reconstrução a partir do catálogo.
+
+
+## 9. Varredura de PRs históricas relacionadas
+
+Foram consultados os arquivos alterados nas PRs #37, #38, #39, #40, #41, #43, #44, #48, #49, #50, #52, #53, #56, #57 e #58. Nenhuma dessas PRs, exceto #56, contém migrations SQL. A PR #56 adiciona apenas as duas migrations de triggers automáticos já conhecidas (20261012213050_gti_auto_enqueue_outboxes.sql e 20261012213108_fix_gti_photo_outbox_trigger_routing.sql), não os cinco arquivos pendentes.
+
+A PR #39 introduz workers/local_drive_mirror_worker.py e testes, mas não contém migration de lease local. As PRs #40 e #41 evoluem o download e a configuração de credenciais do worker, sem SQL. As PRs #37, #43 e #48 alteram consumidores Sheets, sem os SQLs procurados. A seleção de PRs foi direcionada aos workers/Outbox e não deve ser interpretada como prova de inexistência em todo o histórico do GitHub.
+
+**Resultado:** nenhuma das PRs históricas examinadas recupera os cinco SQLs originais. Permanecem proibidos renomear migrations próximas ou reconstruir o conteúdo histórico a partir do catálogo remoto. Próximo recurso de recuperação: artefatos de CI/releases/patches que preservem o conteúdo original; se não houver, preparar proposta aditiva nova e independente.
