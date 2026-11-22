@@ -55,7 +55,7 @@ A validação foi de CI. Não equivale a teste operacional contra PostgreSQL/Sup
 
 **Testes adicionados:** verificam o contrato SQL de seleção, limite de tentativas, backoff, `SKIP LOCKED` e rejeição de nome de tabela inválido.
 
-**CI:** no momento do registro, os workflows de Testes Python e Security/CodeQL estavam em execução. Não declarar aprovação até consultar a conclusão real no GitHub Actions. A PR não foi mesclada.
+**CI — resultado final observado em 2026-11-22:** Testes Python aprovado com **157 testes passados** (1 warning de compatibilidade emitido por dependência); Security aprovado com Source hardening, Dependency review e CodeQL concluídos com sucesso. A PR não foi mesclada.
 
 ## 3. Riscos técnicos ainda abertos
 
