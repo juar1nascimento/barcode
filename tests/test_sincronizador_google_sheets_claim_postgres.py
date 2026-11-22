@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 
 import psycopg
+from psycopg.conninfo import conninfo_to_dict
 import pytest
 
 import sincronizador_google_sheets as sincronizador
@@ -17,8 +18,47 @@ import inventario_sheets_outbox_worker as worker
 DSN = os.getenv("TEST_POSTGRES_DSN")
 
 
+def _require_disposable_ci_database():
+    """Fail closed unless DSN points to this GitHub Actions localhost service."""
+    if os.getenv("GITHUB_ACTIONS", "").lower() != "true":
+        raise RuntimeError("testes PostgreSQL destrutivos só podem rodar no GitHub Actions")
+
+    params = conninfo_to_dict(DSN or "")
+    hosts = [item.strip().lower() for item in params.get("host", "").split(",") if item.strip()]
+    hostaddrs = [item.strip() for item in params.get("hostaddr", "").split(",") if item.strip()]
+    loopback_hosts = {"localhost", "127.0.0.1", "::1"}
+
+    if not hosts or any(host not in loopback_hosts for host in hosts):
+        raise RuntimeError("TEST_POSTGRES_DSN deve apontar exclusivamente para localhost")
+    if hostaddrs and any(address not in {"127.0.0.1", "::1"} for address in hostaddrs):
+        raise RuntimeError("TEST_POSTGRES_DSN contém hostaddr fora de loopback")
+    if params.get("dbname") != "postgres" or params.get("user") != "postgres":
+        raise RuntimeError("banco/usuário inesperado para o PostgreSQL descartável do CI")
+
+
+def test_postgres_guard_rejects_execution_outside_github_actions(monkeypatch):
+    monkeypatch.setenv("GITHUB_ACTIONS", "false")
+    monkeypatch.setattr(
+        "tests.test_sincronizador_google_sheets_claim_postgres.DSN",
+        "postgresql://postgres:postgres@localhost:5432/postgres",
+    )
+    with pytest.raises(RuntimeError, match="somente podem rodar no GitHub Actions"):
+        _require_disposable_ci_database()
+
+
+def test_postgres_guard_rejects_remote_database_even_in_ci(monkeypatch):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(
+        "tests.test_sincronizador_google_sheets_claim_postgres.DSN",
+        "postgresql://postgres:secret@db.example.invalid:5432/postgres",
+    )
+    with pytest.raises(RuntimeError, match="exclusivamente para localhost"):
+        _require_disposable_ci_database()
+
+
 @pytest.mark.skipif(not DSN, reason="TEST_POSTGRES_DSN não configurado")
 def test_expired_lease_attempt_limit_and_concurrent_claims(monkeypatch):
+    _require_disposable_ci_database()
     monkeypatch.setattr(sincronizador, "conectar", lambda: psycopg.connect(DSN))
 
     with psycopg.connect(DSN) as conn:
@@ -102,6 +142,7 @@ def test_expired_lease_attempt_limit_and_concurrent_claims(monkeypatch):
 
 @pytest.mark.skipif(not DSN, reason="TEST_POSTGRES_DSN não configurado")
 def test_primary_worker_enforces_attempt_limit_for_claim_and_stale_reset():
+    _require_disposable_ci_database()
     with psycopg.connect(DSN) as conn:
         conn.execute("DROP TABLE IF EXISTS public.patrimonios_sheets_outbox")
         conn.execute(
