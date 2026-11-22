@@ -21,6 +21,7 @@ from postgresql_persistencia import (
     registrar_movimentacao,
 )
 from supabase_storage import criar_url_assinada_storage
+from login import usuario_e_admin
 
 FOTO_URL_EXPIRATION_SECONDS = 86_400
 FOTO_URL_REFRESH_INTERVAL = "50m"
@@ -587,16 +588,8 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
     # Saída/transferência são operações administrativas e o backend também
     # aplica a mesma autorização como defesa em profundidade.
     # ------------------------------------------------------------------
-    # A autorização administrativa deve usar a mesma fonte do app.py:
-    # o usuário autenticado comparado ao admin_email das Secrets. O login atual
-    # não grava usuario_papel na sessão, então depender desse campo ocultaria
-    # indevidamente o painel de projeção para o administrador.
-    usuario_logado_admin = str(st.session_state.get("usuario_logado", "")).strip().casefold()
-    try:
-        admin_configurado = str(st.secrets.get("email", {}).get("admin_email", "")).strip().casefold()
-    except Exception:
-        admin_configurado = ""
-    is_admin = bool(usuario_logado_admin and admin_configurado and usuario_logado_admin == admin_configurado)
+    # A autorização administrativa usa a mesma identidade do login e do roteador.
+    is_admin = usuario_e_admin()
 
     if unidade == "Almoxarifado Central SESA":
         renderizar_projecao_embutida(is_admin=is_admin)
@@ -885,8 +878,7 @@ def renderizar_sistema_inventario(*args, **kwargs) -> None:
 
         # Exclusões são operações destrutivas e ficam restritas ao administrador.
         # O cadastro e a consulta continuam disponíveis aos usuários autenticados.
-        usuario_papel = str(st.session_state.get("usuario_papel", "usuario")).strip().lower()
-        is_admin = usuario_papel == "admin"
+        is_admin = usuario_e_admin()
 
         if not is_admin:
             st.info("🔐 O gerenciador de exclusão é restrito ao administrador.")
