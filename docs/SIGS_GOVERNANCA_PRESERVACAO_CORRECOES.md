@@ -631,3 +631,16 @@ Foi feita leitura dos arquivos alterados nas PRs históricas #37, #38, #39, #40,
 A PR #39 introduz o worker de espelhamento local e testes, mas não versiona migration de lease local; as PRs #40 e #41 evoluem download/credenciais do worker, também sem SQL. As PRs #37, #43 e #48 alteram consumidores Sheets, sem incluir os cinco SQLs. Assim, a varredura dos PRs históricos mais diretamente relacionados não recuperou os originais.
 
 **Decisão:** manter os cinco SQLs como não recuperados. Não inferir que a ausência em PRs selecionadas esgote todos os patches/artefatos; a busca remota prossegue somente em fontes que preservem conteúdo original. Nenhuma alteração operacional foi executada.
+
+
+### 13.12 Gate 10E — artefatos de CI e registro do fluxo ChatGPT–GitHub (2026-11-22)
+
+**Artefatos históricos:** foram consultadas as execuções dos quatro workflows da PR #56 (commit 5f783777380b6a94bc5a110207b2f4b10e1d6c50; todos concluídos com sucesso em 2026-10-12) e as execuções de validação isolada da migration de lease associadas aos commits da PR #66. A API de artefatos retornou lista vazia para cada execução examinada. As execuções de PR #99 também não publicaram artefatos recuperáveis. A busca no índice de código por `actions/upload-artifact` e pelos cinco nomes exatos não retornou resultados. Portanto, não há conteúdo SQL recuperável nessa fonte examinada.
+
+**CI atual da documentação:** para o head `88470dbd61e5080e84227298761ca82c0677761f` da PR #99, os workflows `Testes Python` e `Inventário GTI SESA - Security` concluíram com `success`. Isso valida os checks executados, não equivale a revisão independente nem a aprovação para merge.
+
+**Registro da integração ChatGPT–GitHub:** este projeto está sendo operado neste fluxo de conversa por meio da conexão GitHub autorizada, usada para leitura do repositório, commits documentais em branch, acompanhamento de PRs e consulta de workflows. O SIGS e os relatórios de Gate são o registro técnico durável das decisões, ações, hashes e resultados. **A transcrição integral deste chat não é automaticamente sincronizada nem arquivada no Git**; somente o conteúdo explicitamente registrado em arquivos/commits é versionado. Não registrar mensagens privadas, credenciais ou dados sensíveis no repositório.
+
+**Limites de segurança:** alterações permanecem em branch documental isolada; PR #99 continua draft e não mesclada. Nenhuma migration foi reconstruída, aplicada ou executada. Nenhum deploy, worker, operação em Sheets/Drive ou escrita Supabase ocorreu. Nenhuma autorização de produção foi inferida.
+
+**Conclusão do Gate 10E:** a fonte de artefatos de GitHub Actions examinada não recupera os cinco SQLs originais. A busca por conteúdo remoto indexado também não retornou os nomes. Permanecem necessárias fontes adicionais não expostas pela API consultada (backups/bundles/objetos locais) ou, após encerrar formalmente a busca, uma proposta de migration nova e aditiva baseada em especificação aprovada e validação isolada.
