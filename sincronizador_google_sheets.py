@@ -124,6 +124,20 @@ def _marcar_evento(conn, tabela: str, event_id: int, *, status: str, erro: str |
         cur.execute(consulta, params)
 
 
+def _claim_candidate_predicate() -> str:
+    """Seleciona pendentes e falhas cujo backoff venceu; limita tentativas."""
+    return """
+        (
+            status IN ('pending', 'failed')
+            AND proxima_tentativa_em <= now()
+            AND tentativas < %s
+        ) OR (
+            status='processing'
+            AND processando_em < now() - make_interval(mins => %s)
+        )
+    """
+
+
 def _claim(tabela: str, limit: int) -> list[dict]:
     if tabela not in {"patrimonios_sheets_outbox", "patrimonio_fotos_sheets_outbox"}:
         raise ValueError("Tabela de outbox inválida.")
@@ -138,14 +152,7 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                 WITH candidatos AS (
                     SELECT id
                       FROM {tabela}
-                     WHERE (
-                         status='pending'
-                         AND proxima_tentativa_em <= now()
-                         AND tentativas < %s
-                     ) OR (
-                         status='processing'
-                         AND processando_em < now() - make_interval(mins => %s)
-                     )
+                     WHERE {predicado}
                      ORDER BY id
                      FOR UPDATE SKIP LOCKED
                      LIMIT %s
@@ -162,7 +169,11 @@ def _claim(tabela: str, limit: int) -> list[dict]:
                  WHERE o.id=c.id
              RETURNING o.id, o.patrimonio_id, {foto_coluna}, o.tentativas
                 """
-            ).format(tabela=sql.Identifier(tabela), foto_coluna=foto_coluna)
+            ).format(
+                tabela=sql.Identifier(tabela),
+                foto_coluna=foto_coluna,
+                predicado=sql.SQL(_claim_candidate_predicate()),
+            )
             cur.execute(
                 consulta,
                 (MAX_TENTATIVAS, STALE_MINUTES, max(1, min(limit, 100))),
