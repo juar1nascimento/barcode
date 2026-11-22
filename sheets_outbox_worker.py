@@ -248,13 +248,27 @@ def open_spreadsheet(client):
     raise RuntimeError("Defina GOOGLE_SPREADSHEET_ID ou GOOGLE_SPREADSHEET_URL.")
 
 
-def claim_batch(conn, limit: int):
+def claim_batch(conn, limit: int, max_attempts: int = 8):
     with conn.cursor() as cur:
+        # Não deixar eventos legados/exauridos presos em failed nem reivindicá-los novamente.
+        cur.execute(
+            """UPDATE public.patrimonio_fotos_sheets_outbox
+                  SET status='dead_letter',
+                      processando_em=NULL,
+                      proxima_tentativa_em=now(),
+                      ultimo_erro=COALESCE(NULLIF(ultimo_erro, ''),
+                          'limite de tentativas atingido'),
+                      atualizado_em=now()
+                WHERE status IN ('pending','failed')
+                  AND tentativas >= %s""",
+            (max_attempts,),
+        )
         cur.execute(
             """WITH candidatos AS (
                  SELECT id
                    FROM public.patrimonio_fotos_sheets_outbox
                   WHERE status IN ('pending','failed')
+                    AND tentativas < %s
                     AND proxima_tentativa_em <= now()
                   ORDER BY id
                   FOR UPDATE SKIP LOCKED
@@ -268,7 +282,7 @@ def claim_batch(conn, limit: int):
                  FROM candidatos c
                 WHERE o.id = c.id
                RETURNING o.id, o.patrimonio_id, o.foto_id""",
-            (limit,),
+            (max_attempts, limit),
         )
         rows = cur.fetchall()
     conn.commit()
@@ -331,17 +345,26 @@ def defer_dependency(conn, outbox_id: int, error: str) -> None:
     conn.commit()
 
 
-def reset_stale(conn):
+def reset_stale(conn, max_attempts: int = 8):
     with conn.cursor() as cur:
         cur.execute(
             """UPDATE public.patrimonio_fotos_sheets_outbox
-                  SET status='failed', processando_em=NULL,
+                  SET status=CASE
+                        WHEN tentativas >= %s THEN 'dead_letter'
+                        ELSE 'failed'
+                      END,
+                      processando_em=NULL,
                       proxima_tentativa_em=now(),
-                      ultimo_erro='job recuperado após expiração do lock',
+                      ultimo_erro=CASE
+                        WHEN tentativas >= %s
+                          THEN 'job recuperado após expiração do lock; limite de tentativas atingido'
+                        ELSE 'job recuperado após expiração do lock'
+                      END,
                       atualizado_em=now()
                 WHERE status='processing'
                   AND processando_em IS NOT NULL
-                  AND processando_em < now() - interval '15 minutes'"""
+                  AND processando_em < now() - interval '15 minutes'""",
+            (max_attempts, max_attempts),
         )
     conn.commit()
 
@@ -557,14 +580,14 @@ def main():
     max_attempts = max(1, int(os.getenv("OUTBOX_MAX_ATTEMPTS", "8")))
     conn = psycopg.connect(database_url())
     try:
-        reset_stale(conn)
+        reset_stale(conn, max_attempts)
         with conn.cursor() as cur:
             cur.execute("SELECT public.reconcile_patrimonio_fotos_sheets_outbox(%s)", (limit * 5,))
             reconciled = int(cur.fetchone()[0] or 0)
         conn.commit()
         sheets = sheets_client()
         spreadsheet = open_spreadsheet(sheets)
-        claimed = claim_batch(conn, limit)
+        claimed = claim_batch(conn, limit, max_attempts)
 
         by_patrimonio = {}
         for outbox_id, patrimonio_id, _foto_id in claimed:
