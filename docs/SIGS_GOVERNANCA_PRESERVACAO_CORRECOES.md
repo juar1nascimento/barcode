@@ -435,3 +435,52 @@ Revisão estática de definições SQL obtidas por `pg_get_functiondef` e leitur
 - As conclusões sobre funções instaladas derivam dos corpos efetivamente consultados; as conclusões sobre workers aplicam-se aos arquivos/versões examinados, não necessariamente a todo artefato de execução atualmente implantado.
 
 **Próximo gate recomendado:** Gate 10 — desenho técnico e implementação isolada do protocolo uniforme de leases/fencing e limites de tentativas, começando por testes unitários e PostgreSQL descartável. Não aplicar migrations, REVOKE, CREATE POLICY, ALTER FUNCTION ou qualquer alteração de produção sem autorização específica.
+
+
+## 11. Gate 10A — especificação uniforme de leases e fencing (2026-11-22)
+
+### 11.1 Autorização e limites
+
+O proprietário autorizou o Gate 10 em branch isolada, com PR draft, testes descartáveis e produção/banco remoto intocados. Esta entrega limita-se à especificação técnica e ao registro de governança. Não houve alteração em worker/runtime, migration, schema, função SQL instalada, workflow operacional ou credencial.
+
+### 11.2 Artefato técnico
+
+Foi criado o documento `docs/architecture/OUTBOX_LEASE_FENCING_PROTOCOL.md`, que especifica:
+- token de fencing novo por geração de claim, worker_id observável e lease_expires_at;
+- claim atômico com FOR UPDATE SKIP LOCKED, incremento de tentativas em toda reivindicação e dead_letter direto para leases expirados esgotados;
+- heartbeat, complete e fail condicionados a token exato e lease ainda vigente;
+- uso de clock_timestamp() para validade temporal;
+- idempotência dos efeitos externos e limitação da garantia: fencing no banco não impede sozinho um efeito externo já iniciado por worker obsoleto;
+- dependências separadas para Drive, fotos local, Sheets patrimônio, Sheets fotos e sincronizador alternativo;
+- sequência de migração/cutover, testes concorrentes, rollback e critérios de aceite.
+
+### 11.3 Decisões de segurança
+
+1. Não criar migration ou DDL com base apenas no catálogo ou em pg_get_functiondef.
+2. Não presumir que o schema das quatro filas seja homogêneo; a fila local já possui campos de lease, enquanto as demais precisam de reconciliação individual.
+3. Não considerar heartbeat como mecanismo para ressuscitar lease expirado.
+4. Não usar finalização por ID como fallback quando token/lease não corresponderem.
+5. Não declarar exactly-once entre PostgreSQL e Sheets/Drive/filesystem; a solução requer efeitos idempotentes e reconciliação.
+6. Não habilitar worker novo enquanto consumidores antigos ainda puderem finalizar por ID sem fencing.
+
+### 11.4 Bloqueios para implementação de runtime
+
+A implementação de runtime permanece bloqueada até:
+- recuperação e reconciliação dos SQLs originais das funções/migrations Drive e local;
+- mapeamento da máquina de estados local, inclusive drive_delete_pending;
+- definição de contrato compatível para os dois workers Sheets e sincronizador alternativo;
+- desenho de migration aditiva e funções versionadas, com revisão de SECURITY DEFINER, grants, RLS e search_path;
+- testes concorrentes em PostgreSQL efêmero protegido por guarda;
+- aprovação específica do proprietário para artefatos de schema.
+
+A busca anterior não localizou cinco SQLs originais relacionados a Drive/local/privilégios nas referências examinadas. A busca não é prova de inexistência definitiva; não serão recriados a partir de funções instaladas.
+
+### 11.5 Estado e próximo gate
+
+- Branch isolada: `feat/outbox-lease-protocol-gate10-20261122`, baseada no head da PR #97.
+- PR será aberta em draft, empilhada sobre a branch documental da PR #97.
+- Escopo desta entrega: novo documento de arquitetura e este adendo append-only.
+- Nenhum arquivo anterior foi removido; nenhum worker, teste de runtime, migration ou schema foi alterado.
+- Próximo gate: recuperar SQLs originais e elaborar proposta de migration aditiva com testes locais descartáveis; antes de aplicar qualquer schema no projeto remoto, solicitar autorização específica e separada.
+
+**Limites confirmados:** nenhuma consulta/escrita no Supabase remoto durante esta entrega; nenhuma função foi invocada; nenhum worker ou integração externa foi executado; nenhuma alteração em main, merge, deploy ou sincronização operacional ocorreu.
