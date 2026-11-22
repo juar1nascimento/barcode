@@ -143,3 +143,16 @@ Foram consultados os arquivos alterados nas PRs #37, #38, #39, #40, #41, #43, #4
 A PR #39 introduz workers/local_drive_mirror_worker.py e testes, mas não contém migration de lease local. As PRs #40 e #41 evoluem o download e a configuração de credenciais do worker, sem SQL. As PRs #37, #43 e #48 alteram consumidores Sheets, sem os SQLs procurados. A seleção de PRs foi direcionada aos workers/Outbox e não deve ser interpretada como prova de inexistência em todo o histórico do GitHub.
 
 **Resultado:** nenhuma das PRs históricas examinadas recupera os cinco SQLs originais. Permanecem proibidos renomear migrations próximas ou reconstruir o conteúdo histórico a partir do catálogo remoto. Próximo recurso de recuperação: artefatos de CI/releases/patches que preservem o conteúdo original; se não houver, preparar proposta aditiva nova e independente.
+
+
+## 10. Gate 10E — artefatos de CI e registro do fluxo ChatGPT–GitHub
+
+Foram consultados os quatro workflows da PR #56, no commit 5f783777380b6a94bc5a110207b2f4b10e1d6c50, concluídos com sucesso em 2026-10-12: System Audit, Testes Python, Inventário GTI SESA - CI e Inventário GTI SESA - Security. A listagem de artefatos retornou vazia para as quatro execuções. Também foram examinadas execuções dos workflows `GTI SESA - isolated Drive lease migration validation` associadas aos commits da PR #66; a listagem de artefatos retornou vazia. Execuções de PR #99 examinadas também não publicaram artefatos recuperáveis. A busca de código por `actions/upload-artifact` e pelos cinco nomes de migration não retornou resultados.
+
+O head atual da PR #99 nesta rodada é 88470dbd61e5080e84227298761ca82c0677761f. Os workflows `Testes Python` e `Inventário GTI SESA - Security` associados a esse head concluíram com sucesso. Isso não representa revisão independente, aprovação para merge ou homologação.
+
+### Registro de sincronização operacional ChatGPT–GitHub
+
+Este projeto está sendo trabalhado por meio desta conversa conectada à integração GitHub autorizada. A integração permite ler o repositório, criar commits documentais em branches, consultar PRs e acompanhar workflows. O registro durável das decisões e atividades fica nos arquivos versionados SIGS e Gate, incluindo commits e resultados. A transcrição integral do chat não é automaticamente sincronizada nem arquivada no Git; apenas o conteúdo explicitamente registrado nos arquivos/commits é versionado. Não incluir mensagens privadas, credenciais ou dados sensíveis no repositório.
+
+**Resultado do Gate 10E:** a fonte GitHub Actions examinada não contém artefatos recuperáveis com os cinco SQLs. Os originais permanecem não recuperados. Não houve reconstrução ou execução de SQL, alteração Supabase, worker, Sheets, Drive, merge ou deploy.
