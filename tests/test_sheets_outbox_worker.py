@@ -254,3 +254,80 @@ def test_missing_parent_row_requires_reconciliation_when_inventory_outbox_is_ter
         worker.resolve_photo_parent_row(
             FakeConnection(), header, [header], 808, "PAT-08", "Unidade A"
         )
+
+
+
+def test_sync_one_verifies_photo_links_by_position_when_orders_have_gaps(monkeypatch):
+    class FakeCursor:
+        def __init__(self):
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, _query, _params):
+            self.calls += 1
+
+        def fetchone(self):
+            return (101, "PAT-101", "Unidade A")
+
+        def fetchall(self):
+            return [
+                (1, "https://drive.google.com/file/d/one", "one.jpg"),
+                (3, "https://drive.google.com/file/three", "three.jpg"),
+            ]
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+    class FakeWorksheet:
+        id = 77
+
+        def __init__(self):
+            self.photo_values = [""] * 10
+            self.header = [
+                "Nº de Patrimônio",
+                worker.ID_COLUMN,
+                *[f"Foto {n}" for n in range(1, 11)],
+            ]
+
+        def get_all_values(self):
+            return [
+                self.header,
+                ["PAT-101", "101", *self.photo_values],
+            ]
+
+        def batch_get(self, ranges, value_render_option):
+            assert value_render_option == "FORMULA"
+            assert len(ranges) == 10
+            return [[value] for value in self.photo_values]
+
+    class FakeSpreadsheet:
+        def __init__(self, worksheet):
+            self.fake_worksheet = worksheet
+
+        def worksheet(self, _name):
+            return self.fake_worksheet
+
+        def batch_update(self, payload):
+            for request in payload["requests"]:
+                update = request["updateCells"]
+                column_index = update["start"]["columnIndex"] - 2
+                cell = update["rows"][0]["values"][0]
+                self.fake_worksheet.photo_values[column_index] = (
+                    cell.get("userEnteredValue", {}).get("stringValue", "")
+                )
+
+    worksheet = FakeWorksheet()
+    spreadsheet = FakeSpreadsheet(worksheet)
+    monkeypatch.setattr(worker, "_sheets_call", lambda _operation, callback: callback())
+
+    worker.sync_one(FakeConnection(), spreadsheet, outbox_id=9001, patrimonio_id=101)
+
+    assert worksheet.photo_values == [
+        "Foto 1", "", "Foto 3", "", "", "", "", "", "", ""
+    ]
