@@ -484,3 +484,163 @@ A busca anterior não localizou cinco SQLs originais relacionados a Drive/local/
 - Próximo gate: recuperar SQLs originais e elaborar proposta de migration aditiva com testes locais descartáveis; antes de aplicar qualquer schema no projeto remoto, solicitar autorização específica e separada.
 
 **Limites confirmados:** nenhuma consulta/escrita no Supabase remoto durante esta entrega; nenhuma função foi invocada; nenhum worker ou integração externa foi executado; nenhuma alteração em main, merge, deploy ou sincronização operacional ocorreu.
+
+
+## 12. Gate 10B — reconciliação da origem Git dos SQLs de Outbox (2026-11-22)
+
+### 12.1 Escopo
+
+Busca read-only ampliada a branches, árvores Git, arquivos e commits do repositório. Nenhuma conexão/consulta Supabase foi realizada nesta rodada; nenhum worker, integração ou workflow operacional foi executado.
+
+### 12.2 Artefatos próximos descartados como equivalentes
+
+- Encontrado `supabase/migrations/20261013130000_gti_drive_folder_lease.sql` na branch `fix/gti-drive-folder-lease-gate-20261013`. O SQL cria lease para serializar criação/verificação de pastas Drive por patrimônio, com tabela `gti_drive_folder_leases` e funções acquire/release. **Não** reivindica eventos da tabela `patrimonio_fotos_drive_outbox`, não altera estado de eventos e não substitui claim/finalize/fail da Outbox.
+- Encontrado `supabase/migrations/20261001154000_harden_trigger_function_execute_privileges.sql`, que protege somente `validar_movimentacao_patrimonio()`. O histórico remoto registra `20261001184053_harden_trigger_function_execute_privileges` no contexto de hardening das funções Outbox. Timestamp e objeto diferem; não há prova de equivalência. Não classificar o arquivo encontrado como origem da migration remota.
+
+### 12.3 Evidências de workers
+
+- O commit `d5782dac5fabc36cf40926d2d7d452a43de0300b` adiciona worker Drive legado: claim SQL direto com SKIP LOCKED; ramo pending com teto; ramo processing expirado sem teto e sem incremento de tentativas; finalização por ID sem token. O commit `9fcefe5a94e99b3329907e00b67f26d2847b7312` adiciona failed ao ramo elegível, mas não resolve as demais lacunas observadas.
+- O commit `78ef0a30c0959a573d87c40c72c912060f6b13f9` adiciona worker REST local: claim por PATCH condicionado a status=pending, sem token/expiry; caminho examinado não recupera processing expirado; há estados intermediários `drive_delete_pending` e `completed`.
+- Essas evidências se aplicam aos commits examinados e não provam exclusividade nem estado de todos os artefatos implantados.
+
+### 12.4 Resultado da busca dos SQLs
+
+Após a busca ampliada por branches/árvores e por mensagens de commits, os cinco arquivos exatos permanecem não recuperados nas referências examinadas:
+- `20261003230654_add_safe_drive_outbox_claim.sql`;
+- `20261003235815_harden_drive_outbox_finalize_idempotent.sql`;
+- `20261003235928_harden_drive_outbox_retry_dead_letter.sql`;
+- `20261007213327_add_local_photo_worker_leases.sql`;
+- `20261001184053_harden_trigger_function_execute_privileges.sql`.
+
+Busca de commits por nome exato sem resultados não prova inexistência em refs apagadas, forks, backups ou objetos locais. O relatório `docs/architecture/GATE10B_OUTBOX_SQL_ORIGIN_RECONCILIATION.md` registra branches, blobs, classificação dos artefatos, limites e fontes adicionais de recuperação.
+
+### 12.5 Decisão e bloqueios
+
+1. Não reconstruir migrations a partir de `pg_get_functiondef`.
+2. Não renomear ou copiar arquivos com timestamp/objeto diferentes para satisfazer o histórico remoto.
+3. Não alterar `schema_migrations`, schema, funções instaladas, grants ou policies.
+4. Próxima fonte prioritária: checkout local do proprietário, objetos Git, refs, reflogs, bundles e backups; busca somente leitura.
+5. Se os originais não forem recuperados, desenhar migration nova, aditiva e versionada, baseada em especificação aprovada e estado de catálogo novamente confirmado; apresentar compatibilidade/cutover/rollback antes de qualquer aplicação.
+
+**Limites confirmados:** somente leitura GitHub; nenhum acesso ao Supabase, nenhum SQL, nenhuma execução de função, worker ou integração externa; nenhuma alteração em main, merge ou deploy.
+
+
+## 13. Gate 10C — estado operacional remoto e correções isoladas (2026-11-22)
+
+### 13.1 Escopo e segurança
+
+Foi realizada leitura direta do projeto Supabase conectado e revisão do código/PRs no GitHub. Consultas foram somente leitura. Foram criadas/atualizadas branches e PRs de código em modo draft para correção e validação automatizada. Nenhuma migration foi aplicada ao Supabase remoto; nenhum worker operacional foi invocado; nenhuma fila foi processada; nenhuma escrita foi feita no Google Sheets ou Drive; nenhum segredo foi alterado; nenhuma PR foi mesclada e nenhum deploy foi executado.
+
+### 13.2 Estado observado no Supabase
+
+- Projeto `gti-inventario`: ativo/saudável; Edge Function `outbox-drive-worker` ativa na versão 22.
+- Bucket `patrimonio-fotos`: privado; limite configurado de 1 MiB; os 56 objetos observados correspondem aos 56 registros de fotos; maior objeto observado: 305.625 bytes.
+- Outbox Drive de fotos: 56 eventos sincronizados; view de reconciliação registrou 56 em estado `ok`.
+- Outbox Sheets de patrimônio: 91 eventos sincronizados.
+- Outbox Sheets de fotos: 54 sincronizados e 2 em `dead_letter`. Os dois eventos estão associados ao patrimônio `98654345` e falharam após 12 tentativas porque a linha não foi localizada na aba `Almoxarifado GTI-SESA-SEDE`.
+- Outbox de espelhamento local: 8 eventos `pending` desde 2026-10-07, sem `caminho_local`, `sha256_local` ou tentativas registradas.
+- A view `patrimonio_fotos_sheets_reconciliation` conta `pending/processing/failed`, mas exclui `dead_letter` de `eventos_pendentes` e `eventos_falhos`. A view usa `security_invoker=true`; leitura é concedida a `service_role`, não a `anon/authenticated`.
+- As funções privilegiadas de Outbox consultadas não concedem execução a `anon` ou `authenticated`.
+
+Os estados acima são um snapshot de leitura; não representam uma reconciliação visual independente do Google Sheets nem confirmação de cada arquivo no Drive.
+
+### 13.3 Correções isoladas em andamento
+
+- **PR #66 — Drive folder routing/lease:** a branch adiciona lease por patrimônio, renovação/token guard, revalidação de pasta e testes. Foi incluída validação da migration em PostgreSQL descartável no CI. A execução isolada da migration foi concluída com sucesso no SHA `41afc7d50eff07b6222f89aed48734d103466e38`, incluindo acquire/renew, token incorreto, expiração, reacquisição, release, grants e duas sessões concorrentes. A PR permanece draft, empilhada sobre a PR #90; migration remota não aplicada.
+- **PR #77 — Outbox de fotos para Sheets:** foi corrigida a comparação da leitura posterior para preservar posições reais quando há lacunas entre fotos (por exemplo, posições 1 e 3). O teste usa mocks e não chama serviços externos. Também foi portada a política de backoff com jitter e respeito a `Retry-After` da PR #90. Os workflows do novo head precisam concluir antes de qualquer aprovação. A view SQL citada em 13.2 continua pendente de correção aditiva após recuperação da linhagem de migrations.
+- **PR #100 — autorização administrativa:** centraliza a decisão em `usuario_e_admin()`, usando a identidade autenticada e `email.admin_email`, em vez de depender de `usuario_papel` que o login não grava. Inclui testes para identidade normalizada, usuário comum, sessão ausente e configuração ausente. A PR está draft e empilhada sobre a PR #90.
+
+### 13.4 Dependências e CI
+
+A `main` foi identificada com versões vulneráveis de `oauthlib 4.0.0`, `pyasn1 0.6.4` e `tornado 6.5.9`. A PR #90 atualiza para `oauthlib 4.0.1`, `pyasn1 0.6.5` e `tornado 6.6.1`; no SHA `6100d4d9c248ea947cd729ee1aaadab64d48e680`, os workflows Python, CI, System Audit, Security e wake-up contract foram observados com sucesso. A branch da PR #90 recebeu ajuste posterior para permitir que CI/System Audit também rodem em PRs empilhadas sob branches `fix/**`; os workflows desse novo head estavam em execução no momento do registro.
+
+As falhas de `pip-audit` observadas nos primeiros ciclos das PRs #66, #77 e #100 correspondem às dependências ainda presentes na `main`, não aos testes funcionais das correções. Os PRs dependentes permanecem bloqueados até que a PR #90 seja integrada e os checks sejam repetidos sobre a base final.
+
+### 13.5 Bloqueios que permanecem
+
+1. Recuperar os cinco SQLs originais listados no Gate 10B; não reconstruí-los a partir do catálogo remoto.
+2. Resolver os dois eventos `dead_letter` de fotos do patrimônio `98654345` com reconciliação controlada da linha/ID no Sheets; não criar linha automaticamente.
+3. Projetar migration aditiva para que a view de reconciliação inclua `dead_letter`, após confirmar a cadeia de migrations e compatibilidade dos consumidores.
+4. Diagnosticar e recuperar os oito eventos pendentes do espelhamento local; não processar antes de identificar o worker, raiz local e contrato de lease.
+5. Validar a execução agendada dos workers e a leitura real da planilha/Drive com conectores autorizados, sem expor credenciais.
+6. Completar CI, System Audit e revisão independente nas PRs empilhadas.
+
+### 13.6 Próxima sequência segura
+
+1. Aguardar e verificar os workflows atualizados da PR #90.
+2. Confirmar os testes Python, CI, System Audit e Security nas PRs #66, #77 e #100 sobre a base corrigida.
+3. Reconciliar conflitos/commits divergentes antes de qualquer merge; manter PRs em draft enquanto houver checks pendentes.
+4. Recuperar a linhagem SQL original no checkout local/backups e atualizar este registro de forma append-only.
+5. Somente depois de todos os gates, preparar plano de homologação controlada e solicitar autorização separada para qualquer alteração remota.
+
+**Decisão:** o sistema ainda não está liberado para produção. Os fluxos de Drive/Sheets têm componentes ativos e dados sincronizados, mas há eventos em quarentena, fila local parada, lacuna de reconciliação SQL e gates de CI/revisão ainda pendentes. Nenhuma liberação deve ser declarada com base apenas neste snapshot.
+
+
+### 13.7 Revisão adicional de recuperação e classificação do espelho local (2026-11-22)
+
+**Outbox Sheets — limite de tentativas:** a revisão posterior da PR #77 encontrou que `claim_batch` não filtrava `tentativas < max_attempts`, e `reset_stale` convertia todo `processing` expirado em `failed`, inclusive quando o teto já havia sido atingido. Isso permitia uma reivindicação extra e podia deixar eventos exauridos fora de `dead_letter`. A PR #77 foi atualizada para mover eventos exauridos de `pending/failed` diretamente a `dead_letter`, filtrar o teto no claim e classificar `processing` expirado conforme as tentativas. Foram adicionados testes para ambos os caminhos; CI ainda precisa concluir.
+
+**Espelho local — reclassificação:** a leitura adicional confirmou 8 eventos `pending`, total de 479.689 bytes (0,457 MiB), todos sem caminho/hash local e sem tentativas. O worker `workers/local_drive_mirror_worker.py` tem gate explícito de 1 GiB de pendências antes de iniciar processamento; portanto, o volume atual está muito abaixo do limiar e a ausência de `caminho_local/sha256_local` é compatível com o comportamento intencional de espera. O script também opera em dry-run por padrão e exige `--live` mais `LOCAL_MIRROR_ALLOW_DELETE=true` para remover o arquivo original do Drive após validação local.
+
+**Decisão revisada:** os 8 eventos locais não são classificados como bloqueio da funcionalidade principal de inventário/Drive/Sheets neste snapshot. São uma fila derivada e condicionada ao limiar de 1 GiB; permanecem pendentes até que o requisito de espelhamento local seja explicitamente ativado. Não executar `--live`, não habilitar exclusão do Drive e não alterar o limiar sem autorização operacional específica. A existência de agendamento automático não foi comprovada nesta rodada.
+
+
+### 13.8 Resultado dos workflows após correções (2026-11-22)
+
+Foram consultados os resultados dos workflows dos heads abaixo; todos os jobs listados terminaram com conclusão `success`:
+
+| PR | Head validado | Checks concluídos |
+|---|---|---|
+| #90 | `0842177e4b62357eacf6555bc20310da0f50982b` | Testes Python, CI, Security, System Audit e Event wake-up contract |
+| #66 | `cd57ebf2070300c613e4eb8ba3db37334c6d2aba` | Testes Python, CI, Security, System Audit e migration Drive lease em PostgreSQL descartável |
+| #77 | `a43261a1f50f1640ace16361f99406f01aec6fa7` | Testes Python, CI, Security e System Audit |
+| #100 | `a97bd35b5cb0e412706a8455288e8c656d802676` | Testes Python, CI, Security e System Audit |
+
+As PRs #66, #77 e #100 permanecem em draft e empilhadas sobre a branch da PR #90. Checks verdes validam os commits examinados, não equivalem a revisão independente, merge, homologação com integrações reais ou implantação. Após a integração da PR #90, cada PR dependente deverá ser retargeted para `main`, reconciliada sua base e repetidos os workflows.
+
+**Decisão do gate:** código e testes isolados dos três bloqueadores abordados estão aprovados pelos workflows; a liberação de produção continua bloqueada por revisão/integração, reconciliação SQL, eventos de fotos em `dead_letter`, validação externa de Sheets/Drive e gates de homologação.
+
+
+### 13.9 Dependência de integração e divergência das branches (2026-11-22)
+
+A comparação das branches dependentes contra `fix/security-dependencies-codeql-20261115` mostrou divergência histórica:
+- PR #66: 32 commits exclusivos do head e 22 commits ainda ausentes do head;
+- PR #77: 15 commits exclusivos do head e 22 commits ainda ausentes do head;
+- PR #100: 7 commits exclusivos do head e 21 commits ainda ausentes do head.
+
+Os workflows verdes foram executados sobre os merge refs disponibilizados pelo GitHub, mas isso não remove a divergência das branches de origem. As PRs permanecem draft; não considerar `mergeable` como aprovado. Após a PR #90 ser integrada em `main`, será necessário rebase/port controlado de cada branch para a nova `main`, resolução de conflitos (principalmente no worker Sheets da PR #77), nova comparação de diff e repetição integral dos workflows.
+
+Nenhuma operação de merge/rebase foi executada nesta rodada. A divergência é um bloqueio de integração, não uma falha dos testes automatizados.
+
+
+### 13.10 Verificação dos objetos Git locais não referenciados (2026-11-22)
+
+Foi feita uma tentativa de resolução, pela API de commits do GitHub, dos nove hashes listados pelo `git fsck --full --no-reflogs --unreachable` no checkout local. Todos os nove hashes foram resolvidos como objetos de commit pela API, mas nenhum corresponde às cinco migrations pendentes: os commits examinados são atualizações automatizadas de dependências/workflows (Dependabot), alterando `.github/workflows/codeql.yml`, `.github/workflows/security.yml`, `.github/workflows/system-audit.yml`, `.github/workflows/dependency-review.yml` ou `requirements.txt`.
+
+**Interpretação:** a resolução pela API confirma que os objetos de commit podem ser consultados no GitHub, mas não demonstra que sejam alcançáveis por uma branch publicada nem que contenham o histórico SQL procurado. A inspeção de seus arquivos alterados descarta esses nove candidatos como fonte das cinco migrations. A busca de commits pelos cinco nomes exatos continuou sem resultados.
+
+**Decisão:** não criar branches de recuperação a partir desses hashes, não fazer cherry-pick e não alterar histórico. A recuperação das cinco migrations permanece inconclusiva e exige outra fonte: objetos locais adicionais, refs antigas, PRs/patches, bundles ou backups. Se essas fontes não fornecerem os originais, permanece válida a alternativa de desenhar migration nova e aditiva, sem reconstruir a histórica.
+
+**Limites:** somente leitura da API GitHub nesta verificação; o checkout local não foi alterado nem acessado remotamente. Nenhuma migration, schema, Supabase, worker, Sheets, Drive, merge ou deploy foi executado.
+
+
+### 13.11 Varredura de PRs históricas relacionadas a workers e Outbox (2026-11-22)
+
+Foi feita leitura dos arquivos alterados nas PRs históricas #37, #38, #39, #40, #41, #43, #44, #48, #49, #50, #52, #53, #56, #57 e #58. Nenhuma dessas PRs, exceto a #56, contém migration SQL. A PR #56 contém somente as duas migrations de triggers automáticos já conhecidas (20261012213050_gti_auto_enqueue_outboxes.sql e 20261012213108_fix_gti_photo_outbox_trigger_routing.sql), sem os cinco arquivos pendentes.
+
+A PR #39 introduz o worker de espelhamento local e testes, mas não versiona migration de lease local; as PRs #40 e #41 evoluem download/credenciais do worker, também sem SQL. As PRs #37, #43 e #48 alteram consumidores Sheets, sem incluir os cinco SQLs. Assim, a varredura dos PRs históricos mais diretamente relacionados não recuperou os originais.
+
+**Decisão:** manter os cinco SQLs como não recuperados. Não inferir que a ausência em PRs selecionadas esgote todos os patches/artefatos; a busca remota prossegue somente em fontes que preservem conteúdo original. Nenhuma alteração operacional foi executada.
+
+
+### 13.12 Gate 10E — artefatos de CI e registro do fluxo ChatGPT–GitHub (2026-11-22)
+
+**Artefatos históricos:** foram consultadas as execuções dos quatro workflows da PR #56 (commit 5f783777380b6a94bc5a110207b2f4b10e1d6c50; todos concluídos com sucesso em 2026-10-12) e as execuções de validação isolada da migration de lease associadas aos commits da PR #66. A API de artefatos retornou lista vazia para cada execução examinada. As execuções de PR #99 também não publicaram artefatos recuperáveis. A busca no índice de código por `actions/upload-artifact` e pelos cinco nomes exatos não retornou resultados. Portanto, não há conteúdo SQL recuperável nessa fonte examinada.
+
+**CI atual da documentação:** para o head `88470dbd61e5080e84227298761ca82c0677761f` da PR #99, os workflows `Testes Python` e `Inventário GTI SESA - Security` concluíram com `success`. Isso valida os checks executados, não equivale a revisão independente nem a aprovação para merge.
+
+**Registro da integração ChatGPT–GitHub:** este projeto está sendo operado neste fluxo de conversa por meio da conexão GitHub autorizada, usada para leitura do repositório, commits documentais em branch, acompanhamento de PRs e consulta de workflows. O SIGS e os relatórios de Gate são o registro técnico durável das decisões, ações, hashes e resultados. **A transcrição integral deste chat não é automaticamente sincronizada nem arquivada no Git**; somente o conteúdo explicitamente registrado em arquivos/commits é versionado. Não registrar mensagens privadas, credenciais ou dados sensíveis no repositório.
+
+**Limites de segurança:** alterações permanecem em branch documental isolada; PR #99 continua draft e não mesclada. Nenhuma migration foi reconstruída, aplicada ou executada. Nenhum deploy, worker, operação em Sheets/Drive ou escrita Supabase ocorreu. Nenhuma autorização de produção foi inferida.
+
+**Conclusão do Gate 10E:** a fonte de artefatos de GitHub Actions examinada não recupera os cinco SQLs originais. A busca por conteúdo remoto indexado também não retornou os nomes. Permanecem necessárias fontes adicionais não expostas pela API consultada (backups/bundles/objetos locais) ou, após encerrar formalmente a busca, uma proposta de migration nova e aditiva baseada em especificação aprovada e validação isolada.
