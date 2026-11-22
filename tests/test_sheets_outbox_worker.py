@@ -352,3 +352,81 @@ def test_sheets_call_honors_retry_after_with_bounded_jitter(monkeypatch):
     assert worker._sheets_call("retry_after", callback, attempts=2) == "ok"
     assert calls["count"] == 2
     assert sleeps == [15]
+
+
+def test_claim_batch_marks_exhausted_events_and_enforces_attempt_cap():
+    class FakeCursor:
+        def __init__(self):
+            self.calls = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params):
+            self.calls.append((" ".join(query.split()), params))
+
+        def fetchall(self):
+            return [(17, 101, 202)]
+
+    class FakeConnection:
+        def __init__(self):
+            self.fake_cursor = FakeCursor()
+            self.commits = 0
+
+        def cursor(self):
+            return self.fake_cursor
+
+        def commit(self):
+            self.commits += 1
+
+    conn = FakeConnection()
+    assert worker.claim_batch(conn, limit=5, max_attempts=8) == [(17, 101, 202)]
+    assert len(conn.fake_cursor.calls) == 2
+    exhausted_sql, exhausted_params = conn.fake_cursor.calls[0]
+    claim_sql, claim_params = conn.fake_cursor.calls[1]
+    assert "SET status='dead_letter'" in exhausted_sql
+    assert "tentativas >= %s" in exhausted_sql
+    assert exhausted_params == (8,)
+    assert "tentativas < %s" in claim_sql
+    assert "FOR UPDATE SKIP LOCKED" in claim_sql
+    assert claim_params == (8, 5)
+    assert conn.commits == 1
+
+
+def test_reset_stale_sends_exhausted_leases_directly_to_dead_letter():
+    class FakeCursor:
+        def __init__(self):
+            self.query = ""
+            self.params = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params):
+            self.query = " ".join(query.split())
+            self.params = params
+
+    class FakeConnection:
+        def __init__(self):
+            self.fake_cursor = FakeCursor()
+            self.commits = 0
+
+        def cursor(self):
+            return self.fake_cursor
+
+        def commit(self):
+            self.commits += 1
+
+    conn = FakeConnection()
+    worker.reset_stale(conn, max_attempts=8)
+    assert "WHEN tentativas >= %s THEN 'dead_letter'" in conn.fake_cursor.query
+    assert "ELSE 'failed'" in conn.fake_cursor.query
+    assert "processando_em < now() - interval '15 minutes'" in conn.fake_cursor.query
+    assert conn.fake_cursor.params == (8, 8)
+    assert conn.commits == 1
