@@ -331,3 +331,24 @@ def test_sync_one_verifies_photo_links_by_position_when_orders_have_gaps(monkeyp
     assert worksheet.photo_values == [
         "Foto 1", "", "Foto 3", "", "", "", "", "", "", ""
     ]
+
+
+
+def test_sheets_call_honors_retry_after_with_bounded_jitter(monkeypatch):
+    class RetryAfterError(Exception):
+        response = SimpleNamespace(status_code=503, headers={"Retry-After": "15"})
+
+    sleeps = []
+    calls = {"count": 0}
+    monkeypatch.setattr(worker.time, "sleep", sleeps.append)
+    monkeypatch.setattr(worker.secrets, "randbelow", lambda _limit: 500)
+
+    def callback():
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RetryAfterError("temporary")
+        return "ok"
+
+    assert worker._sheets_call("retry_after", callback, attempts=2) == "ok"
+    assert calls["count"] == 2
+    assert sleeps == [15]
