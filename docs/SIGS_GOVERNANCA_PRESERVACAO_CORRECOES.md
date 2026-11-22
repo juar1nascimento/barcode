@@ -348,3 +348,40 @@ Foi localizado o commit `78ef0a30c0959a573d87c40c72c912060f6b13f9` (`Feat: add s
 Também foi reexaminado o commit `d5782dac5fabc36cf40926d2d7d452a43de0300b`, que adiciona o worker incremental de fotos Drive. Seu SQL de claim recupera eventos `processing` expirados sem limitar tentativas nessa condição; o limite `MAX_TENTATIVAS` é aplicado ao ramo `pending` (e o commit posterior `9fcefe5a94e99b3329907e00b67f26d2847b7312` adiciona `failed` a esse ramo). O claim não incrementa tentativas quando recupera um item `processing` expirado. Esse comportamento é coerente com o risco já observado na função Drive atual e reforça a necessidade de gate próprio para lease/fencing e teto de tentativas.
 
 **Resultado do Gate 7 nesta rodada:** nenhum dos cinco SQLs pendentes foi recuperado. Foram recuperadas evidências de implementação Python e de comportamento dos workers, que não substituem os arquivos originais. A busca continua limitada às branches e commits acessíveis e indexados pelas consultas realizadas; não declarar inexistência definitiva dos arquivos. Nenhuma migration, SQL de escrita, atualização de schema, alteração de dados ou sincronização operacional foi executada.
+
+
+### 10.11 Gate 8 — reconciliação estrutural das quatro Outboxes (2026-11-22)
+
+Auditoria executada por consultas exclusivamente `SELECT` ao catálogo PostgreSQL e ao histórico de migrations. Nenhum dado operacional de patrimônio/foto foi consultado; não houve DDL/DML, alteração de privilégios, migration, sincronização ou execução de worker.
+
+**Contagem e objetos confirmados**
+- Histórico `supabase_migrations.schema_migrations`: **34 versões**, não 32. A contagem anterior registrada na seção 10 estava incompleta e deve ser considerada corrigida por este resultado.
+- Quatro tabelas Outbox presentes: `patrimonios_sheets_outbox`, `patrimonio_fotos_sheets_outbox`, `patrimonio_fotos_drive_outbox` e `patrimonio_fotos_local_outbox`.
+- As quatro tabelas estão com RLS habilitado; nenhuma está com `FORCE ROW LEVEL SECURITY`.
+- Quatro triggers GTI ativos foram encontrados: três em `patrimonio_fotos` (INSERT, UPDATE de metadados Drive e UPDATE de metadados Storage) e um em `patrimonios` (INSERT e UPDATE de campos patrimoniais). Todos apontam para `gti_enqueue_foto_outboxes()` ou `gti_enqueue_patrimonio_sheets_outbox()`.
+- Ambas as funções de trigger são `SECURITY DEFINER`, com `search_path=pg_catalog, public`. A definição de fotos roteia para Sheets quando há identificadores/URL Drive preenchidos; caso contrário, cria evento na fila Drive. Alterações de metadados Storage voltam a enfileirar Drive; mudanças em campos Drive roteiam para Sheets quando há dados suficientes.
+
+**Estrutura e integridade**
+- As quatro tabelas possuem PK, CHECK de status e CHECK `tentativas >= 0`.
+- Patrimônio Sheets mantém UNIQUE `(patrimonio_id, evento)`, FK para `patrimonios` com `ON DELETE CASCADE), índice de claim e índice por patrimônio.
+- Fotos Sheets tem FK para patrimônio/foto com `ON DELETE CASCADE`, índice parcial de eventos pendentes/failed e UNIQUE parcial `(foto_id, evento)` quando `foto_id IS NOT NULL`.
+- Fotos Drive tem UNIQUE `(foto_id, evento)`, FKs para foto e patrimônio sem ação explícita de cascade, e índice de claim por `(status, proxima_tentativa_em, id)`.
+- Fotos local tem UNIQUE `(foto_id)`, FKs sem cascade explícito, índices de claim/FIFO/Drive/patrimônio e estados adicionais `verified`, `drive_delete_pending` e `completed`.
+- A tabela local contém `worker_id`, `lease_token` UUID e `lease_expires_at`, além de campos de fila e verificação local.
+
+**RLS e privilégios efetivos — achado prioritário**
+- As quatro tabelas têm RLS habilitado.
+- Políticas restritivas `deny_anon_authenticated_unless_backend` com `USING false` e `WITH CHECK false` existem em patrimônio Sheets, fotos Sheets e fotos Drive.
+- **Fotos local não possui política própria registrada em `pg_policies`.** Com RLS habilitado e sem política permissiva, o acesso por linha fica negado por padrão. Não é evidência de exposição atual; é uma diferença de configuração que deve ser reconciliada com o desenho de segurança esperado.
+- Apesar disso, `has_table_privilege` confirma privilégios efetivos de tabela SELECT/INSERT para `anon` e `authenticated` em fotos Drive e fotos local. Em Drive, a política restritiva bloqueia as operações por linha; em local, a ausência de política permissiva produz deny-by-default. Os privilégios amplos continuam sendo concessões desnecessárias e ampliam o risco de uma futura política permissiva ser adicionada sem perceber os grants preexistentes.
+- Para patrimônio Sheets e fotos Sheets, `anon` e `authenticated` não têm SELECT/INSERT; `service_role` tem os privilégios operacionais nas quatro tabelas.
+- As oito funções consultadas (seis funções worker Drive/local e duas funções de trigger) são `SECURITY DEFINER`. EXECUTE está negado para `anon` e `authenticated` e permitido para `service_role`. As funções Drive usam `search_path=pg_catalog, public`; funções locais usam `search_path=public`. Não foi realizada alteração de grants ou search_path.
+
+**Conclusões e limites**
+1. A presença das quatro tabelas, quatro triggers, constraints, índices, policies e funções confirma o estado estrutural consultado, mas não prova que cada arquivo SQL local corresponda byte a byte ao SQL aplicado.
+2. O conjunto de políticas RLS é assimétrico: a tabela local depende de deny-by-default, enquanto as outras três possuem política restritiva explícita. Os grants de tabela anon/authenticated em Drive/local merecem correção planejada e revisão do proprietário; nenhuma revogação foi executada.
+3. As funções privilegiadas estão protegidas contra EXECUTE direto por anon/authenticated conforme `has_function_privilege`; isso não substitui revisão de seus corpos e do modelo de autorização.
+4. A comparação estrutural dos objetos foi feita; a comparação integral de cada função com seu SQL original permanece limitada pelos cinco arquivos ainda não recuperados.
+5. Não foi feita consulta de contagem/estado de eventos operacionais, nem teste de chamada das funções, para evitar interferir no processamento real.
+
+**Próximo gate recomendado:** Gate 9 — revisão de segurança sem escrita, com foco nos grants residuais anon/authenticated de fotos Drive/local, ausência de policy explícita na fila local, SECURITY DEFINER/search_path e fencing/expiração/limite de tentativas. O Gate 9 deve produzir proposta de correção e testes em branch isolada; não executar REVOKE, CREATE POLICY, ALTER FUNCTION ou qualquer DDL no projeto remoto sem autorização específica.
