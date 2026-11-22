@@ -41,3 +41,13 @@ def test_admin_authorization_fails_closed_without_configured_admin(monkeypatch):
     )
     monkeypatch.setattr("login._email_config", lambda: {})
     assert usuario_e_admin() is False
+
+
+
+def test_admin_authorization_fails_closed_without_authenticated_user(monkeypatch):
+    monkeypatch.setattr("login.st.session_state", {})
+    monkeypatch.setattr(
+        "login._email_config",
+        lambda: {"admin_email": "admin@serra.es.gov.br"},
+    )
+    assert usuario_e_admin() is False
