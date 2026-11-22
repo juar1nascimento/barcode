@@ -506,6 +506,7 @@ def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
     photo_columns = locate_photo_columns(header, str(unidade))
 
     cells = [{"userEnteredValue": {"stringValue": ""}, "textFormatRuns": []} for _ in range(10)]
+    expected = [""] * 10
     for ordem, drive_url, _drive_name in fotos[:10]:
         drive_url = str(drive_url or "").strip()
         if not drive_url:
@@ -516,10 +517,12 @@ def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
         index = int(ordem) - 1
         if index < 0 or index >= 10:
             raise RuntimeError(f"Ordem de foto inválida: {ordem}.")
+        label = f"Foto {int(ordem)}"
         cells[index] = {
-            "userEnteredValue": {"stringValue": f"Foto {int(ordem)}"},
+            "userEnteredValue": {"stringValue": label},
             "textFormatRuns": [{"startIndex": 0, "format": {"link": {"uri": drive_url}}}],
         }
+        expected[index] = label
 
     requests = []
     for index, column_index in enumerate(photo_columns):
@@ -538,8 +541,6 @@ def sync_one(conn, spreadsheet, outbox_id: int, patrimonio_id: int):
         value_render_option="FORMULA",
     )
     actual = [str(result[0][0]) if result and result[0] else "" for result in confirmed]
-    expected = [f"Foto {int(ordem)}" for ordem, _url, _name in fotos[:10]]
-    expected += [""] * (10 - len(expected))
     if actual != expected:
         raise RuntimeError(f"Google Sheets não confirmou os links Rich Text do patrimônio {patrimonio_id}.")
 
