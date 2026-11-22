@@ -1,0 +1,40 @@
+name: GTI SESA - Read-only integration validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gti-sync-readonly-validation
+  cancel-in-progress: false
+
+jobs:
+  validate-readonly:
+    name: Validate PostgreSQL and Google Sheets without writes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GTI_DB_HOST: ${{ secrets.GTI_DB_HOST }}
+      GTI_DB_NAME: ${{ secrets.GTI_DB_NAME }}
+      GTI_DB_USER: ${{ secrets.GTI_DB_USER }}
+      GTI_DB_PASSWORD: ${{ secrets.GTI_DB_PASSWORD }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GTI_GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_SPREADSHEET_ID: ${{ secrets.GTI_GOOGLE_SPREADSHEET_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Validate PostgreSQL connection and credential shape (SELECT 1 only)
+        run: python scripts/validate_gti_sync.py
+      - name: Validate Google Sheets headers with read-only OAuth scope
+        run: python scripts/validate_gti_sheets_readonly.py
