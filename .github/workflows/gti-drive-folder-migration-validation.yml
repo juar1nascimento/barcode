@@ -2,7 +2,7 @@ name: GTI SESA - isolated Drive lease migration validation
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, "fix/**"]
     paths:
       - "supabase/migrations/20261013130000_gti_drive_folder_lease.sql"
       - ".github/workflows/gti-drive-folder-migration-validation.yml"
