@@ -113,3 +113,24 @@ Se os arquivos originais não puderem ser recuperados após esgotar fontes Git/b
 ## 7. Limites
 
 Esta rodada usou somente leitura do GitHub. Nenhuma conexão Supabase foi aberta; nenhum SELECT, DDL, DML ou função SQL foi executado; nenhum worker, workflow operacional, Google Sheets, Drive ou filesystem local foi acessado. Nenhuma alteração em main, merge ou deploy ocorreu.
+
+
+## 8. Verificação adicional dos nove hashes locais não referenciados
+
+Em 2026-11-22, os nove hashes reportados pelo proprietário a partir de `git fsck --full --no-reflogs --unreachable` foram consultados individualmente pela API de commits do GitHub. Todos os nove foram resolvidos como objetos de commit. A inspeção dos metadados e arquivos alterados identificou somente atualizações automatizadas de dependências e workflows (Dependabot), sem arquivos SQL ou migrations:
+
+- `5e8c58dd29be433f2764a9a742805252ac6b4c97`: workflow CodeQL;
+- `900ca74aba93bea2fff1c0e6805f4974bc0b74e8`: workflow Security;
+- `ffcd3dae3d8e5f758904c14ea2e2769dff463439`: `requirements.txt`;
+- `580ed642b0d02cb0d5f0f18392cf584e0e6d84a1`: `requirements.txt`;
+- `3ea28aa8b10bfb0dcb45d0750b26fab210559d10`: workflow CodeQL;
+- `25aa3653dbddb20b06f10fd0e0ff83a279c49f86`: workflow System Audit;
+- `a4ac299a655cfaeafdf2e0ff480c92318499b24c`: workflow Security;
+- `96f692796bcab7de1ee4d0f01ce3a8d048d6aee8`: workflow Dependency Review;
+- `5b3774e98f32c8079fd1ced053386fa450e69c55`: `requirements.txt`.
+
+A resolução via API não prova alcançabilidade por refs publicadas, mas permite descartar esses nove objetos específicos como fonte das cinco migrations. A busca de commits pelos cinco nomes exatos também retornou zero resultados. Portanto, os SQLs originais continuam não recuperados. Não foram criadas refs, executados cherry-picks, alterados arquivos de migration ou consultado o Supabase.
+
+### Próximo passo seguro
+
+Prosseguir com inventário de PRs/patches e artefatos de CI históricos que possam preservar os cinco arquivos. Caso nenhuma fonte adicional contenha os originais, apresentar proposta de migration nova, aditiva e versionada, sem aplicação remota e sem reconstrução a partir do catálogo.
