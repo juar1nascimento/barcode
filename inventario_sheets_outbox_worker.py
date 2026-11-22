@@ -88,16 +88,20 @@ def col_letter(n: int) -> str:
         out = chr(65 + r) + out
     return out
 
-def claim_batch(conn, limit: int):
+def claim_batch(conn, limit: int, max_attempts: int = 8):
+    """Reivindica somente eventos ainda dentro do orçamento de tentativas."""
+    max_attempts = max(1, int(max_attempts))
     with conn.cursor() as cur:
         cur.execute("""WITH candidatos AS (
              SELECT id FROM public.patrimonios_sheets_outbox
-              WHERE status IN ('pending','failed') AND proxima_tentativa_em <= now()
+              WHERE status IN ('pending','failed')
+                AND proxima_tentativa_em <= now()
+                AND tentativas < %s
               ORDER BY id FOR UPDATE SKIP LOCKED LIMIT %s)
            UPDATE public.patrimonios_sheets_outbox o
               SET status='processing', processando_em=now(), tentativas=tentativas+1, atualizado_em=now()
              FROM candidatos c WHERE o.id=c.id
-           RETURNING o.id,o.patrimonio_id""", (limit,))
+           RETURNING o.id,o.patrimonio_id""", (max_attempts, limit))
         rows = cur.fetchall()
     conn.commit()
     return rows
@@ -118,12 +122,20 @@ def mark(conn, outbox_id: int, status: str, error: str | None = None, max_attemp
                         (max_attempts, max_attempts, safe_error(error or "erro"), outbox_id))
     conn.commit()
 
-def reset_stale(conn):
+def reset_stale(conn, max_attempts: int = 8):
+    """Recupera leases expirados e encerra os que esgotaram as tentativas."""
+    max_attempts = max(1, int(max_attempts))
     with conn.cursor() as cur:
         cur.execute("""UPDATE public.patrimonios_sheets_outbox
-                          SET status='failed', processando_em=NULL, proxima_tentativa_em=now(),
-                              ultimo_erro='job recuperado após expiração do lock', atualizado_em=now()
-                        WHERE status='processing' AND processando_em < now() - interval '15 minutes'""")
+                          SET status=CASE WHEN tentativas >= %s THEN 'dead_letter' ELSE 'failed' END,
+                              processando_em=NULL,
+                              proxima_tentativa_em=now(),
+                              ultimo_erro=CASE WHEN tentativas >= %s
+                                THEN 'limite de tentativas atingido após expiração do lease'
+                                ELSE 'job recuperado após expiração do lock' END,
+                              atualizado_em=now()
+                        WHERE status='processing' AND processando_em < now() - interval '15 minutes'""",
+                    (max_attempts, max_attempts))
     conn.commit()
 
 CANONICAL_REQUIRED = [
@@ -309,7 +321,7 @@ def main():
     max_attempts = max(1, int(os.getenv("OUTBOX_MAX_ATTEMPTS", "8")))
     conn = psycopg.connect(env("DATABASE_URL"))
     try:
-        reset_stale(conn)
+        reset_stale(conn, max_attempts)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT public.reconcile_patrimonios_sheets_outbox(%s)",
@@ -319,7 +331,7 @@ def main():
         conn.commit()
 
         spreadsheet = open_spreadsheet(sheets_client())
-        claimed = claim_batch(conn, limit)
+        claimed = claim_batch(conn, limit, max_attempts)
 
         synced = failed = 0
         for outbox_id, patrimonio_id in claimed:
