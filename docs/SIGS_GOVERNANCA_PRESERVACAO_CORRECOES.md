@@ -79,7 +79,7 @@ A rotina de auditoria diária deve operar em modo de preservação:
 - Nunca executar reset, revert, rebase destrutivo, force push, exclusão de branch, substituição de arquivo ou atualização automática de dependências.
 - Nunca atualizar `main`, mesclar PR, publicar, disparar sincronização operacional ou executar migration automaticamente.
 - Detectar divergência entre branch local e remota; recomendar reconciliação por fast-forward quando aplicável, sem executar comandos locais em nome do proprietário.
-- Se encontrar regressão, apresentar evidências, impacto, diff proposto e testes necessários; aguardar autorização expressa do proprietário antes de alterar código.
+- Se encontrar regressão, investigar causa raiz. Para bug determinístico, inequívoco, de baixo risco, reversível e restrito ao código da aplicação, pode preparar correção em branch isolada, adicionar teste de regressão, executar testes relevantes e abrir PR draft para revisão do proprietário. Para qualquer mudança de alto risco ou que afete dados, integrações, autenticação/autorização, permissões, contratos, arquitetura ou operação, apresentar evidências, impacto, proposta e rollback e aguardar autorização específica.
 - Se o estado de CI estiver em andamento ou indisponível, registrar exatamente esse estado; não inferir sucesso.
 - Não registrar segredos, tokens, IDs privados de planilhas ou valores de credenciais.
 
@@ -96,14 +96,16 @@ O selo é informativo e visível somente ao administrador autenticado. Não é u
 A automação denominada **Auditoria diária GTI SESA** está cadastrada com recorrência diária às 08:00, fuso `America/Sao_Paulo`, porém foi encontrada desabilitada/pausada em 2026-11-22. Portanto, não afirmar que está executando até ser reativada pelo proprietário.
 
 Quando habilitada, deve:
-1. Consultar PRs e workflows e diferenciar sucesso, falha, execução em andamento e ausência de dados.
-2. Comparar o estado atual com os commits/PRs já registrados neste documento.
-3. Acrescentar novo registro datado, sem sobrescrever os registros anteriores.
-4. Preservar correções existentes e nunca fazer alteração automática no repositório.
-5. Informar bloqueios, regressões e próximo gate seguro.
-6. Solicitar autorização do proprietário para qualquer correção.
+1. Consultar PRs, branches, commits, diffs, reviews, checks e logs, diferenciando sucesso, falha, execução em andamento, ausência de execução e integração externa não testada.
+2. Detectar anomalias funcionais, regressões, erros, vulnerabilidades, divergências de configuração e riscos de perda de dados; registrar evidências, severidade, impacto e causa raiz ou hipótese.
+3. Para correções pequenas, inequívocas, reversíveis e restritas ao código da aplicação, preparar alteração em branch isolada, criar teste de regressão, executar testes relevantes e abrir PR draft para revisão do proprietário.
+4. Para cada achado material, preparar adendo SIGS datado e append-only em branch isolada/PR draft; nunca substituir registros anteriores nem escrever diretamente em `main`.
+5. Não fazer merge, deploy, migration, alteração de schema, escrita operacional em Supabase/PostgreSQL, Google Sheets ou Drive, edição de patrimônios, alteração de credenciais, permissões ou workflows operacionais.
+6. Não modificar `main`, reescrever histórico, descartar correções, alterar dependências automaticamente ou modificar PRs existentes de forma destrutiva.
+7. Quando o risco for alto, a causa não for inequívoca ou houver impacto em dados, integrações, segurança, contratos, arquitetura ou operação, parar na análise e aguardar autorização específica do proprietário.
+8. Informar alterações propostas/realizadas, arquivos, diffs, testes e resultados, links de PR e bloqueios; se não houver novidade material, declarar isso explicitamente.
 
-A configuração da automação deve permanecer pausada até autorização específica para reativação. O texto da rotina pode ser preparado sem alterar seu estado de habilitação.
+**Estado atualizado em 2026-11-22:** as instruções da auditoria foram ampliadas para detecção e correção controlada, e a automação foi reativada após a validação dessas salvaguardas. A recorrência permanece diária, com alvo aproximado às 08:00 em `America/Sao_Paulo` (horário flexível, não garantia de execução exatamente às 08:00).
 
 ## 6. Gates seguintes
 
