@@ -242,3 +242,25 @@ Deno.test("lease loss during folder creation blocks post-create lookup and final
   assert(creates === 1, "folder creation should be attempted once");
   assert(postCreateLookups === 0, "lost lease must block post-create lookup");
 });
+
+
+Deno.test("invalid lease duration and heartbeat configuration fail before acquisition", async () => {
+  let acquisitions = 0;
+  const lease = {
+    acquire: async () => { acquisitions++; return true; },
+    renew: async () => true,
+    release: async () => {},
+  };
+  await expectRejects(
+    () => withDriveFolderLease(27, lease, async () => {}, { leaseSeconds: 29 }),
+    "invalid_drive_folder_lease_seconds",
+  );
+  await expectRejects(
+    () => withDriveFolderLease(28, lease, async () => {}, {
+      leaseSeconds: 30,
+      heartbeatMs: 15_000,
+    }),
+    "invalid_drive_folder_heartbeat_interval",
+  );
+  assert(acquisitions === 0, "invalid lease settings must fail before acquisition");
+});
