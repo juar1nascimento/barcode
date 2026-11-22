@@ -68,6 +68,25 @@ def _email_config() -> dict:
     return {}
 
 
+def usuario_e_admin(usuario: str | None = None, admin_email: str | None = None) -> bool:
+    """Autoriza administração pela mesma identidade configurada para toda a aplicação.
+
+    O papel não é persistido na sessão: a identidade autenticada é comparada
+    com email.admin_email, evitando decisões divergentes entre telas.
+    """
+    usuario_normalizado = str(
+        usuario if usuario is not None else st.session_state.get("usuario_logado", "")
+    ).strip().casefold()
+    if admin_email is None:
+        admin_email = _email_config().get("admin_email", "")
+    admin_normalizado = str(admin_email or "").strip().casefold()
+    return bool(
+        usuario_normalizado
+        and admin_normalizado
+        and usuario_normalizado == admin_normalizado
+    )
+
+
 def _carregar_usuarios_local() -> dict:
     if not os.path.exists(DB_FILE):
         return {}
