@@ -583,3 +583,19 @@ As falhas de `pip-audit` observadas nos primeiros ciclos das PRs #66, #77 e #100
 **Espelho local — reclassificação:** a leitura adicional confirmou 8 eventos `pending`, total de 479.689 bytes (0,457 MiB), todos sem caminho/hash local e sem tentativas. O worker `workers/local_drive_mirror_worker.py` tem gate explícito de 1 GiB de pendências antes de iniciar processamento; portanto, o volume atual está muito abaixo do limiar e a ausência de `caminho_local/sha256_local` é compatível com o comportamento intencional de espera. O script também opera em dry-run por padrão e exige `--live` mais `LOCAL_MIRROR_ALLOW_DELETE=true` para remover o arquivo original do Drive após validação local.
 
 **Decisão revisada:** os 8 eventos locais não são classificados como bloqueio da funcionalidade principal de inventário/Drive/Sheets neste snapshot. São uma fila derivada e condicionada ao limiar de 1 GiB; permanecem pendentes até que o requisito de espelhamento local seja explicitamente ativado. Não executar `--live`, não habilitar exclusão do Drive e não alterar o limiar sem autorização operacional específica. A existência de agendamento automático não foi comprovada nesta rodada.
+
+
+### 13.8 Resultado dos workflows após correções (2026-11-22)
+
+Foram consultados os resultados dos workflows dos heads abaixo; todos os jobs listados terminaram com conclusão `success`:
+
+| PR | Head validado | Checks concluídos |
+|---|---|---|
+| #90 | `0842177e4b62357eacf6555bc20310da0f50982b` | Testes Python, CI, Security, System Audit e Event wake-up contract |
+| #66 | `cd57ebf2070300c613e4eb8ba3db37334c6d2aba` | Testes Python, CI, Security, System Audit e migration Drive lease em PostgreSQL descartável |
+| #77 | `a43261a1f50f1640ace16361f99406f01aec6fa7` | Testes Python, CI, Security e System Audit |
+| #100 | `a97bd35b5cb0e412706a8455288e8c656d802676` | Testes Python, CI, Security e System Audit |
+
+As PRs #66, #77 e #100 permanecem em draft e empilhadas sobre a branch da PR #90. Checks verdes validam os commits examinados, não equivalem a revisão independente, merge, homologação com integrações reais ou implantação. Após a integração da PR #90, cada PR dependente deverá ser retargeted para `main`, reconciliada sua base e repetidos os workflows.
+
+**Decisão do gate:** código e testes isolados dos três bloqueadores abordados estão aprovados pelos workflows; a liberação de produção continua bloqueada por revisão/integração, reconciliação SQL, eventos de fotos em `dead_letter`, validação externa de Sheets/Drive e gates de homologação.
