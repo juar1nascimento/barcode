@@ -752,3 +752,8 @@ A view `v_projecao_almoxarifado_central_resumo` continua limitada à unidade ID 
 **Decisão do snapshot:** houve progresso real na outbox de inventário (três novos registros sincronizados) e a PR #90 passou nos cinco workflows principais com dependências corrigidas. Isso não libera produção: permanecem duas fotos em `dead_letter`, divergência na cadeia #91/#92, validação manual read-only não executada, timestamp de origem analítica antigo e reconciliação de migrations incompleta. Todas as PRs continuam sob autoridade do proprietário.
 
 **Limites desta rodada:** somente leitura no PostgreSQL/Supabase e leitura GitHub; nenhuma alteração de dados, schema, migration, segredo, permissão, worker, Sheets, Drive, workflow operacional, merge ou deploy. O único artefato preparado é este adendo documental append-only em branch isolada.
+
+
+### 14.8 Estado da automação ao encerrar a auditoria
+
+A automação diária foi desabilitada ao término desta execução. Para retomar auditorias recorrentes, o proprietário deverá reativá-la. Esta anotação registra o estado final sem alterar o cron, o prompt ou qualquer workflow do repositório.
