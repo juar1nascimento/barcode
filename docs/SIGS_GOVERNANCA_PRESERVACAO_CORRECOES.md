@@ -644,3 +644,111 @@ A PR #39 introduz o worker de espelhamento local e testes, mas não versiona mig
 **Limites de segurança:** alterações permanecem em branch documental isolada; PR #99 continua draft e não mesclada. Nenhuma migration foi reconstruída, aplicada ou executada. Nenhum deploy, worker, operação em Sheets/Drive ou escrita Supabase ocorreu. Nenhuma autorização de produção foi inferida.
 
 **Conclusão do Gate 10E:** a fonte de artefatos de GitHub Actions examinada não recupera os cinco SQLs originais. A busca por conteúdo remoto indexado também não retornou os nomes. Permanecem necessárias fontes adicionais não expostas pela API consultada (backups/bundles/objetos locais) ou, após encerrar formalmente a busca, uma proposta de migration nova e aditiva baseada em especificação aprovada e validação isolada.
+
+
+## 14. Auditoria diária — 2026-11-23 (08:20 BRT)
+
+### 14.1 Escopo e preservação
+
+Foram consultados o head de `main`, workflows/jobs/logs, PRs abertas #90–#100, diffs, reviews/checks, esta documentação na cadeia documental da PR #99, a ADR-001 em `main` e consultas PostgreSQL exclusivamente `BEGIN READ ONLY` / `SELECT`.
+
+`main` permaneceu em `1a90d3f0d0e54c853ddd8f938ed330fe13102aba`. A ADR-001 está em `main`; o arquivo SIGS exigido retorna 404 em `main` e está presente na branch documental da PR #92 e nas branches empilhadas #94–#99.
+
+Nenhum checkout local foi acessado. Não houve alteração em `main`, dados, schema, migrations, secrets, permissões, workflows operacionais, Google Sheets, Drive ou Supabase. Nenhum worker foi executado manualmente, nenhuma migration/DDL/DML foi aplicada e nenhuma PR foi aprovada ou mesclada.
+
+### 14.2 PRs #90–#92: checks e divergência de branches
+
+**PR #90 — [hardening Sheets/dependências](https://github.com/juar1nascimento/barcode/pull/90)**
+- Head `0842177e4b62357eacf6555bc20310da0f50982b`; base `main`.
+- Comparação GitHub: 21 commits à frente, zero atrás e 12 arquivos alterados. A descrição da PR ainda diz 19 commits/11 arquivos; metadado textual desatualizado.
+- O head contém `tornado==6.6.1`, `oauthlib==4.0.1` e `pyasn1==0.6.5`; `main` ainda contém `tornado==6.5.9`, `oauthlib==4.0.0` e `pyasn1==0.6.4`.
+- Cinco workflows concluíram com sucesso: Event wake-up contract, Testes Python, CI, Security e System Audit. Security registrou `pip-audit` sem vulnerabilidades conhecidas e 155 testes aprovados.
+- Um check CodeQL separado terminou `neutral`: não conseguiu comparar alertas porque uma configuração `codeql.yml` da referência base não foi encontrada. Não é alerta novo, mas limita a comparação.
+- A validação externa adicionada é manual (`workflow_dispatch`), executa PostgreSQL `SELECT 1` e lê somente cabeçalhos Sheets com escopo `spreadsheets.readonly`. Não foi executada; integração manual read-only permanece não testada.
+- Draft, aberta e sem review formal.
+
+**PR #91 — [retry de eventos failed](https://github.com/juar1nascimento/barcode/pull/91)**
+- Head `37be568ddbc0cd47996f339058b02b04e2200f12`; base declarada: branch da PR #90.
+- Comparação com a base atual da PR #90: `diverged`, dois commits exclusivos do head e dois commits da base ausentes. O merge-base é `6100d4d9c248ea947cd729ee1aaadab64d48e680`, anterior ao head atual da #90.
+- Cinco check runs passaram, mas só foram observados workflows Testes Python e Security. Não há execução comprovada de CI, System Audit ou Event wake-up contract neste head.
+- O diff reabilita `failed` após backoff e limita tentativas nesse caminho; o ramo de `processing` expirado ainda não aplica o mesmo teto. A PR #93 propõe corrigir esse caso nos dois consumidores.
+- Draft, aberta e sem review formal. Não reconciliar por rebase/force push automático.
+
+**PR #92 — [governança SIGS](https://github.com/juar1nascimento/barcode/pull/92)**
+- Head `40a7c9f70987d90bcf17110cd69a4d5554aea2a2`; base: branch da #91; quatro commits à frente dessa base.
+- Cinco check runs passaram, limitados a Testes Python e Security. CI, System Audit e contrato Deno não têm execução comprovada neste head.
+- É nesta PR que o arquivo SIGS foi introduzido; ainda não integra `main`. Draft, aberta e sem review formal. Como a base #91 diverge da #90, a cadeia documental herda essa divergência.
+
+### 14.3 PRs posteriores e cadeia de gates
+
+No snapshot, #93, #95, #97, #98 e #99 tinham cinco check runs concluídos com sucesso cada; #100 tinha sete. Todas continuam draft e sem merge:
+- **#93:** limite de tentativas e dead-letter para leases expiradas dos consumidores Sheets; requer revisão do SQL e dos dois consumidores.
+- **#95:** guarda para impedir que testes PostgreSQL com `DROP/CREATE` usem DSN não descartável; proteção do harness, não correção de produção.
+- **#97:** reconciliação documental de migrations, RLS/policies, grants e workers; cinco SQLs históricos continuam não recuperados nas referências examinadas.
+- **#98:** protocolo de lease/heartbeat/fencing, somente especificação.
+- **#99:** Gate 10B de origem dos SQLs; diferencia lease de pasta Drive de lease de evento Outbox e não reconstrói migrations ausentes.
+- **#100:** centraliza autorização administrativa em `usuario_e_admin()`; apesar dos checks verdes, afeta autenticação/autorização e exige revisão explícita do proprietário.
+
+A cadeia #91–#99 é empilhada. Checks verdes não substituem revisão independente nem revalidação após retarget/reconciliação. A PR #100 depende da #90. Nenhuma PR foi marcada ready, aprovada ou mesclada.
+
+### 14.4 Workflows e falhas
+
+**Sucessos em 2026-11-23:**
+- [Google Sheets Sync #478](https://github.com/juar1nascimento/barcode/actions/runs/45163890342): os dois jobs passaram. O worker reivindicou e confirmou três patrimônios, com três resultados `synced` e zero falhas. O PostgreSQL confirmou 94 patrimônios ativos e 94 registros da outbox de inventário em `synced`.
+- No job de fotos do mesmo run, preflight Drive HTTP 200; modo `process` foi invocado com `external_write=true`, mas reivindicou zero itens. A outbox de links de fotos também reivindicou zero.
+- [Projection #221](https://github.com/juar1nascimento/barcode/actions/runs/45163223122): sucesso; três linhas na aba principal e uma no resumo, ambas com 12 colunas. O log emite `DeprecationWarning` para a assinatura posicional de `Worksheet.update`.
+- [Drive Worker Process #202](https://github.com/juar1nascimento/barcode/actions/runs/45109059695): sucesso, zero claims. O arquivo declara cron a cada cinco minutos, mas não foi localizada execução dedicada posterior a 03:58:35Z no histórico consultado. O mesmo worker foi invocado de forma integrada pelo job de fotos do Sheets às 11:19Z e retornou zero claims. Causa da ausência de execuções dedicadas não confirmada; verificar estado/permissões com administrador, sem alterar schedule.
+
+**Falhas históricas confirmadas:**
+- [Sheets Sync #43655321020](https://github.com/juar1nascimento/barcode/actions/runs/43655321020), 14/11, e [#42396482720](https://github.com/juar1nascimento/barcode/actions/runs/42396482720), 07/11: falha em `inventario_sheets_outbox_worker.py` ao abrir a planilha, com `gspread.exceptions.APIError: 503 UNAVAILABLE`; job de fotos foi ignorado. A PR #90 adiciona retry limitado para 429/5xx e timeout nesse caminho; o teste novo cobre 429, não há teste específico para 503 no diff examinado.
+- [CI #573](https://github.com/juar1nascimento/barcode/actions/runs/40837119944) e [System Audit #1065](https://github.com/juar1nascimento/barcode/actions/runs/40837119913), 29/10: `pip-audit` encontrou três vulnerabilidades em `tornado==6.5.9` (`CVE-2026-116577`, `CVE-2026-115927`, `CVE-2026-116578`). Não foi localizada execução mais recente de CI/System Audit em `main`; correção está proposta e validada na #90, ainda não integrada.
+
+Não havia execução `in_progress` no conjunto consultado. A ausência de execução de workflow manual não equivale a sucesso.
+
+### 14.5 Estado read-only das filas e projeção
+
+O projeto Supabase estava `ACTIVE_HEALTHY`. Consultas somente leitura retornaram:
+
+| Indicador | Resultado |
+|---|---:|
+| Patrimônios totais/ativos | 94 / 94 |
+| Outbox inventário → Sheets | 94 `synced` |
+| Fotos | 56 |
+| Fotos com metadados Drive completos | 56 |
+| Objetos em Storage | 56 |
+| Outbox fotos → Drive | 56 `synced` |
+| Outbox fotos → Sheets | 54 `synced`, 2 `dead_letter` |
+| Espelho local | 8 `pending` |
+
+As três novas confirmações do run #478 aparecem no PostgreSQL com uma tentativa e timestamp de sincronização. Isso comprova o caminho executado para esses três registros, não leitura independente de todas as linhas Sheets.
+
+As duas fotos em `dead_letter` continuam com 12 tentativas, sem `sincronizado_em`, e com erro persistido de patrimônio não encontrado na aba `Almoxarifado GTI-SESA-SEDE`. Não houve readback direto da linha/ID no Sheets. Exige confirmação humana; não reabrir, reprocessar ou marcar como sincronizado.
+
+Os oito registros do espelho local permanecem `pending`, zero tentativas e sem timestamps de download/verificação. O worker em `main` confirma gate de 1 GiB, dry-run por padrão e exigência de `--live` mais `LOCAL_MIRROR_ALLOW_DELETE=true` para exclusão no Drive. A seção 13.7 já os classifica como espera intencional abaixo do limiar; o volume em bytes não foi recalculado nesta rodada.
+
+A view `v_projecao_almoxarifado_central_resumo` continua limitada à unidade ID 2: três metas ativas, 146 definidos, 2 conferidos, 144 restantes e 1,37%, com `atualizado_em=2026-10-19 13:44:54Z`. O snapshot foi publicado em 23/11, mas a data da view é antiga; confirmar se é timestamp da origem ou defasagem real. O relatório visual Looker Studio e os arquivos no Drive não foram consultados diretamente.
+
+### 14.6 Migrations, segurança e ADR-001
+
+- Histórico remoto: 34 migrations aplicadas; última versão `20261012213108`.
+- `main`: 10 arquivos SQL versionados; quatro versões correspondem exatamente ao histórico remoto. A busca da seção 13.12 não recuperou cinco SQLs originais.
+- Nenhum DDL, DML, reparo de ledger ou reconstrução de migration foi executado.
+- Consulta de branch protection retornou 403 (`Resource not accessible by integration`); API de rulesets retornou lista vazia. Proteção efetiva de `main` não pôde ser confirmada.
+- No cadastro da automação diária, o estado retornado no início foi `enabled=true`, mas `last_run_time` ainda constava 2026-11-01. A descrição da PR #92 afirma estado desabilitado, enquanto a seção 5 do SIGS contém afirmações divergentes sobre desativação/reativação. O cadastro e a documentação não comprovam execução diária contínua.
+
+**Gates ADR-001:** Gate 0 documentado; Gate 1 tem evidência positiva de contrato/testes na #90; Gate 2 sem prova de ativação operacional; Gate 3 (ambiente isolado real com evento sintético e fallback) não comprovado nesta rodada; Gates 4 e 5 não iniciados. Checks Deno não equivalem a teste real Supabase → worker → Google.
+
+### 14.7 Próximos gates seguros
+
+1. Revisão independente e decisão do proprietário sobre a #90; somente após integração autorizada, retarget/reconciliar #91 e dependentes e repetir checks completos.
+2. Revisar #93 (limites de tentativas/leases expiradas) e #95 (guarda do harness) antes de considerar testes PostgreSQL destrutivos.
+3. Confirmar por leitura autorizada a linha e o identificador estável das duas fotos em `dead_letter`; não reprocessar.
+4. Investigar a ausência de execuções dedicadas do Drive apesar do cron declarado; preservar o schedule até decisão administrativa.
+5. Confirmar semântica de `atualizado_em` e validar visualmente o Looker Studio.
+6. Continuar busca dos cinco SQLs originais em checkout/backups/bundles; se não recuperados, propor migration nova e aditiva separada, sem aplicar no Supabase.
+7. Administrador deve confirmar branch protection, regras obrigatórias e estado das automações.
+8. Completar Gate 3 em ambiente isolado antes de canário/expansão.
+
+**Decisão do snapshot:** houve progresso real na outbox de inventário (três novos registros sincronizados) e a PR #90 passou nos cinco workflows principais com dependências corrigidas. Isso não libera produção: permanecem duas fotos em `dead_letter`, divergência na cadeia #91/#92, validação manual read-only não executada, timestamp de origem analítica antigo e reconciliação de migrations incompleta. Todas as PRs continuam sob autoridade do proprietário.
+
+**Limites desta rodada:** somente leitura no PostgreSQL/Supabase e leitura GitHub; nenhuma alteração de dados, schema, migration, segredo, permissão, worker, Sheets, Drive, workflow operacional, merge ou deploy. O único artefato preparado é este adendo documental append-only em branch isolada.
